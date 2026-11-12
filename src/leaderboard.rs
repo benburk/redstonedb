@@ -1771,6 +1771,7 @@ mod tests {
             downloads: 0,
             favorites: 0,
             public: true,
+            deleted: false,
             unverified: None,
             status: crate::models::schematic::Status::default(),
             operands: crate::models::schematic::Operands::Split,

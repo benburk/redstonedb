@@ -83,13 +83,17 @@ pub async fn set_favorite(
     Ok(())
 }
 
-/// The ids of the builds `user` has favourited, newest first.
+/// The ids of the builds `user` has favourited, newest first, but deleted
+/// ones.
 pub async fn favorites(
     db: &SqlitePool,
     user: uuid::Uuid,
 ) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT schematic_id FROM favorite WHERE user_id = ? ORDER BY added_at DESC",
+        "SELECT schematic_id FROM favorite
+         JOIN schematic ON schematic.id = favorite.schematic_id
+         WHERE user_id = ? AND deleted_at IS NULL
+         ORDER BY favorite.added_at DESC",
         user
     )
     .fetch_all(db)
@@ -601,8 +605,66 @@ pub async fn log_download<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// Deletes a schematic, with its versions and everything else of it.
-pub async fn delete<'e, E: SqliteExecutor<'e>>(
+/// Deletes build `id` for `by`: it is hidden from everyone, but kept, with
+/// the delete logged, for an admin to restore. False when it was deleted
+/// already, or there is no such build.
+pub async fn delete(
+    db: &SqlitePool,
+    id: &str,
+    by: uuid::Uuid,
+) -> Result<bool, sqlx::Error> {
+    hide(db, id, by, true).await
+}
+
+/// Restores deleted build `id` for `by`, logging that. False when it was
+/// not deleted, or there is no such build.
+pub async fn undelete(
+    db: &SqlitePool,
+    id: &str,
+    by: uuid::Uuid,
+) -> Result<bool, sqlx::Error> {
+    hide(db, id, by, false).await
+}
+
+/// Deletes build `id`, or restores it when `hidden` is false, logging it
+/// for `by` when that changed anything.
+async fn hide(
+    db: &SqlitePool,
+    id: &str,
+    by: uuid::Uuid,
+    hidden: bool,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = db.begin().await?;
+    let changed = sqlx::query!(
+        "UPDATE schematic
+         SET deleted_at = iif(?2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL)
+         WHERE id = ?1 AND (deleted_at IS NULL) = ?2",
+        id,
+        hidden
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        > 0;
+    if changed {
+        let restored = !hidden;
+        sqlx::query!(
+            "INSERT INTO deletion (schematic_id, user_id, restored)
+             VALUES (?, ?, ?)",
+            id,
+            by,
+            restored
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(changed)
+}
+
+/// Removes a schematic for good, with its versions and everything else of
+/// it, deleted or not, leaving nothing to restore.
+pub async fn purge<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
 ) -> Result<(), sqlx::Error> {

@@ -41,7 +41,7 @@ use crate::{
 use super::{
     analysis,
     form::{self, Form},
-    pages::{self, File, Reply},
+    pages::{self, Duplicate, File, Reply},
 };
 
 /// The file behind a Schemati download link, or why it could not be had.
@@ -286,7 +286,7 @@ pub async fn progress(
 }
 
 /// The stored build most like an upload's `blocks`, if any is similar and
-/// `user` may see it.
+/// listed for `user`: a private build's link is not given away.
 async fn closest(
     db: &sqlx::SqlitePool,
     user: &User,
@@ -297,8 +297,9 @@ async fn closest(
     else {
         return Ok(None);
     };
-    Ok(schematic::get_visible(db, &id, Some(user))
+    Ok(schematic::get(db, &id)
         .await?
+        .filter(|s| s.listed_to(Some(user)))
         .map(|s| (s, permille)))
 }
 
@@ -542,10 +543,11 @@ async fn publish_checked(
         }
     };
     let build = details::Build::of(prepared);
-    let ready = match details::check(db, given, build, user.is_admin()).await? {
-        Ok(ready) => ready,
-        Err(message) => return Ok(Err(message)),
-    };
+    let ready =
+        match details::check(db, given, build, user.can_create_tags()).await? {
+            Ok(ready) => ready,
+            Err(message) => return Ok(Err(message)),
+        };
     let stored =
         import::store(db, prepared, &ready, Some(user.id), ip, None, None)
             .await?;
@@ -595,6 +597,18 @@ async fn show_preview(
             .await?
             .map(|(id, _)| id);
     }
+    // A deleted build keeps its file, for an admin to restore.
+    let shown = match &duplicate {
+        Some(id) => schematic::get(&state.db, id).await?.is_some(),
+        None => false,
+    };
+    let duplicate = duplicate.as_deref().map(|id| {
+        if shown {
+            Duplicate::Shown(id)
+        } else {
+            Duplicate::Deleted
+        }
+    });
     // Its roles, if recognized, are found already; this says so.
     let checked;
     let recognition = if let Some(recognition) = said.recognition {
@@ -616,7 +630,7 @@ async fn show_preview(
         shown: shown.as_deref(),
         data: &STANDARD.encode(&prepared.data),
         original: said.original,
-        duplicate: duplicate.as_deref(),
+        duplicate,
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
         unconventional: !upload.read_as().conventional,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,

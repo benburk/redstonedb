@@ -138,11 +138,11 @@ fn id_prefix(term: &str) -> bool {
     hex && digited && (lettered || term.len() >= 8)
 }
 
-/// Deletes build `id`.
+/// Removes build `id` for good, leaving nothing to restore.
 pub(super) async fn remove(db: &SqlitePool, id: &str) -> Result<()> {
     let id = resolve(db, id).await?;
     let filename = load(db, &id).await?.filename();
-    schematic::delete(db, &id).await?;
+    schematic::purge(db, &id).await?;
     println!("removed {}  {filename}", &id[..8]);
     Ok(())
 }

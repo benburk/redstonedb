@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT description AS \"description!\" FROM schematic\n         WHERE description IS NOT NULL",
+  "query": "SELECT description AS \"description!\" FROM schematic\n         WHERE description IS NOT NULL AND deleted_at IS NULL",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       true
     ]
   },
-  "hash": "584eb934bed4d974a3a314ddfc9703418e7ad5b542ad3f6e15d466817a5d62bd"
+  "hash": "95659ce895eebb2f840678cacb7ca45fc26a81dd319c7f688340d4d2f77197b6"
 }

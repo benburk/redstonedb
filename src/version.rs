@@ -327,7 +327,7 @@ pub async fn merge(
     let colours = version::colours_of(db, &from.id, number).await?;
     // A file is held by one version at most, so `from` goes first, its file
     // and colours read already and every check passed.
-    crate::models::schematic::delete(db, &from.id).await?;
+    crate::models::schematic::purge(db, &from.id).await?;
     let how = version::Replacing::NextVersion {
         added_by: by,
         added_from: None,

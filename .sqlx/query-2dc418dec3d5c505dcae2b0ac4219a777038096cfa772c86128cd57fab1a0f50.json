@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE schematic\n         SET deleted_at = iif(?2, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), NULL)\n         WHERE id = ?1 AND (deleted_at IS NULL) = ?2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "2dc418dec3d5c505dcae2b0ac4219a777038096cfa772c86128cd57fab1a0f50"
+}

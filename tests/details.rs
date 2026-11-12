@@ -112,14 +112,14 @@ async fn stacking_that_does_not_fit_is_refused() {
 }
 
 #[tokio::test]
-async fn only_an_admin_may_name_a_new_tag_with_the_details() {
+async fn only_a_mod_or_admin_may_name_a_new_tag_with_the_details() {
     let db = common::database().await;
     let tagged = Details {
         tags: vec!["Made Up".to_owned()],
         ..given("piston door")
     };
     let refused = check(&db, tagged.clone()).await.err().unwrap();
-    assert!(refused.contains("only an admin"), "{refused}");
+    assert!(refused.contains("only a mod or admin"), "{refused}");
     let data = adder();
     let build = Build {
         data: &data,

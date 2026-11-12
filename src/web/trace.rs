@@ -119,9 +119,7 @@ pub async fn page(
     Query(pairs): Query<Vec<(String, String)>>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get_visible(db, &id, viewer.as_ref())
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let data = version::current_file(db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -330,12 +328,9 @@ pub fn glitch(
 pub async fn glitch_fragment(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    viewer: Option<User>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get_visible(db, &id, viewer.as_ref())
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let report = simulation::current(db, &s).await?;
     let Some(timing) = report.as_ref().and_then(|r| r.timing()).cloned() else {
         return Ok(html! {}.into_response());

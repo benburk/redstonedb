@@ -80,6 +80,18 @@ impl Site {
         request.send().await.expect("the site answers")
     }
 
+    /// Deletes build `id` as `cookie`'s account, as its page's form does.
+    async fn delete(&self, id: &str, cookie: &str) -> reqwest::Response {
+        self.client
+            .post(format!("{}/schematics/{id}/delete", self.base))
+            .header(header::COOKIE, cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body("next=")
+            .send()
+            .await
+            .expect("the site answers")
+    }
+
     async fn get(&self, path: &str, cookie: Option<&str>) -> reqwest::Response {
         self.ask(reqwest::Method::GET, path, cookie).await
     }
@@ -208,15 +220,60 @@ async fn only_a_builds_uploader_may_edit_it() {
     let others = site.session(&other).await;
     let response = site.get(&path, Some(&others)).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    let response = site
-        .ask(
-            reqwest::Method::POST,
-            &format!("/schematics/{id}/delete"),
-            Some(&others),
-        )
-        .await;
+    let response = site.delete(&id, &others).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert!(schematic::get(&site.db, &id).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn an_uploader_deletes_their_own_build() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let id = site.adder(&owner).await;
+    let form = format!("action=\"/schematics/{id}/delete\"");
+
+    let owners = site.session(&owner).await;
+    let page = site.get(&format!("/schematics/{id}"), Some(&owners)).await;
+    assert!(page.text().await.unwrap().contains(&form));
+
+    let response = site.delete(&id, &owners).await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(schematic::get(&site.db, &id).await.unwrap().is_none());
+    let response = site.get(&format!("/schematics/{id}"), Some(&owners)).await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // A build gone, or never there, is not found.
+    let response = site.delete(&id, &owners).await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    // Only an admin restores it, from the log, which shows the delete.
+    let restore = format!("/log/deletions/{id}/restore");
+    let response = site
+        .ask(reqwest::Method::POST, &restore, Some(&owners))
+        .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let admin = common::sign_in(&site.db, "3", "herobrine").await;
+    User::set_role(&site.db, admin.id, Role::Admin)
+        .await
+        .unwrap();
+    let admins = site.session(&admin).await;
+    let log = site.get("/log?show=deletions", Some(&admins)).await;
+    let log = log.text().await.unwrap();
+    assert!(log.contains(" deleted "), "{log}");
+    assert!(log.contains(&format!("action=\"{restore}\"")), "{log}");
+    let response = site
+        .client
+        .post(format!("{}{restore}", site.base))
+        .header(header::COOKIE, &admins)
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body("show=deletions")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert!(schematic::get(&site.db, &id).await.unwrap().is_some());
+    let log = site.get("/log", Some(&admins)).await.text().await.unwrap();
+    assert!(log.contains(" restored "), "{log}");
 }
 
 /// Only an admin sees the moderation log, its link in the sidebar, or
@@ -256,35 +313,39 @@ async fn only_an_admin_sees_the_moderation_log() {
 }
 
 #[tokio::test]
-async fn a_private_build_is_not_found_by_anyone_else() {
+async fn a_private_build_is_unlisted_but_opens_from_its_link() {
     let site = Site::start().await;
     let owner = common::sign_in(&site.db, "1", "steve").await;
     let other = common::sign_in(&site.db, "2", "alex").await;
     let id = site.adder(&owner).await;
     schematic::set_public(&site.db, &id, false).await.unwrap();
+    let link = format!("href=\"/schematics/{id}");
 
     let others = site.session(&other).await;
+    let listing = site.get("/builds", Some(&others)).await;
+    assert!(!listing.text().await.unwrap().contains(&link));
     for path in [
         format!("/schematics/{id}"),
-        format!("/schematics/{id}/edit"),
         format!("/schematics/{id}/download"),
     ] {
         let response = site.get(&path, Some(&others)).await;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
     }
+    let response = site
+        .get(&format!("/schematics/{id}/edit"), Some(&others))
+        .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     for path in [
         format!("/schematics/{id}"),
         format!("/schematics/{id}/download?preview=yes"),
     ] {
         let response = site.get(&path, None).await;
-        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{path}");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
     }
 
     let owners = site.session(&owner).await;
-    let response = site
-        .get(&format!("/schematics/{id}/edit"), Some(&owners))
-        .await;
-    assert_eq!(response.status(), StatusCode::OK);
+    let listing = site.get("/builds", Some(&owners)).await;
+    assert!(listing.text().await.unwrap().contains(&link));
 }
 
 /// Gives build `id` a second version, one of its solid blocks glass, and

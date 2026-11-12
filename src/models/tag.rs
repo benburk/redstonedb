@@ -310,7 +310,7 @@ pub(super) async fn set(
     Ok(())
 }
 
-/// Refuses `names` that no tag has unless `may_create`, as only an admin
+/// Refuses `names` that no tag has unless `may_create`, as only a mod or admin
 /// may: the `Err` says which and why.
 pub async fn check_new(
     db: &SqlitePool,
@@ -329,10 +329,10 @@ pub async fn check_new(
     Ok(match unknown.as_slice() {
         [] => Ok(()),
         [one] => Err(format!(
-            "There is no tag {one}, and only an admin can make a new one."
+            "There is no tag {one}, and only a mod or admin can make a new one."
         )),
         many => Err(format!(
-            "There are no tags {}, and only an admin can make new ones.",
+            "There are no tags {}, and only a mod or admin can make new ones.",
             many.join(", ")
         )),
     })

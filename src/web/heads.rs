@@ -142,7 +142,7 @@ pub fn fetch_ahead(db: &SqlitePool) {
 async fn fetch_all(db: &SqlitePool) -> anyhow::Result<()> {
     let descriptions: Vec<String> = sqlx::query_scalar!(
         r#"SELECT description AS "description!" FROM schematic
-         WHERE description IS NOT NULL"#
+         WHERE description IS NOT NULL AND deleted_at IS NULL"#
     )
     .fetch_all(db)
     .await?;

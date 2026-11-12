@@ -56,7 +56,7 @@ pub async fn download(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
 ) -> Result<Response, AppError> {
-    let s = schematic::get_visible(&state.db, &id, Some(&user))
+    let s = schematic::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::data(&state.db, &id, number)
@@ -84,9 +84,7 @@ pub async fn restore(
     ClientIp(ip): ClientIp,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get_visible(db, &id, Some(&user))
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
     if !user.may_restore(&s) {
         return Err(AppError::Forbidden);
     }
@@ -261,9 +259,7 @@ pub async fn diff_page(
     Query(between): Query<Between>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get_visible(db, &id, viewer.as_ref())
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let versions = version::list(db, &id).await?;
     let (from, to) = between.pick(&versions).ok_or(AppError::NotFound)?;
     let counts = changes(db, &id, from, to).await?;
@@ -292,9 +288,7 @@ pub async fn diff_file(
     if !preview && viewer.is_none() {
         return Err(AppError::SignedOut);
     }
-    let s = schematic::get_visible(db, &id, viewer.as_ref())
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let versions = version::list(db, &id).await?;
     let (from, to) = between.pick(&versions).ok_or(AppError::NotFound)?;
     let (old, new) = files(db, &id, from, to).await?;

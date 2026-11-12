@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schematic_id FROM favorite\n         JOIN schematic ON schematic.id = favorite.schematic_id\n         WHERE user_id = ? AND deleted_at IS NULL\n         ORDER BY favorite.added_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "schematic_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f6635699d7273df46624eb3c5b9fae9f0d240ddafd89de8d3fbcf8761e7b4b8a"
+}

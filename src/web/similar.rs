@@ -81,7 +81,7 @@ pub(super) async fn builds(
     let builds = schematic::get_many(db, &ids).await?;
     Ok(builds
         .into_iter()
-        .filter(|s| s.visible_to(viewer))
+        .filter(|s| s.listed_to(viewer))
         .filter_map(|s| {
             let (_, permille) = ranked.iter().find(|(id, _)| *id == s.id)?;
             Some((s, *permille))

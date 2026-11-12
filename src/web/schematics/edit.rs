@@ -26,10 +26,7 @@ use crate::{
         analysis,
         app_state::AppState,
         error::AppError,
-        extractors::{
-            client_ip::ClientIp,
-            session::{Moderator, SignedIn},
-        },
+        extractors::{client_ip::ClientIp, session::SignedIn},
     },
 };
 
@@ -51,16 +48,14 @@ pub async fn edit(
 }
 
 /// Build `id`, when `user` may edit it: a mod, one of its confirmed
-/// authors, or its uploader. A 404 for no build, or one `user` may not
-/// see, and a 403 for anyone else.
+/// authors, or its uploader. A 404 for no build, or a deleted one, and a
+/// 403 for anyone else.
 pub(in crate::web) async fn editable(
     db: &SqlitePool,
     user: &User,
     id: &str,
 ) -> Result<Schematic, AppError> {
-    let s = schematic::get_visible(db, id, Some(user))
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     if user.may_edit(&s) {
         Ok(s)
     } else {
@@ -310,16 +305,23 @@ pub struct Deleting {
     next: String,
 }
 
-/// Deletes a build for good, with its tags, credits, and stacking; mods
-/// and admins only. It goes back to the listing its page was come to
-/// from, else home.
+/// Deletes a build, by its uploader, or a mod or admin: it is hidden, and
+/// the moderation log shows the delete, for an admin to restore. A 404 for
+/// no build, or one deleted already, and a 403 for anyone else. It goes
+/// back to the listing its page was come to from, else home.
 pub async fn delete(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    Moderator(by): Moderator,
+    SignedIn(by): SignedIn,
     axum::Form(deleting): axum::Form<Deleting>,
 ) -> Result<Response, AppError> {
-    schematic::delete(&state.db, &id).await?;
+    let s = schematic::get(&state.db, &id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if !by.may_delete(&s) {
+        return Err(AppError::Forbidden);
+    }
+    schematic::delete(&state.db, &id, by.id).await?;
     tracing::info!(id, by = by.username, "deleted a build");
     let next = crate::web::back::listing(&deleting.next).unwrap_or("/");
     Ok(Redirect::to(next).into_response())
@@ -432,7 +434,7 @@ async fn saved(
                     .is_some_and(|report| report.passed()),
         }
     };
-    match details::check(db, given, build, user.is_admin()).await? {
+    match details::check(db, given, build, user.can_create_tags()).await? {
         Ok(ready) => Ok(Ok(schematic::set_details(db, &s.id, &ready).await?)),
         Err(message) => Ok(Err(message)),
     }

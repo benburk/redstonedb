@@ -16,49 +16,61 @@ use crate::{
     recognize::interface::Kept,
 };
 
-/// Every schematic, ordered by category, width, then insertion.
+/// Every schematic but deleted ones, ordered by category, width, then
+/// insertion.
 pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
-    load(db, None).await
+    load(db, None, false).await
 }
 
-/// Every schematic `viewer` may see, ordered as [`all`] orders them.
+/// Every schematic listed for `viewer`, ordered as [`all`] orders them: a
+/// private one is left out but for its uploader and admins.
 pub async fn visible(
     db: &SqlitePool,
     viewer: Option<&crate::models::user::User>,
 ) -> Result<Vec<Schematic>, sqlx::Error> {
     let mut all = all(db).await?;
-    all.retain(|s| s.visible_to(viewer));
+    all.retain(|s| s.listed_to(viewer));
     Ok(all)
 }
 
-/// The schematic `id`, if there is one and `viewer` may see it.
-pub async fn get_visible(
-    db: &SqlitePool,
-    id: &str,
-    viewer: Option<&crate::models::user::User>,
-) -> Result<Option<Schematic>, sqlx::Error> {
-    Ok(get(db, id).await?.filter(|s| s.visible_to(viewer)))
-}
-
-/// The schematic `id`, if there is one.
+/// The schematic `id`, if there is one and it is not deleted. Anyone with
+/// its link may see it, private or not.
 pub async fn get(
     db: &SqlitePool,
     id: &str,
 ) -> Result<Option<Schematic>, sqlx::Error> {
-    Ok(load(db, Some(ids_json(&[id]))).await?.pop())
+    Ok(load(db, Some(ids_json(&[id])), false).await?.pop())
 }
 
 /// The schematics `ids` name, in that order, leaving out any id that names
-/// none.
+/// none, or a deleted one.
 pub async fn get_many(
     db: &SqlitePool,
     ids: &[&str],
 ) -> Result<Vec<Schematic>, sqlx::Error> {
-    let mut found: HashMap<String, Schematic> = load(db, Some(ids_json(ids)))
-        .await?
-        .into_iter()
-        .map(|s| (s.id.clone(), s))
-        .collect();
+    get_ids(db, ids, false).await
+}
+
+/// The schematics `ids` name, deleted ones too, as the moderation log
+/// shows them; in that order, leaving out any id that names none.
+pub async fn get_many_with_deleted(
+    db: &SqlitePool,
+    ids: &[&str],
+) -> Result<Vec<Schematic>, sqlx::Error> {
+    get_ids(db, ids, true).await
+}
+
+async fn get_ids(
+    db: &SqlitePool,
+    ids: &[&str],
+    deleted: bool,
+) -> Result<Vec<Schematic>, sqlx::Error> {
+    let mut found: HashMap<String, Schematic> =
+        load(db, Some(ids_json(ids)), deleted)
+            .await?
+            .into_iter()
+            .map(|s| (s.id.clone(), s))
+            .collect();
     Ok(ids.iter().filter_map(|&id| found.remove(id)).collect())
 }
 
@@ -70,10 +82,12 @@ fn ids_json(ids: &[&str]) -> String {
 /// The schematics `only` names, as a JSON array of ids, or every one for
 /// `None`, ordered by category, width, then insertion: each row with its
 /// tags, flags, stacking, credits, and its category's measures and aliases.
+/// Deleted ones are left out unless `deleted`.
 #[allow(clippy::too_many_lines, reason = "a field for each column it reads")]
 async fn load(
     db: &SqlitePool,
     only: Option<String>,
+    deleted: bool,
 ) -> Result<Vec<Schematic>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation
@@ -94,13 +108,16 @@ async fn load(
                 WHERE simulation.schematic_id = schematic.id
                 AND simulation.sha256 = file.sha256) as "outcome?: String",
             (SELECT count(*) FROM favorite WHERE favorite.schematic_id = schematic.id)
-                as "favorites!: i64"
+                as "favorites!: i64",
+            schematic.deleted_at IS NOT NULL as "deleted!: bool"
          FROM schematic
          JOIN current_file AS file ON file.schematic_id = schematic.id
          LEFT JOIN user ON user.id = schematic.uploaded_by
-         WHERE ?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1))
+         WHERE (?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1)))
+            AND (?2 OR schematic.deleted_at IS NULL)
          ORDER BY schematic.category, width, added_at"#,
-        only
+        only,
+        deleted
     )
     .fetch_all(db)
     .await?;
@@ -174,6 +191,7 @@ async fn load(
                 downloads: row.downloads,
                 favorites: row.favorites,
                 public: row.public,
+                deleted: row.deleted,
                 unverified: row.unverified,
                 status,
                 operands,
@@ -425,7 +443,8 @@ pub async fn ids_with_prefix<'e, E: SqliteExecutor<'e>>(
     prefix: &str,
 ) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT id FROM schematic WHERE id GLOB ? || '*' LIMIT 2",
+        "SELECT id FROM schematic
+         WHERE id GLOB ? || '*' AND deleted_at IS NULL LIMIT 2",
         prefix
     )
     .fetch_all(db)

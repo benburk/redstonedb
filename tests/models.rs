@@ -59,7 +59,8 @@ async fn a_taken_username_moves_to_its_new_owner() {
 async fn roles_rank_user_mod_admin() {
     let db = common::database().await;
     let user = common::sign_in(&db, "1", "steve").await;
-    // A mod edits and deletes any build; only an admin sets roles.
+    // A mod edits and deletes any build, and makes new tags; only an
+    // admin sets roles.
     for (role, moderates, admin) in [
         (Role::User, false, false),
         (Role::Mod, true, false),
@@ -69,6 +70,7 @@ async fn roles_rank_user_mod_admin() {
         let user = User::get_by_id(&db, user.id).await.unwrap().unwrap();
         assert_eq!(user.can_edit(), moderates);
         assert_eq!(user.can_delete(), moderates);
+        assert_eq!(user.can_create_tags(), moderates);
         assert_eq!(user.is_admin(), admin);
     }
 }
@@ -209,7 +211,7 @@ async fn a_confirmed_name_respells_its_credits_and_imports() {
 }
 
 #[tokio::test]
-async fn only_an_admin_may_name_a_new_tag() {
+async fn only_a_mod_or_admin_may_name_a_new_tag() {
     use app::models::tag::{Kind, check_new, define};
     let db = common::database().await;
     define(&db, "instant", None, Kind::Other).await.unwrap();
@@ -218,7 +220,7 @@ async fn only_an_admin_may_name_a_new_tag() {
     assert_eq!(check_new(&db, &known, false).await.unwrap(), Ok(()));
     let refused = check_new(&db, &new, false).await.unwrap().unwrap_err();
     assert!(refused.contains("made up"), "{refused}");
-    assert!(refused.contains("only an admin"), "{refused}");
+    assert!(refused.contains("only a mod or admin"), "{refused}");
     assert_eq!(check_new(&db, &new, true).await.unwrap(), Ok(()));
 }
 

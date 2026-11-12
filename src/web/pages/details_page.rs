@@ -25,6 +25,15 @@ use super::{
     upload::file_fields,
 };
 
+/// A stored build an upload's file is already the file of.
+#[derive(Clone, Copy)]
+pub enum Duplicate<'a> {
+    /// One on the site, by its id.
+    Shown(&'a str),
+    /// One deleted, which only an admin can restore.
+    Deleted,
+}
+
 /// The file a details page shows.
 pub enum File<'a> {
     /// A new upload's, carried in the form until it is published.
@@ -39,8 +48,8 @@ pub enum File<'a> {
         /// The file as its author made it, base64, for the colours they
         /// gave it; empty when not had.
         original: &'a str,
-        /// The id of a stored build with the same file, if any.
-        duplicate: Option<&'a str>,
+        /// The stored build with the same file, if any.
+        duplicate: Option<Duplicate<'a>>,
         /// The stored build most like it, with how alike, if any is
         /// similar.
         similar: Option<(&'a Schematic, u32)>,
@@ -291,9 +300,16 @@ fn blocked(page: &DetailsPage) -> Option<&'static str> {
 /// measures fills the details' fields.
 fn checks(page: &DetailsPage) -> Markup {
     let lines = html! {
-        @if let File::Upload { duplicate: Some(id), .. } = &page.file {
+        @if let File::Upload { duplicate: Some(duplicate), .. } = &page.file {
             (check("duplicate", State::Fail, &html! {
-                "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
+                @match duplicate {
+                    Duplicate::Shown(id) => {
+                        "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
+                    }
+                    Duplicate::Deleted => {
+                        "This exact file is a deleted build's. An admin can restore it."
+                    }
+                }
             }))
         }
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
@@ -497,8 +513,8 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
                 File::Stored { .. } => {}
             }
             (fields(page.form, page.choices, &page.derived))
-            // Only an admin may name a tag not yet on the list.
-            (tag_picker(&page.choices.tags, &page.form.tags, page.fixed, user.is_admin()))
+            // Only a mod or admin may name a tag not yet on the list.
+            (tag_picker(&page.choices.tags, &page.form.tags, page.fixed, user.can_create_tags()))
             div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                 button type="submit" class="btn btn-primary" data-publish
                     disabled[blocked.is_some()] { (label) }

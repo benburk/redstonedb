@@ -194,7 +194,7 @@ pub(super) fn fields(
             label class="flex items-center gap-2" {
                 input type="checkbox" name="public" value="yes" checked[f.public]
                     class="size-4 appearance-auto";
-                "Public: anyone can find it. Untick to keep it to yourself."
+                "Public: anyone can find it. Untick to keep it off the listings, for only people you give its link."
             }
         }
     }

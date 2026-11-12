@@ -900,10 +900,11 @@ fn actions_menu(
     from: Option<&str>,
 ) -> Markup {
     let edits = viewer.is_some_and(|v| v.may_edit(s));
-    let deletes = viewer.is_some_and(User::can_delete);
+    let merges = viewer.is_some_and(User::can_delete);
+    let deletes = viewer.is_some_and(|v| v.may_delete(s));
     let item = "flex min-h-9 w-full items-center gap-2.5 rounded-control px-2.5 text-left hover:bg-selection hover:no-underline";
     html! {
-        @if edits || deletes {
+        @if edits || merges || deletes {
             details class="relative" data-menu {
                 summary aria-label="More actions" title="More actions"
                     class="btn btn-quiet flex size-10 cursor-pointer list-none items-center justify-center p-0 [&::-webkit-details-marker]:hidden" {
@@ -914,11 +915,13 @@ fn actions_menu(
                         a href={ (path) "/edit" } class={ (item) " text-ink" } { (icon(icons::PENCIL, "size-4 text-muted")) "Edit details" }
                         a href={ (path) "/versions/new" } class={ (item) " text-ink" } { (icon(icons::UPLOAD, "size-4 text-muted")) "Upload a new version" }
                     }
-                    @if deletes {
+                    @if merges {
                         button type="button" commandfor="merge" command="show-modal"
                             class={ (item) " cursor-pointer text-ink" } {
                             (icon(icons::MERGE, "size-4 text-muted")) "Merge into another build"
                         }
+                    }
+                    @if deletes {
                         button type="button" commandfor="delete" command="show-modal"
                             class={ (item) " cursor-pointer text-danger" } {
                             (icon(icons::TRASH, "size-4")) "Delete"
@@ -926,8 +929,10 @@ fn actions_menu(
                     }
                 }
             }
-            @if deletes {
+            @if merges {
                 (merge_dialog(s))
+            }
+            @if deletes {
                 (delete_dialog(s, from))
             }
         }
@@ -961,7 +966,7 @@ fn merge_dialog(s: &Schematic) -> Markup {
     }
 }
 
-/// An admin's confirmation before deleting a build, which then goes back
+/// The confirmation before deleting a build, which then goes back
 /// to `from`, the listing the viewer came from, else home.
 fn delete_dialog(s: &Schematic, from: Option<&str>) -> Markup {
     html! {
@@ -972,7 +977,7 @@ fn delete_dialog(s: &Schematic, from: Option<&str>) -> Markup {
                     input type="hidden" name="next" value=(from);
                 }
                 h2 id="delete-heading" class=(SECTION_TITLE) { "Delete " (s.name()) "?" }
-                p { "The build, its file, tags, and credits are removed for good." }
+                p { "It is taken off the site. An admin can restore it." }
                 div class="flex items-center gap-4" {
                     button type="submit" class="btn btn-danger" { "Delete" }
                     button type="button" commandfor="delete" command="close" class="btn btn-quiet" { "Cancel" }

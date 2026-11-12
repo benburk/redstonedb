@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO deletion (schematic_id, user_id, restored)\n             VALUES (?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "8f77778db43b462309cd1bca2d2e78fba8d1d494bc2c2d509717d59821b699a3"
+}
