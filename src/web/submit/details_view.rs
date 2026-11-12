@@ -36,15 +36,6 @@ use crate::{
     },
 };
 
-/// A stored build an upload's file is already the file of.
-#[derive(Clone, Copy)]
-pub enum Duplicate<'a> {
-    /// One on the site, by its id.
-    Shown(&'a str),
-    /// One deleted, which only an admin can restore.
-    Deleted,
-}
-
 /// The file a details page shows.
 pub enum File<'a> {
     /// A new upload's, carried in the form until it is published.
@@ -59,8 +50,8 @@ pub enum File<'a> {
         /// The file as its author made it, base64, for the colours they
         /// gave it; empty when not had.
         original: &'a str,
-        /// The stored build with the same file, if any.
-        duplicate: Option<Duplicate<'a>>,
+        /// The build on the site with the same file, by its id, if any.
+        duplicate: Option<&'a str>,
         /// The stored build most like it, with how alike, if any is
         /// similar.
         similar: Option<(&'a Build, u32)>,
@@ -314,16 +305,9 @@ fn blocked(page: &DetailsPage) -> Option<&'static str> {
 /// measures fills the details' fields.
 fn checks(page: &DetailsPage) -> Markup {
     let lines = html! {
-        @if let File::Upload { duplicate: Some(duplicate), .. } = &page.file {
+        @if let File::Upload { duplicate: Some(id), .. } = &page.file {
             (check(State::Fail, &html! {
-                @match duplicate {
-                    Duplicate::Shown(id) => {
-                        "This exact file is already on the site: " a href=(href::build(id)) { "see it here" } "."
-                    }
-                    Duplicate::Deleted => {
-                        "This exact file is a deleted build's. An admin can restore it."
-                    }
-                }
+                "This exact file is already on the site: " a href=(href::build(id)) { "see it here" } "."
             }))
         }
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {

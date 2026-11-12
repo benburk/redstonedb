@@ -278,6 +278,52 @@ async fn an_uploader_deletes_their_own_build() {
     assert!(log.contains(" restored "), "{log}");
 }
 
+/// A deleted build holds no file back: its uploader uploads the same file
+/// again, as to change something of it, and it is a new build. The deleted
+/// one then stays deleted, as two builds can't hold one file, until the
+/// new one is deleted in its turn.
+#[tokio::test]
+async fn a_deleted_builds_file_is_uploaded_again() {
+    let site = Site::start().await;
+    let owner = common::sign_in(&site.db, "1", "steve").await;
+    let old = site.adder(&owner).await;
+    let owners = site.session(&owner).await;
+    assert_eq!(
+        site.delete(&old, &owners).await.status(),
+        StatusCode::SEE_OTHER
+    );
+    let new = site.adder(&owner).await;
+    assert_ne!(new, old);
+    assert!(builds::get(&site.db, &new).await.unwrap().is_some());
+
+    let admin = common::sign_in(&site.db, "3", "herobrine").await;
+    User::set_role(&site.db, admin.id, Role::Admin)
+        .await
+        .unwrap();
+    let admins = site.session(&admin).await;
+    let restore = |id: &str| {
+        site.client
+            .post(format!("{}/log/deletions/{id}/restore", site.base))
+            .header(header::COOKIE, &admins)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .body("show=deletions")
+            .send()
+    };
+    let refused = restore(&old).await.unwrap();
+    assert_eq!(refused.status(), StatusCode::OK);
+    let log = refused.text().await.unwrap();
+    assert!(log.contains("Its file is on the site again"), "{log}");
+    assert!(builds::get(&site.db, &old).await.unwrap().is_none());
+
+    assert_eq!(
+        site.delete(&new, &owners).await.status(),
+        StatusCode::SEE_OTHER
+    );
+    let restored = restore(&old).await.unwrap();
+    assert_eq!(restored.status(), StatusCode::SEE_OTHER);
+    assert!(builds::get(&site.db, &old).await.unwrap().is_some());
+}
+
 /// Only an admin sees the moderation log, its link in the sidebar, or
 /// puts back an edit from it; a mod is refused as anyone else is.
 #[tokio::test]

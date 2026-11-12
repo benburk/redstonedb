@@ -19,7 +19,7 @@ use crate::{
     build::{Change, Restorable, revertible},
     store::{
         activity::{self, Filter},
-        builds,
+        builds, versions,
     },
     web::{
         app_state::AppState, error::AppError, extractors::session::Admin,
@@ -99,13 +99,24 @@ pub async fn revert(
 }
 
 /// Restores deleted build `id`, then returns to the log page it was sent
-/// from.
+/// from. One whose file was uploaded again since stays deleted, as no two
+/// builds on the site hold one file.
 pub async fn restore(
     Path(id): Path<String>,
     State(state): State<AppState>,
     Admin(viewer): Admin,
     Form(shown): Form<Shown>,
 ) -> Result<Response, AppError> {
+    if let Some(other) = versions::held_again(&state.db, &id).await? {
+        let name = builds::get(&state.db, &other)
+            .await?
+            .map_or(other, |s| s.title());
+        let message = format!(
+            "Its file is on the site again, as {name}. Delete that build to \
+             restore this one."
+        );
+        return render(&state, &viewer, &shown, &message).await;
+    }
     if !builds::undelete(&state.db, &id, viewer.id).await? {
         let message = "That build is not deleted.";
         return render(&state, &viewer, &shown, message).await;

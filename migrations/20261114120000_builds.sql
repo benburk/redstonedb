@@ -48,10 +48,11 @@ DROP INDEX deletion_schematic_id;
 CREATE INDEX build_uploaded_by ON build (uploaded_by);
 CREATE INDEX build_version_added_by ON build_version (added_by);
 CREATE INDEX build_version_added_at ON build_version (added_at);
--- No two versions are the same file, but a restored one and the version it
--- copies.
-CREATE UNIQUE INDEX build_version_sha256 ON build_version (sha256)
-WHERE restores IS NULL;
+-- No two builds on the site hold the same file, which the site checks as
+-- it stores one. The index is not unique, as a deleted build keeps its
+-- file, for an admin to restore it, and the same file may be uploaded
+-- again.
+CREATE INDEX build_version_sha256 ON build_version (sha256);
 CREATE INDEX download_by_build ON download (build_id, at);
 CREATE INDEX favorite_build_id ON favorite (build_id);
 CREATE INDEX deletion_build_id ON deletion (build_id);

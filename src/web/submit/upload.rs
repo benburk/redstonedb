@@ -41,7 +41,7 @@ use crate::{
         href,
         submit::{
             analysis,
-            details_view::{Duplicate, File, Reply},
+            details_view::{File, Reply},
             form::{self, Form},
             upload_view,
         },
@@ -586,18 +586,6 @@ async fn show_preview(
             .await?
             .map(|(id, _)| id);
     }
-    // A deleted build keeps its file, for an admin to restore.
-    let shown = match &duplicate {
-        Some(id) => builds::get(&state.db, id).await?.is_some(),
-        None => false,
-    };
-    let duplicate = duplicate.as_deref().map(|id| {
-        if shown {
-            Duplicate::Shown(id)
-        } else {
-            Duplicate::Deleted
-        }
-    });
     // Its roles, if recognized, are found already; this says so.
     let checked;
     let recognition = if let Some(recognition) = said.recognition {
@@ -619,7 +607,7 @@ async fn show_preview(
         shown: shown.as_deref(),
         data: &STANDARD.encode(&prepared.data),
         original: said.original,
-        duplicate,
+        duplicate: duplicate.as_deref(),
         similar: similar.as_ref().map(|(s, permille)| (s, *permille)),
         unconventional: !upload.read_as().conventional,
         hoppers: standardize::swappable(&prepared.blocks).hoppers,
