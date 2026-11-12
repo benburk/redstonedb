@@ -29,7 +29,7 @@ use anyhow::{Result, ensure};
 
 use crate::{
     recognize::{colour, interface, repeater_outputs},
-    schem::{self, AIR, Blocks, Direction, Pos, block},
+    schem::{self, AIR, Blocks, Direction, Pos},
 };
 
 /// Whether `state` is glass of any kind, plain, stained, or tinted, as a
@@ -52,7 +52,7 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
         })
         .map(|(pos, state)| (pos, state.to_owned()))
         .collect();
-    let restyled = rebox(data, &grid, [0, 0, 0], blocks.size)?;
+    let restyled = schem::rebox(data, &grid, [0, 0, 0], blocks.size)?;
     let standardized = tidy(&restyled)?;
 
     let found = interface::read(&Blocks::read(&standardized)?);
@@ -146,26 +146,7 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
     let low = [0, 1, 2].map(|axis| bound(axis, i32::min));
     let high = [0, 1, 2].map(|axis| bound(axis, i32::max));
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
-    rebox(data, &grid, low, size)
-}
-
-/// The file with each block of `changes` put in place, air taking one out,
-/// its box and paste offset as they were, so `tidy` fits it afterwards.
-pub fn edit(data: &[u8], changes: &BTreeMap<Pos, String>) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let mut grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
-    for (&pos, state) in changes {
-        if state == AIR {
-            grid.remove(&pos);
-        } else {
-            grid.insert(pos, state.clone());
-        }
-    }
-    rebox(data, &grid, [0, 0, 0], blocks.size)
+    schem::rebox(data, &grid, low, size)
 }
 
 /// The file with each input at logical 0, as every stored build is: the
@@ -210,7 +191,7 @@ pub fn with_levers(data: &[u8], on: &BTreeSet<Pos>) -> Result<Vec<u8>> {
         .map(|(pos, state)| (pos, state.to_owned()))
         .collect();
     grid.extend(changes);
-    rebox_with(
+    schem::edit::rebox_with(
         data,
         &grid,
         [0, 0, 0],
@@ -218,45 +199,6 @@ pub fn with_levers(data: &[u8], on: &BTreeSet<Pos>) -> Result<Vec<u8>> {
         &strengths,
         &HashMap::new(),
     )
-}
-
-/// The file with each block of `changes` put in place, as `edit` does, its
-/// box grown to hold any outside it; and how far every old position moved.
-pub fn edit_grown(
-    data: &[u8],
-    changes: &BTreeMap<Pos, String>,
-) -> Result<(Vec<u8>, Pos)> {
-    edit_grown_moving(data, changes, &HashMap::new())
-}
-
-/// As [`edit_grown`], each block entity at a key of `moves`, such as a
-/// sign's, moved to its value, `changes` putting its block there.
-pub fn edit_grown_moving<S: std::hash::BuildHasher>(
-    data: &[u8],
-    changes: &BTreeMap<Pos, String>,
-    moves: &HashMap<Pos, Pos, S>,
-) -> Result<(Vec<u8>, Pos)> {
-    let blocks = Blocks::read(data)?;
-    let mut grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
-    let (mut low, mut high) = ([0; 3], blocks.size.map(|n| n - 1));
-    for (&pos, state) in changes {
-        for axis in 0..3 {
-            low[axis] = low[axis].min(pos[axis]);
-            high[axis] = high[axis].max(pos[axis]);
-        }
-        if state == AIR {
-            grid.remove(&pos);
-        } else {
-            grid.insert(pos, state.clone());
-        }
-    }
-    let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
-    let file = rebox_with(data, &grid, low, size, &HashMap::new(), moves)?;
-    Ok((file, low.map(|n| -n)))
 }
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
@@ -314,7 +256,7 @@ pub fn without_trapdoors(data: &[u8]) -> Result<Vec<u8>> {
     if gone.is_empty() {
         return Ok(data.to_vec());
     }
-    edit(data, &gone)
+    schem::edit(data, &gone)
 }
 
 /// The file with each furnace, cauldron, and cake, and each container whose
@@ -434,91 +376,6 @@ fn stand_in_strength(state: &str) -> Option<u8> {
     })
 }
 
-/// `data` as the 3D viewer, schematic-renderer, should be given it: it
-/// turns a wall sign facing east or west the wrong way round, onto the far
-/// side of its own space, a block from what it hangs on, so each such sign
-/// is given facing the other way.
-pub fn for_viewer(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let mut swapped = false;
-    let grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| {
-            let wall_sign = schem::id(state).ends_with("_wall_sign");
-            let facing = schem::property(state, "facing");
-            let turned = match facing {
-                Some("east") if wall_sign => {
-                    state.replace("facing=east", "facing=west")
-                }
-                Some("west") if wall_sign => {
-                    state.replace("facing=west", "facing=east")
-                }
-                _ => return (pos, state.to_owned()),
-            };
-            swapped = true;
-            (pos, turned)
-        })
-        .collect();
-    if !swapped {
-        return Ok(data.to_vec());
-    }
-    rebox(data, &grid, [0, 0, 0], blocks.size)
-}
-
-/// Writes `grid`, in the file's own positions, into a box of `size` whose
-/// first block is at `low`, moving signs and other block entities along,
-/// each sign's lines plain text; see `schem::plain_sign`.
-/// Entities left outside the box are dropped.
-pub fn rebox<G: std::hash::BuildHasher>(
-    data: &[u8],
-    grid: &HashMap<Pos, String, G>,
-    low: Pos,
-    size: Pos,
-) -> Result<Vec<u8>> {
-    rebox_with(data, grid, low, size, &HashMap::new(), &HashMap::new())
-}
-
-/// As `rebox`, each comparator at a position of `strengths`, in the old
-/// box, putting out its strength, and each block entity at a key of
-/// `moves` moved to its value.
-fn rebox_with<G: std::hash::BuildHasher, S: std::hash::BuildHasher>(
-    data: &[u8],
-    grid: &HashMap<Pos, String, G>,
-    low: Pos,
-    size: Pos,
-    strengths: &HashMap<Pos, u8>,
-    moves: &HashMap<Pos, Pos, S>,
-) -> Result<Vec<u8>> {
-    let shift = |pos: Pos| [0, 1, 2].map(|axis| pos[axis] - low[axis]);
-    let inside =
-        |pos: Pos| (0..3).all(|axis| (0..size[axis]).contains(&pos[axis]));
-    let placed: HashMap<Pos, String> = grid
-        .iter()
-        .map(|(&pos, state)| (shift(pos), state.clone()))
-        .collect();
-    let mut nbt = schem::decode(data)?;
-    nbt.move_roles(|pos| Some(shift(pos)));
-    // A block entity whose block was taken out goes with it, and a sign's
-    // lines are written plain.
-    let entities = nbt
-        .take_entities()
-        .iter()
-        .filter_map(|entity| {
-            let was = schem::entity_pos(entity)?;
-            let pos = shift(moves.get(&was).copied().unwrap_or(was));
-            let entity = match strengths.get(&was) {
-                Some(&strength) => schem::with_output_signal(entity, strength),
-                None => entity.clone(),
-            };
-            (inside(pos) && placed.contains_key(&pos))
-                .then(|| schem::with_pos(&schem::plain_sign(&entity), pos))
-        })
-        .collect();
-    nbt.write_blocks(low, size, &placed, entities)?;
-    schem::encode(nbt)
-}
-
 /// Glass that is no part of the build, of any colour: old corner markers,
 /// or `WorldEdit`'s, as a player places them in whatever glass. A group
 /// of glass is loose when it touches nothing but air and levers and signs
@@ -588,51 +445,4 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
         }
     }
     loose
-}
-
-/// What the block id `name`, without its namespace, counts as among a
-/// build's blocks: a redstone part by what it is, a torch on a wall or on
-/// the floor alike and dust whatever its shape; every see-through block as
-/// one, and every other solid block as one. `None` for air and for signs,
-/// which carry only labels.
-pub fn block_kind(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "air" | "cave_air" | "void_air" => return None,
-        _ if name.ends_with("_sign") => return None,
-        "redstone_wire" => "Dust",
-        "redstone_torch" | "redstone_wall_torch" => "Torch",
-        "repeater" => "Repeater",
-        "comparator" => "Comparator",
-        "target" => "Target",
-        "barrel" => "Barrel",
-        "redstone_block" => "Redstone block",
-        "lever" => "Lever",
-        _ if name.ends_with("_button") => "Button",
-        _ if name.ends_with("_pressure_plate") => "Pressure plate",
-        "observer" => "Observer",
-        "piston" | "sticky_piston" | "piston_head" | "moving_piston" => {
-            "Piston"
-        }
-        "redstone_lamp" => "Lamp",
-        "hopper" => "Hopper",
-        "furnace" => "Furnace",
-        "cake" => "Cake",
-        _ if name.ends_with("cauldron") => "Cauldron",
-        _ if block::see_through(name) => "Transparent",
-        _ => "Solid",
-    })
-}
-
-/// How many of each kind of block, as `block_kind` counts them, `blocks`
-/// holds, most first.
-pub fn block_counts(blocks: &Blocks) -> Vec<(&'static str, usize)> {
-    let mut counts: HashMap<&'static str, usize> = HashMap::new();
-    for (_, state) in blocks.iter() {
-        if let Some(kind) = block_kind(schem::short(state)) {
-            *counts.entry(kind).or_default() += 1;
-        }
-    }
-    let mut counts: Vec<(&'static str, usize)> = counts.into_iter().collect();
-    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
-    counts
 }

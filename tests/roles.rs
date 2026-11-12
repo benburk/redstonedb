@@ -4,9 +4,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use app::{
     category::Kind,
+    ingest::standardize,
     recognize::roles::{self, Need, Role},
-    schem::{self, Blocks, Pos, stack, standardize},
+    schem::{self, Blocks, Pos},
     simulate::{Report, Test},
+    stack,
 };
 
 /// The fixture file at `path`, carrying the roles its colours mark, as the
@@ -55,7 +57,7 @@ fn without(data: &[u8], gone: impl IntoIterator<Item = Pos>) -> Vec<u8> {
         .into_iter()
         .map(|p| (p, schem::AIR.to_owned()))
         .collect();
-    standardize::edit(data, &changes).unwrap()
+    schem::edit(data, &changes).unwrap()
 }
 
 fn unused(roles: &BTreeMap<Pos, Role>) -> Vec<Pos> {

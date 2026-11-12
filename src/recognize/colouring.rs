@@ -18,8 +18,7 @@ use crate::{
     recognize::colour,
     schem::{
         self, Blocks, Pos, block,
-        orient::{self, Turn},
-        standardize,
+        turn::{self, Turn},
     },
 };
 
@@ -80,7 +79,7 @@ pub fn read(
     let mut closest: Option<(usize, Vec<String>)> = None;
     for mirrored in [false, true] {
         for quarters in 0..4 {
-            let turned = orient::turned(original, Turn { mirrored, quarters })?;
+            let turned = turn::turned(original, Turn { mirrored, quarters })?;
             let turned = Blocks::read(&turned)?;
             let room = [0, 1, 2].map(|i| turned.size[i] - stored.size[i]);
             if room.iter().any(|&r| r < 0) {
@@ -192,7 +191,7 @@ pub fn apply(data: &[u8], colouring: &Colouring) -> Result<Vec<u8>> {
         return Ok(data.to_vec());
     }
     lamps_at_rest(data, &blocks, &mut changes)?;
-    standardize::edit(data, &changes)
+    schem::edit(data, &changes)
 }
 
 /// Each lamp among `changes`, a colouring of the file in `data` read as
@@ -215,7 +214,7 @@ fn lamps_at_rest(
     if lamps.is_empty() {
         return Ok(());
     }
-    let with_lamps = Blocks::read(&standardize::edit(data, &lamps)?)?;
+    let with_lamps = Blocks::read(&schem::edit(data, &lamps)?)?;
     let on: BTreeSet<Pos> = blocks
         .iter()
         .filter(|(_, state)| {
@@ -261,12 +260,12 @@ mod tests {
             .iter()
             .map(|&pos| (pos, "minecraft:blue_wool".to_owned()))
             .collect();
-        let authors = standardize::edit(&stored, &wool).unwrap();
+        let authors = schem::edit(&stored, &wool).unwrap();
         let turn = Turn {
             mirrored: true,
             quarters: 2,
         };
-        let authors = orient::turned(&authors, turn).unwrap();
+        let authors = turn::turned(&authors, turn).unwrap();
 
         let colouring = read(&authors, &stored).unwrap().unwrap();
         let expected: Colouring = solid

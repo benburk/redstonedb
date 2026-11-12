@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     recognize::interface,
-    schem::{Blocks, Pos, stack},
+    schem::{Blocks, Pos},
     simulate::{
         Value,
         bench::mask,
@@ -21,6 +21,7 @@ use crate::{
         },
         timing::Timing,
     },
+    stack,
 };
 
 /// How copies of the register or buffer in `data`, a file whose own cases
@@ -309,8 +310,7 @@ pub fn throughput(
             (switch.pos, format!("minecraft:lever[{properties}"))
         })
         .collect();
-    let levered =
-        Blocks::read(&crate::schem::standardize::edit(data, &levers)?)?;
+    let levered = Blocks::read(&crate::schem::edit(data, &levers)?)?;
     // Each bus's latency as it arrives at the repeaters or comparators
     // carrying it out, as its timing gives it, each bit read as many ticks
     // later as its own takes to give it out.

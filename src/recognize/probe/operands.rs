@@ -230,7 +230,7 @@ mod tests {
         // Raw, with blocks the simulator doesn't model until they are
         // standardized.
         let raw = std::fs::read("tests/fixtures/xor-1.schem").unwrap();
-        let standard = crate::schem::standardize::standardize(&raw).unwrap();
+        let standard = crate::ingest::standardize::standardize(&raw).unwrap();
         let found = recognize(&standard).unwrap();
         assert!(
             found

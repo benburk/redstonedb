@@ -13,8 +13,8 @@ use crate::{
         schematic::{self, Build, Credits, Orientation, Specs, StackDirection},
         simulation, tag,
     },
-    schem::stack,
     simulate::{Report, Test},
+    stack,
 };
 
 /// A build's details, typed. As given they may break a rule, such as naming

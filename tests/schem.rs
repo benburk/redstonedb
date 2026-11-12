@@ -5,10 +5,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use app::{
     category::Kind,
     import,
+    ingest::standardize,
     models::schematic::{Orientation, StackDirection},
     recognize::interface,
-    schem::{self, Blocks, Direction, lines::Role, stack, standardize},
-    simulate,
+    schem::{self, Blocks, Direction, lines::Role},
+    simulate, stack,
 };
 
 fn raw(name: &str) -> Vec<u8> {
@@ -745,8 +746,7 @@ fn the_viewers_copy_turns_east_and_west_wall_signs() {
         }
         let data = std::fs::read(path).unwrap();
         let before = Blocks::read(&data).unwrap();
-        let after =
-            Blocks::read(&standardize::for_viewer(&data).unwrap()).unwrap();
+        let after = Blocks::read(&schem::for_viewer(&data).unwrap()).unwrap();
         for (pos, state) in before.iter() {
             let wall_sign = schem::id(state).ends_with("_wall_sign");
             let expected = match schem::property(state, "facing") {
@@ -930,9 +930,9 @@ fn blocks_are_counted_by_kind() {
         ("oak_wall_sign", None),
         ("air", None),
     ] {
-        assert_eq!(standardize::block_kind(name), kind, "{name}");
+        assert_eq!(schem::block::block_kind(name), kind, "{name}");
     }
-    let counts = standardize::block_counts(&blocks("alpha-rca"));
+    let counts = schem::block::block_counts(&blocks("alpha-rca"));
     let total: usize = counts.iter().map(|(_, n)| n).sum();
     assert!(total > 0);
     assert!(counts.windows(2).all(|w| w[0].1 >= w[1].1), "most first");
@@ -1068,7 +1068,7 @@ fn an_upload_that_cannot_settle_keeps_its_levers() {
          powered=false]"
             .to_owned(),
     );
-    let (ticking, _) = standardize::edit_grown(&saved_on, &clock).unwrap();
+    let (ticking, _) = schem::edit_grown(&saved_on, &clock).unwrap();
     assert!(
         standardize::with_levers(&ticking, &BTreeSet::new()).is_err(),
         "the clock never comes to rest"

@@ -49,7 +49,7 @@ pub struct FileRead {
     /// from being recognized.
     pub strength_inputs: bool,
     /// How its stacking looks, each way it stacks.
-    pub stacking: Vec<crate::schem::stack::Review>,
+    pub stacking: Vec<crate::stack::Review>,
     /// What uploading it takes out or swaps, each a sentence, such as its
     /// signs; empty for a stored build, whose upload is done.
     pub kept: Vec<String>,

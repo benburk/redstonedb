@@ -151,7 +151,7 @@ mod tests {
         // Raw, with blocks the simulator doesn't model until they are
         // standardized.
         let raw = std::fs::read("tests/fixtures/mult-8-buttons.schem").unwrap();
-        let standard = crate::schem::standardize::standardize(&raw).unwrap();
+        let standard = crate::ingest::standardize::standardize(&raw).unwrap();
         let found = recognize_as(&standard, Some("multiplier")).unwrap();
         assert!(found.found.is_none(), "{:?}", found.found);
         assert!(

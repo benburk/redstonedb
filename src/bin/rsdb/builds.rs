@@ -11,8 +11,7 @@ use app::{
         schematic::{self, Encoding, Logic, Orientation, StackDirection},
         simulation, tag, version,
     },
-    schem::stack,
-    search,
+    search, stack,
 };
 use clap::Args;
 use sqlx::SqlitePool;

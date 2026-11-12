@@ -19,7 +19,7 @@ use crate::{
         user::User,
         version::{self, Replacing, Version},
     },
-    schem::standardize,
+    schem,
     web::{
         app_state::AppState,
         error::AppError,
@@ -299,7 +299,7 @@ pub async fn diff_file(
         _ => return Err(AppError::NotFound),
     };
     if preview {
-        let data = standardize::for_viewer(&data).unwrap_or(data);
+        let data = schem::for_viewer(&data).unwrap_or(data);
         return Ok(super::attachment("diff.schem", data));
     }
     if let (Some(user), true) = (&viewer, method == Method::GET) {

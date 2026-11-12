@@ -390,7 +390,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         (stray, "minecraft:white_concrete".to_owned()),
         (pos, lever.replace("powered=false", "powered=true")),
     ]);
-    let data = app::schem::standardize::edit(&current, &thrown).unwrap();
+    let data = app::schem::edit(&current, &thrown).unwrap();
     eprintln!(
         "DEBUG same {} lever {lever} on now {}",
         data == current,
@@ -426,7 +426,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
 fn a_failing_build_probed_again_keeps_its_nearest_reading() {
     let raw = std::fs::read("tests/fixtures/adder-16-split-no-carry-out.schem")
         .expect("fixture is readable");
-    let data = app::schem::standardize::without_trapdoors(&raw).unwrap();
+    let data = app::ingest::standardize::without_trapdoors(&raw).unwrap();
     let (file, found) = app::recognize::probe::reprobe(&data, "adder")
         .unwrap()
         .expect("its test ran");

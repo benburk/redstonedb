@@ -3,6 +3,10 @@
 //! question has one answer here, though the check of a build's inputs asks
 //! a looser one of its own, [`holds_input`], than dust's, [`solid`].
 
+use std::collections::HashMap;
+
+use super::{self as schem, Blocks, Direction, Pos};
+
 /// Redstone components and the other blocks every build may use, by id
 /// without its namespace. Besides dust, torches, and the like, this keeps
 /// the blocks a comparator reads, such as barrels, since a build uses them
@@ -172,6 +176,96 @@ pub fn see_through(name: &str) -> bool {
 /// stained glass in their place.
 pub fn like_glass(name: &str) -> bool {
     name.ends_with("_slab") || name.ends_with("_stairs") || name == "glowstone"
+}
+
+/// The block `id` acts as, such as `oak_button` for any wooden button: a
+/// button or pressure plate goes by what it does, not what it is made of.
+pub(crate) fn like(id: &str) -> &str {
+    if id.ends_with("_button") {
+        if matches!(id, "stone_button" | "polished_blackstone_button") {
+            "stone_button"
+        } else {
+            "oak_button"
+        }
+    } else if id.ends_with("_pressure_plate") && !id.contains("weighted") {
+        "stone_pressure_plate"
+    } else {
+        id
+    }
+}
+
+/// The block the component `id` at `pos` rests on or hangs from, and
+/// whether it rests on its top; `None` for a block that needs none.
+pub(crate) fn support(pos: Pos, state: &str, id: &str) -> Option<(Pos, bool)> {
+    let below = Some((schem::step(pos, Direction::Down), true));
+    match id {
+        "redstone_wire"
+        | "redstone_torch"
+        | "repeater"
+        | "comparator"
+        | "stone_pressure_plate"
+        | "light_weighted_pressure_plate"
+        | "heavy_weighted_pressure_plate" => below,
+        "redstone_wall_torch" => Some((schem::torch_block(pos, state)?, false)),
+        "lever" | "stone_button" | "oak_button" => {
+            match schem::property(state, "face")? {
+                "floor" => below,
+                "ceiling" => Some((schem::step(pos, Direction::Up), false)),
+                _ => {
+                    let facing = Direction::facing(state)?;
+                    Some((schem::step(pos, facing.opposite()), false))
+                }
+            }
+        }
+        _ => None,
+    }
+}
+
+/// What the block id `name`, without its namespace, counts as among a
+/// build's blocks: a redstone part by what it is, a torch on a wall or on
+/// the floor alike and dust whatever its shape; every see-through block as
+/// one, and every other solid block as one. `None` for air and for signs,
+/// which carry only labels.
+pub fn block_kind(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "air" | "cave_air" | "void_air" => return None,
+        _ if name.ends_with("_sign") => return None,
+        "redstone_wire" => "Dust",
+        "redstone_torch" | "redstone_wall_torch" => "Torch",
+        "repeater" => "Repeater",
+        "comparator" => "Comparator",
+        "target" => "Target",
+        "barrel" => "Barrel",
+        "redstone_block" => "Redstone block",
+        "lever" => "Lever",
+        _ if name.ends_with("_button") => "Button",
+        _ if name.ends_with("_pressure_plate") => "Pressure plate",
+        "observer" => "Observer",
+        "piston" | "sticky_piston" | "piston_head" | "moving_piston" => {
+            "Piston"
+        }
+        "redstone_lamp" => "Lamp",
+        "hopper" => "Hopper",
+        "furnace" => "Furnace",
+        "cake" => "Cake",
+        _ if name.ends_with("cauldron") => "Cauldron",
+        _ if see_through(name) => "Transparent",
+        _ => "Solid",
+    })
+}
+
+/// How many of each kind of block, as `block_kind` counts them, `blocks`
+/// holds, most first.
+pub fn block_counts(blocks: &Blocks) -> Vec<(&'static str, usize)> {
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for (_, state) in blocks.iter() {
+        if let Some(kind) = block_kind(schem::short(state)) {
+            *counts.entry(kind).or_default() += 1;
+        }
+    }
+    let mut counts: Vec<(&'static str, usize)> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(b.0)));
+    counts
 }
 
 #[cfg(test)]

@@ -397,9 +397,9 @@ fn versions(s: &Build) -> Vec<String> {
     let Some(from) = &s.file.works_from else {
         return Vec::new();
     };
-    crate::schem::works_from::known()
+    crate::works_from::known()
         .into_iter()
-        .filter(|release| crate::schem::works_from::works_in(from, release))
+        .filter(|release| crate::works_from::works_in(from, release))
         .map(|release| format!("version:{}", release.to_lowercase()))
         .collect()
 }

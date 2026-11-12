@@ -274,7 +274,7 @@ pub(super) async fn prune(
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
-    let buses = app::schem::stack::Buses::of(s.kind(), s.specs.orientation);
+    let buses = app::stack::Buses::of(s.kind(), s.specs.orientation);
     let pruned = match app::recognize::roles::prune(&data, &s.stacking, buses) {
         Ok(Some(pruned)) => pruned,
         Ok(None) => return Ok(()),

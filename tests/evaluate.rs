@@ -4,9 +4,10 @@ use std::collections::BTreeMap;
 
 use app::{
     import,
+    ingest::standardize,
     models::schematic::{Logic, Orientation},
     recognize::evaluate::evaluate,
-    schem::{Blocks, standardize},
+    schem::{self, Blocks},
     simulate::{Report, Stacking},
 };
 
@@ -388,7 +389,7 @@ fn an_even_parity_circuit_is_not_a_parity_circuit() {
     .into_iter()
     .map(|(pos, state)| (pos, format!("minecraft:{state}")))
     .collect();
-    let (even, _) = standardize::edit_grown(&standard, &changes).unwrap();
+    let (even, _) = schem::edit_grown(&standard, &changes).unwrap();
     let recognition = app::recognize::probe::recognize(&even).unwrap();
     assert!(
         !recognition
@@ -456,7 +457,7 @@ fn an_alus_inverted_lines_are_found_with_its_levers_saved_off() {
         })
         .collect();
     assert!(!off.is_empty());
-    let e = evaluate(&standardize::edit(&data, &off).unwrap()).unwrap();
+    let e = evaluate(&schem::edit(&data, &off).unwrap()).unwrap();
     assert_eq!(e.category, Some("alu"));
     assert!(e.passes(), "{:?}", e.report);
 }

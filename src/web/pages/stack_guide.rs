@@ -10,7 +10,7 @@ use maud::{Markup, html};
 
 use crate::{
     models::schematic::{Build, StackDirection, classes},
-    schem::stack::{FirstCopy, Review},
+    stack::{FirstCopy, Review},
 };
 
 use super::SECTION_TITLE;

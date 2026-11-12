@@ -412,7 +412,7 @@ async fn read_file(
     .map_err(|err| err.to_string())?;
     Ok(pages::FileRead {
         analysis: crate::import::Analysis::of(&blocks, category),
-        block_counts: crate::schem::standardize::block_counts(&blocks),
+        block_counts: crate::schem::block::block_counts(&blocks),
         unrecognized: problems,
         strength_inputs: crate::recognize::interface::takes_digits(&blocks),
         stacking: Vec::new(),
@@ -457,7 +457,7 @@ fn taken_out(
         }
         if let Ok(blocks) = Blocks::read(original) {
             let swapped =
-                crate::schem::standardize::swappable(&blocks).stand_ins;
+                crate::ingest::standardize::swappable(&blocks).stand_ins;
             if !swapped.is_empty() {
                 let one = matches!(swapped.as_slice(), [(_, 1)]);
                 said.push(format!(
@@ -480,7 +480,7 @@ fn taken_out(
         ));
     }
     if passes {
-        let buses = crate::schem::stack::Buses::own();
+        let buses = crate::stack::Buses::own();
         if let Ok(Some(pruned)) =
             crate::recognize::roles::prune(found, &[], buses)
         {

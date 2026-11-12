@@ -21,8 +21,8 @@ use crate::{
         version,
     },
     recognize::palette,
-    schem::{Blocks, stack},
-    thumbnail,
+    schem::Blocks,
+    stack, thumbnail,
     web::{
         app_state::AppState,
         error::AppError,
@@ -191,7 +191,7 @@ pub async fn detail(
         .map(|blocks| pages::FileRead {
             unrecognized,
             analysis: read_for_page(&s, &data, &blocks),
-            block_counts: crate::schem::standardize::block_counts(&blocks),
+            block_counts: crate::schem::block::block_counts(&blocks),
             strength_inputs: crate::recognize::interface::takes_digits(&blocks),
             kept: Vec::new(),
             stacking: s
