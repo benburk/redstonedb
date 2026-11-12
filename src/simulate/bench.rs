@@ -773,23 +773,13 @@ pub(crate) fn judge(
         pattern: bench.pattern.clone(),
         cases: cases.len() as u64,
         exhaustive: true,
-        patterns: 0,
         wrong,
         inputs: signals(&bench.inputs, false),
         outputs: signals(&bench.outputs, true),
         wrong_bits,
         examples,
         bit_counts,
-        hint: None,
-        inverted: Vec::new(),
-        reading: None,
-        strength: None,
-        cells: Vec::new(),
-        faults: Vec::new(),
-        timing: None,
-        stacking: None,
-        design: None,
-        by_digit: false,
+        ..Run::default()
     }
 }
 

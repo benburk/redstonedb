@@ -212,8 +212,6 @@ fn run(found: &Cases, dual: bool) -> Run {
         pattern,
         cases: found.tried.len() as u64,
         exhaustive: true,
-        patterns: 0,
-        by_digit: false,
         wrong,
         inputs: vec![Signal {
             name: found.input.clone(),
@@ -225,16 +223,8 @@ fn run(found: &Cases, dual: bool) -> Run {
         }],
         wrong_bits: wrong_bits.into_iter().collect(),
         examples,
-        bit_counts: Vec::new(),
         hint,
-        inverted: Vec::new(),
-        reading: None,
-        strength: None,
-        cells: Vec::new(),
-        faults: Vec::new(),
-        timing: None,
-        stacking: None,
-        design: None,
+        ..Run::default()
     }
 }
 
@@ -479,9 +469,8 @@ pub fn time(
     let mut ticks_seen: Vec<i32> =
         triggered.iter().flat_map(|case| starts(case)).collect();
     ticks_seen.sort_unstable();
-    let at = |share: usize| {
-        ticks_seen[(ticks_seen.len() * share / 100).min(ticks_seen.len() - 1)]
-    };
+    let at =
+        |share: usize| crate::simulate::timing::percentile(&ticks_seen, share);
     let bit_timing = |bit: usize| {
         let pulses: Vec<(i32, i32)> = triggered
             .iter()
@@ -526,17 +515,14 @@ pub fn time(
         slowest,
         slowest_case: vec![slowest_case],
         changes: triggered.len() as u64,
-        patterns: false,
         start: Start::Input,
-        write: None,
-        data: None,
         takes: Takes::Open,
         pulse: Some(Pulse {
             ticks,
             inverted: found.inverted,
             edge,
         }),
-        free_running: None,
+        ..Timing::default()
     })
 }
 

@@ -748,8 +748,6 @@ impl Tally {
             },
             cases: self.cases,
             exhaustive,
-            patterns: 0,
-            by_digit: false,
             wrong: self.wrong,
             inputs: vec![Signal {
                 name: interface.inputs[register.data].name.clone(),
@@ -770,8 +768,6 @@ impl Tally {
                 .filter(|&(_, count)| count > 0)
                 .collect(),
             examples: self.examples,
-            bit_counts: Vec::new(),
-            hint: None,
             // A read that reads with its lever off reads inverted.
             inverted: {
                 let mut reads: Vec<String> = register
@@ -785,12 +781,7 @@ impl Tally {
                 reads
             },
             reading: Some(Reading::Register { inverted }),
-            strength: None,
-            cells: Vec::new(),
-            faults: Vec::new(),
-            timing: None,
-            stacking: None,
-            design: None,
+            ..Run::default()
         }
     }
 }

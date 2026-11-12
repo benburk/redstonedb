@@ -1043,26 +1043,14 @@ fn run(lines: &Lines, found: Found) -> Run {
         pattern,
         cases: found.cases,
         exhaustive: lines.width <= 8,
-        patterns: 0,
-        by_digit: false,
         wrong: found.wrong,
         inputs,
         outputs: vec![Signal {
             name: lines.state_name.clone(),
             bits: lines.width,
         }],
-        wrong_bits: Vec::new(),
         examples: found.examples,
-        bit_counts: Vec::new(),
-        hint: None,
-        inverted: Vec::new(),
-        reading: None,
-        strength: None,
-        cells: Vec::new(),
-        faults: Vec::new(),
-        timing: None,
-        stacking: None,
-        design: None,
+        ..Run::default()
     }
 }
 
@@ -1172,15 +1160,8 @@ impl Clocked {
     /// takes to carry the value out.
     fn timing(mut self, lines: &Lines, way: Way, carried: i32) -> Timing {
         self.settles.sort_unstable();
-        let settles = &self.settles;
         let at = |share: usize| {
-            settles
-                .get(
-                    (settles.len() * share / 100)
-                        .min(settles.len().saturating_sub(1)),
-                )
-                .copied()
-                .unwrap_or(0)
+            crate::simulate::timing::percentile(&self.settles, share)
         };
         let (median, p99) = (at(50), at(99));
         Timing {
@@ -1214,15 +1195,10 @@ impl Clocked {
             median,
             p99,
             slowest: self.settles.last().copied().unwrap_or(0),
-            slowest_case: Vec::new(),
             changes: self.changes,
-            patterns: false,
             start: Start::Clock,
-            write: None,
-            data: None,
             takes: Takes::Open,
-            pulse: None,
-            free_running: None,
+            ..Timing::default()
         }
     }
 }
