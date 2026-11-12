@@ -31,8 +31,8 @@
 //!   combination and back;
 //! - every input together, each at its timing, from one set of values
 //!   straight to another drawn at random over every value each may take,
-//!   as the logic analyzer's sweep draws them, the same each time: a race
-//!   between two values neither of them all off shows only so.
+//!   the same each time: a race between two values neither of them all off
+//!   shows only so.
 //!
 //! A build with too many input bits to try every value takes the test
 //! patterns instead, such as all ones or alternate bits set, which make an
@@ -347,7 +347,7 @@ pub(super) type Chosen = Option<(Vec<Vec<Value>>, bool)>;
 const STREAMED: u64 = 8192;
 
 /// How many changes from one set of values straight to another at random
-/// a build is timed by, as many as the logic analyzer's sweep traces.
+/// a build is timed by.
 const WANDERED: u64 = 1000;
 
 /// What a random change's number starts from, so a glitch from all off,

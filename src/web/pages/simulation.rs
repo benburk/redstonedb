@@ -179,8 +179,8 @@ fn timing_intro(timing: &Timing) -> Markup {
 
 /// A synced build's timing, with nothing to say beyond its inputs and
 /// outputs, is hidden, and its section with it, but on a stored build's
-/// page, `trace` its logic analyzer, which draws its glitch or else its
-/// slowest change, and links each glitch to the change it came in.
+/// page, where its glitch or else its slowest change is drawn as it runs,
+/// asked for under `trace`.
 pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
     let quiet =
         timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
@@ -207,7 +207,7 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
             }
             @if let Some(trace) = trace {
                 // A stored build's glitch is traced, its chart drawn once the
-                // page has loaded; any other output's glitch is a link.
+                // page has loaded; any other output's glitch is a table.
                 @let shown = shown_glitch(timing).map(|o| o.name.as_str());
                 // Its glitch, or with none its slowest change, drawn as it
                 // runs once the page has loaded.
@@ -219,10 +219,7 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
                 }
                 @for output in timing.outputs.iter().filter(|o| Some(o.name.as_str()) != shown) {
                     @if let Some(glitch) = &output.glitch {
-                        p class="mt-4" {
-                            strong { "Glitch: " (output.name) ", all off → " (case_words(glitch, &timing.inputs)) }
-                            " " a href=(glitch_link(trace, glitch, &timing.inputs)) { "Trace it" }
-                        }
+                        (glitch_example(&output.name, glitch, &timing.inputs))
                     }
                 }
             } @else {
@@ -234,12 +231,6 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
             }
             @for output in timing.outputs.iter().filter(|o| o.glitches > 0 || o.staggered > 0) {
                 (bit_timing(output))
-            }
-            @if let Some(trace) = trace {
-                p class="mt-4" {
-                    a href=(trace) { "Trace it tick by tick in the logic analyzer" }
-                    span class="text-muted" { ": each output's waveform, what set each change off, and its races." }
-                }
             }
         }
     }
@@ -253,23 +244,6 @@ fn case_words(glitch: &Glitch, inputs: &[InputTiming]) -> String {
         .map(|(input, value)| format!("{}={value}", input.name))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-/// The logic analyzer at `trace` tracing `glitch`'s change, every input
-/// from 0, each switching on its tick, as the timing switched them.
-fn glitch_link(trace: &str, glitch: &Glitch, inputs: &[InputTiming]) -> String {
-    let mut pairs: Vec<(String, String)> = Vec::new();
-    for (input, value) in inputs.iter().zip(&glitch.case) {
-        pairs.push((format!("to.{}", input.name), value.to_string()));
-        if let Some(tick) = input.tick.filter(|&tick| tick != 0 && *value != 0)
-        {
-            pairs.push((format!("at.{}", input.name), tick.to_string()));
-        }
-    }
-    format!(
-        "{trace}?{}",
-        serde_urlencoded::to_string(pairs).unwrap_or_default()
-    )
 }
 
 /// The first change from all off in which `name` glitched: its value at
