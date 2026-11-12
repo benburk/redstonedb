@@ -171,7 +171,7 @@ fn probing_a_hex_adder_finds_its_digits() {
         "{:?}",
         recognition.problems
     );
-    let lines = app::recognize::interface::read(
+    let lines = app::interface::read(
         &app::schem::Blocks::read(&recognition.file).unwrap(),
     );
     let digits: Vec<_> = lines
@@ -238,8 +238,7 @@ async fn an_unaligned_build_is_kept_in_its_category() {
         else {
             panic!("{name} is not kept as a {category}");
         };
-        let lines =
-            app::recognize::interface::Kept::read(&file.blocks).unwrap();
+        let lines = app::interface::Kept::read(&file.blocks).unwrap();
         assert_eq!(lines.unaligned(), unaligned, "{name}");
     }
 }
@@ -327,12 +326,11 @@ fn an_adders_output_bit_past_its_operands_is_its_carry_out() {
     let recognition = app::recognize::probe::recognize(&bare).unwrap();
     assert!(recognition.found.is_some(), "{:?}", recognition.problems);
     let blocks = app::schem::Blocks::read(&recognition.file).unwrap();
-    let outputs: Vec<(Option<Role>, usize)> =
-        app::recognize::interface::read(&blocks)
-            .outputs
-            .iter()
-            .map(|port| (port.role, port.bits.len()))
-            .collect();
+    let outputs: Vec<(Option<Role>, usize)> = app::interface::read(&blocks)
+        .outputs
+        .iter()
+        .map(|port| (port.role, port.bits.len()))
+        .collect();
     assert_eq!(
         outputs,
         [(Some(Role::Output(0)), 10), (Some(Role::Status), 1)]

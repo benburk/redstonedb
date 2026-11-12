@@ -191,7 +191,7 @@ pub async fn detail(
             unrecognized,
             analysis: read_for_page(&s, &data, &blocks),
             block_counts: crate::schem::block::block_counts(&blocks),
-            strength_inputs: crate::recognize::interface::takes_digits(&blocks),
+            strength_inputs: crate::interface::takes_digits(&blocks),
             kept: Vec::new(),
             stacking: s
                 .stacking

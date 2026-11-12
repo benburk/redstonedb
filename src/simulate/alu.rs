@@ -39,7 +39,7 @@ use super::{
     timing,
 };
 use crate::{
-    recognize::{colour, interface::Interface},
+    interface::{Interface, colour},
     schem::Blocks,
 };
 
@@ -585,7 +585,7 @@ fn selections(
 /// control lines are found to give, and checks every result, or with
 /// `quick` a few telling ones of each.
 pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
     let found = selections(blocks, &interface, &alu)?;
     if found.is_empty() {
@@ -761,7 +761,7 @@ pub fn zero(op: Op, a: Value, b: Value, carry: Value, width: usize) -> bool {
 /// data bits on one tick, whatever its operands and operation change from
 /// and to; a status line, such as a carry out, may settle on its own tick.
 pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
     let mut inputs = vec![alu.a, alu.b];
     inputs.extend(alu.carry_in);
@@ -791,7 +791,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
 /// add and subtract, which every ALU is taken to have, and its carry in,
 /// and its carry out, overflow, and zero, whose meaning is plain.
 pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
     let mut flags: Vec<String> = selections(blocks, &interface, &alu)?
         .iter()
@@ -820,7 +820,7 @@ pub fn flags(blocks: &Blocks) -> Result<Vec<String>> {
 /// state, as `bench::remembers` tells of each of its operations, its
 /// control lines held.
 pub fn remembers(blocks: &Blocks) -> Result<bool> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
     let outputs: Vec<usize> = (0..interface.outputs.len()).collect();
     bench::remembers_any(
@@ -840,7 +840,7 @@ pub fn remembers(blocks: &Blocks) -> Result<bool> {
 /// add. The shortest period at any timing of its lines; `None` when none up
 /// to twice its slowest output keeps every result right.
 pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
-    let interface = crate::recognize::interface::read(blocks);
+    let interface = crate::interface::read(blocks);
     let alu = polarized(blocks, &interface)?;
     let ops = selections(blocks, &interface, &alu)?;
     if ops.is_empty() {

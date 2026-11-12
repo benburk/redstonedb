@@ -13,7 +13,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    recognize::repeater_outputs,
+    interface::repeater_outputs,
     schem::{self, Blocks, Direction, Pos, block},
 };
 

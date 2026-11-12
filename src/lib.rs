@@ -82,6 +82,7 @@ pub mod diff;
 pub mod external;
 pub mod import;
 pub mod ingest;
+pub mod interface;
 pub mod leaderboard;
 pub mod models;
 pub mod recognize;

@@ -3,11 +3,12 @@
 //! them, then the rest by name. It is the list of standard categories:
 //! people add to it here.
 
+use super::Logic;
 use super::{
     Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Lines, Measure,
     Probe, Probing, Reads, Section, Stacking,
 };
-use crate::{models::schematic::Logic, recognize::probe::Line, simulate::Test};
+use crate::{recognize::probe::Line, simulate::Test};
 
 /// What the code does with a category's builds when it does nothing
 /// special: the default `Behaviour`, here where a constant needs it.
@@ -97,10 +98,10 @@ const fn gate(test: Test) -> Behaviour {
 }
 
 /// The name an unsigned carry in goes by; see `colour::CARRY_IN`.
-const CARRY_IN: &str = crate::recognize::colour::CARRY_IN[0];
+const CARRY_IN: &str = crate::interface::colour::CARRY_IN[0];
 
 /// The name an unsigned carry out goes by; see `colour::CARRY_OUT`.
-const CARRY_OUT: &str = crate::recognize::colour::CARRY_OUT[0];
+const CARRY_OUT: &str = crate::interface::colour::CARRY_OUT[0];
 
 /// An adder's, a hex adder's, and a subtractor's: a hex adder is an adder
 /// whose inputs each take a hex digit per block, and a subtractor one

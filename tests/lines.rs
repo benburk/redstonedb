@@ -8,14 +8,12 @@ use app::{
     details::{self, Candidate, Details},
     import,
     ingest::standardize,
+    interface::{self, Kept},
     models::version,
-    recognize::{
-        interface::{self, Kept},
-        palette::{self, Palette},
-    },
+    recognize::palette::{self, Palette},
     schem::{
-        self, Blocks, lines,
-        lines::Role,
+        self, Blocks,
+        lines::{self, Role},
         turn::{self, Turn},
     },
 };
@@ -133,7 +131,7 @@ fn a_theme_colours_the_roles_not_the_blocks() {
     let shown = Blocks::read(&shown).unwrap();
     assert_eq!(shown.roles, None, "a download carries no roles");
     for (&pos, &role) in &roles.0 {
-        let colour = app::recognize::colour::shown(role);
+        let colour = app::interface::colour::shown(role);
         assert_eq!(
             shown.get(pos),
             format!("minecraft:{colour}_concrete"),
@@ -166,7 +164,7 @@ fn a_theme_colours_an_input_lamp_as_its_role() {
     let shown = palette::apply(&built, None, &Palette::default()).unwrap();
     let shown = Blocks::read(&shown).unwrap();
     for (&pos, &role) in inputs {
-        let colour = app::recognize::colour::shown(role);
+        let colour = app::interface::colour::shown(role);
         assert_eq!(
             shown.get(pos),
             format!("minecraft:{colour}_concrete"),

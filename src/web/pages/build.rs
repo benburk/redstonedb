@@ -5,15 +5,15 @@
 use maud::{Markup, html};
 
 use crate::{
-    category::{self, Measure},
+    category::{self, Logic, Measure},
     import::{self, Analysis},
+    interface::Interface,
     models::{
-        schematic::{Build, Logic, StackDirection, Status},
+        schematic::{Build, StackDirection, Status},
         tag,
         user::User,
         version::Version,
     },
-    recognize::interface::Interface,
     simulate::{Report, Timing},
     web::schematics::Colours,
 };

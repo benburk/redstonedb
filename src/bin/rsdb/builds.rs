@@ -5,10 +5,11 @@ use std::{collections::HashMap, fs, io::Write as _, path::Path};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
-    category,
+    category::{self, Logic},
     details::{self, Details},
+    interface::{Encoding, Orientation},
     models::{
-        schematic::{self, Encoding, Logic, Orientation, StackDirection},
+        schematic::{self, StackDirection},
         simulation, tag, version,
     },
     search, stack,

@@ -19,8 +19,8 @@ use sqlx::SqlitePool;
 
 use crate::{
     import::{self, Prepared},
+    interface::inspect,
     models::{schematic::Build, version},
-    recognize::inspect,
     schem::{
         self, Blocks, Pos,
         turn::{self, Turn},

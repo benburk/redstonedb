@@ -10,10 +10,7 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    recognize::{
-        inspect,
-        interface::{self, Bit, Interface, Port},
-    },
+    interface::{self, Bit, Interface, Port, inspect},
     schem::{Blocks, Pos},
     simulate::{Circuit, Value, mask},
 };

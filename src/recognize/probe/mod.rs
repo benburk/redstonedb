@@ -7,9 +7,9 @@
 use std::fmt;
 
 use crate::{
-    recognize::{
+    interface::{
+        self, Bit, Interface, Port,
         inspect::{self, Run},
-        interface::{self, Bit, Interface, Port},
     },
     schem::{Blocks, Pos, lines},
     simulate::{self, Test},
@@ -869,9 +869,9 @@ mod tests {
             .iter()
             .filter(|&(_, state)| {
                 [
-                    crate::recognize::colour::INPUT_COLOURS[0],
-                    crate::recognize::colour::INPUT_COLOURS[1],
-                    crate::recognize::colour::CONTROL,
+                    crate::interface::colour::INPUT_COLOURS[0],
+                    crate::interface::colour::INPUT_COLOURS[1],
+                    crate::interface::colour::CONTROL,
                 ]
                 .iter()
                 .any(|c| schem::short(state) == format!("{c}_concrete"))

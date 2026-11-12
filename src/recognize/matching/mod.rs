@@ -25,10 +25,8 @@ use anyhow::Result;
 
 use crate::{
     category::{Kind, Probing},
-    recognize::{
-        inspect, interface,
-        probe::{self, Order},
-    },
+    interface::{self, inspect},
+    recognize::probe::{self, Order},
     schem::{
         Blocks, Pos,
         lines::{self, Role, Roles},

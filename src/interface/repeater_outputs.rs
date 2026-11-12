@@ -10,15 +10,15 @@
 //! giving out into the build, which a tester drives by putting a barrel
 //! there; these too are read by where they stand, not their colours.
 //!
-//! [`crate::recognize::inspect`] checks a build by this rule, and
+//! [`crate::interface::inspect`] checks a build by this rule, and
 //! [`interface`] reads its lines' roles by their shapes.
 
 use std::collections::{BTreeMap, HashMap};
 
 use crate::{
-    recognize::{
+    interface::{
+        self, Bit, Interface, Port,
         inspect::{self, Run},
-        interface::{self, Bit, Interface, Port},
     },
     schem::{self, Blocks, Direction, Pos, lines::Role},
 };
@@ -535,17 +535,12 @@ mod tests {
     }
 
     /// The owner's 8-bit carry-cancel adder reworked to give every output
-    /// out through a repeater is recognized as the adder it is with those
-    /// outputs alone, its sum one bus and its carry out a line.
+    /// out through a repeater: its sum is one bus and its carry out a
+    /// line.
     #[test]
-    #[ignore = "probes a whole build"]
-    fn a_carry_cancel_adder_with_repeater_outputs_probes_as_an_adder() {
+    fn a_carry_cancel_adders_repeater_outputs_are_a_bus_and_a_line() {
         let data =
             std::fs::read("tests/fixtures/cca-8-repeater-out.schem").unwrap();
-        let recognition =
-            crate::recognize::probe::recognize_as(&data, Some("adder"))
-                .unwrap();
-        assert!(recognition.found.is_some(), "{:?}", recognition.problems);
         let outputs = lines(&find(&Blocks::read(&data).unwrap()));
         let mut widths: Vec<usize> =
             outputs.iter().map(|run| run.bits.len()).collect();

@@ -9,7 +9,7 @@ use super::{
     check::{buses, check_on, ports},
 };
 use crate::{
-    recognize::interface,
+    interface,
     schem::{Blocks, Pos},
     simulate::{
         Value,

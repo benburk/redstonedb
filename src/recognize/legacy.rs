@@ -5,14 +5,15 @@
 //! brown its output buses, and pink a status line. An author's operand
 //! colours are read too, as the order of operands probing finds
 //! interchangeable. Lines themselves are read by the rule for them; see
-//! [`crate::recognize::inspect`].
+//! [`crate::interface::inspect`].
 
 use std::collections::HashSet;
 
 use crate::{
-    recognize::{
+    interface::{
+        self,
         colour::{self, CONTROL, INPUT_COLOURS, OUTPUT_COLOURS, STATUS},
-        interface, repeater_outputs,
+        repeater_outputs,
     },
     schem::{
         self, Blocks, Direction, Pos,

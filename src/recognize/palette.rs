@@ -545,7 +545,7 @@ pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
         if state == schem::AIR || component {
             continue;
         }
-        let site = crate::recognize::colour::shown(role);
+        let site = crate::interface::colour::shown(role);
         let key = match role {
             Role::Operand(0) => Some("a"),
             Role::Operand(1) => Some("b"),

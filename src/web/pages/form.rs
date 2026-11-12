@@ -5,12 +5,10 @@
 use maud::{Markup, html};
 
 use crate::{
-    category::{self, Category},
+    category::{self, Category, Logic},
     import,
-    models::{
-        schematic::{Logic, Orientation},
-        tag::Tag,
-    },
+    interface::Orientation,
+    models::tag::Tag,
 };
 
 use super::{

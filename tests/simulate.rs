@@ -6,8 +6,7 @@ use app::{
     category::Kind,
     import,
     ingest::standardize,
-    models::schematic::{Encoding, Orientation},
-    recognize::interface,
+    interface::{self, Encoding, Orientation},
     schem::{self, Blocks, turn},
     simulate::{
         self, Action, CellControls, Edge, Report, Run, Stacking, Start, Step,
@@ -62,7 +61,7 @@ fn a_bare_block_is_no_output() {
     let data =
         read_fixture("tests/fixtures/old/alpha-rca-slice.schem").unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    assert!(app::recognize::inspect::inspect(&blocks).outputs.is_empty());
+    assert!(app::interface::inspect::inspect(&blocks).outputs.is_empty());
 }
 
 /// The game agrees: mc-tick, a vanilla-accurate engine, lights bit 7 for
@@ -199,7 +198,7 @@ fn an_adder_stacks_by_its_box() {
     let raw = read_fixture("tests/fixtures/rca-1-carry-in-east.schem").unwrap();
     let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let report = app::recognize::inspect::inspect(&blocks);
+    let report = app::interface::inspect::inspect(&blocks);
     let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
     let coloured =
         app::recognize::probe::with_layout(&data, &probed.layout).unwrap();
@@ -228,7 +227,7 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
         read_fixture("tests/fixtures/vert-adder-8-barrel-north.schem").unwrap();
     let data = app::recognize::probe::simulatable(&raw).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let report = app::recognize::inspect::inspect(&blocks);
+    let report = app::interface::inspect::inspect(&blocks);
     let probed = app::recognize::probe::adder(&data, &blocks, &report).unwrap();
     let coloured =
         app::recognize::probe::with_layout(&data, &probed.layout).unwrap();
@@ -815,7 +814,7 @@ fn a_register_whose_reads_are_not_gated_fails() {
 fn a_buffer_shows_what_it_holds_without_a_read() {
     let (_, blocks) = register("buffer-2-button");
     let mut read = interface::read(&blocks);
-    interface::name_lines(Kind::Buffer, &blocks, &mut read);
+    interface::name_lines(Kind::Buffer.lines(), &blocks, &mut read);
     let names: Vec<&str> =
         read.inputs.iter().map(|port| port.name.as_str()).collect();
     assert_eq!(names, ["data in", "write"]);

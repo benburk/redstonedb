@@ -13,8 +13,9 @@ use super::{
 use crate::{
     APP_NAME,
     category::{Flag, Section},
+    interface::Encoding,
     models::{
-        schematic::{Build, Encoding},
+        schematic::Build,
         tag::{self, Tag},
         user::User,
     },
@@ -1056,7 +1057,7 @@ fn table(schematics: &[Build], terms: &[Term]) -> Markup {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{category::Flag, models::schematic::Orientation};
+    use crate::{category::Flag, interface::Orientation};
 
     /// An address reads back as it was written, but for a sort field the
     /// site does not know, which is left out.

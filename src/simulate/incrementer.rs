@@ -9,7 +9,7 @@ use super::{
     Broken, Reading, Value,
     bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
 };
-use crate::{category, recognize::interface::Interface};
+use crate::{category, interface::Interface};
 
 /// Every value of A with its control line each way, checked against what
 /// each kind of incrementer that `counts` gives: an incrementer's A plus 1

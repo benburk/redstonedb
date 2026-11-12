@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     category,
-    recognize::interface::{self, Interface},
+    interface::{self, Interface},
     schem::{Blocks, Pos},
     simulate::{
         Value,
@@ -340,7 +340,7 @@ fn from_data(
     };
     // The lines as a register's are named, to say which is which.
     let mut named = interface::read(blocks);
-    interface::name_lines(category::Kind::Register, blocks, &mut named);
+    interface::name_lines(category::Kind::Register.lines(), blocks, &mut named);
     let mut timing = aligned(
         circuit,
         (interface, &named),

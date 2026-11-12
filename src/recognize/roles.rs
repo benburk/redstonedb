@@ -25,8 +25,8 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use anyhow::Result;
 
 use crate::{
+    interface,
     models::schematic::StackDirection,
-    recognize::interface,
     schem::{self, Blocks, Direction, Pos},
     simulate::{Compiled, Link, compiled},
     stack,

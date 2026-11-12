@@ -3,7 +3,7 @@
 //! warm concrete or glass. A theme shows them in its own; see
 //! [`crate::recognize::palette`]. Colours are only shown: no block's colour
 //! says what it is for, nor which blocks are inputs and outputs; see
-//! [`crate::recognize::inspect`]. The names lines go by are here too.
+//! [`crate::interface::inspect`]. The names lines go by are here too.
 
 use crate::schem::lines::Role;
 

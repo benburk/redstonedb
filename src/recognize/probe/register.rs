@@ -5,7 +5,7 @@
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
-    recognize::inspect::{self, Run},
+    interface::inspect::{self, Run},
     schem::{Blocks, Pos},
     simulate::{self, Test},
 };

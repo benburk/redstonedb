@@ -300,9 +300,9 @@ async fn cases(
         let unaligned =
             crate::schem::Blocks::read(&lined).is_ok_and(|blocks| {
                 blocks.roles.is_some()
-                    && crate::recognize::interface::Kept::of(
-                        &crate::recognize::interface::read(&blocks),
-                    )
+                    && crate::interface::Kept::of(&crate::interface::read(
+                        &blocks,
+                    ))
                     .unaligned()
             });
         pages::Subject {
@@ -411,7 +411,7 @@ async fn read_file(
         analysis: crate::import::Analysis::of(&blocks, category),
         block_counts: crate::schem::block::block_counts(&blocks),
         unrecognized: problems,
-        strength_inputs: crate::recognize::interface::takes_digits(&blocks),
+        strength_inputs: crate::interface::takes_digits(&blocks),
         stacking: Vec::new(),
         kept,
     })

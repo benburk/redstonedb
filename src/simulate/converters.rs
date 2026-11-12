@@ -12,7 +12,7 @@ use super::{
     bench::{mask, patterns},
     circuit::output_bits,
 };
-use crate::recognize::interface::{Interface, Port};
+use crate::interface::{Interface, Port};
 
 /// A binary-to-BCD converter's every value of A, or with too many, each
 /// byte's, the test patterns, and each power of ten and the number before

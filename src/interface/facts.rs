@@ -1,4 +1,5 @@
-//! The few facts every build has, each one of a few values.
+//! What a build's lines show of it: the way its bits run, and how its
+//! numbers are written on them.
 
 named_values! {
     /// The way a build's bits run.
@@ -23,15 +24,5 @@ named_values! {
         Binary = "bin", "Binary";
         /// A digit per line, as a signal strength.
         Hex = "hex", "Hex";
-    }
-}
-
-named_values! {
-    /// Whether a build remembers anything.
-    Logic {
-        /// Once its inputs stop changing, its outputs depend only on them.
-        Stateless = "stateless", "Stateless";
-        /// It remembers.
-        Stateful = "stateful", "Stateful";
     }
 }

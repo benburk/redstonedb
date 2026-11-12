@@ -10,8 +10,8 @@ use maud::html;
 
 use crate::{
     category::Kind,
+    interface::Interface,
     models::{schematic, simulation, version},
-    recognize::interface::Interface,
     schem::Blocks,
     simulate::{
         Glitch, OutputTiming, Timing, Value,
@@ -220,7 +220,7 @@ pub async fn glitch_fragment(
 fn lines(blocks: &Blocks, kind: Option<Kind>) -> anyhow::Result<Interface> {
     match kind.and_then(Kind::test) {
         Some(test) => test.lines(blocks),
-        None => Ok(crate::recognize::interface::read(blocks)),
+        None => Ok(crate::interface::read(blocks)),
     }
 }
 

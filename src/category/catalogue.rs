@@ -4,10 +4,7 @@
 //! off the list.
 
 use super::Kind;
-use crate::models::{
-    schematic::{Build, Logic},
-    tag,
-};
+use crate::models::{schematic::Build, tag};
 
 /// A name's words for people to read, each capitalized, such as
 /// `Carry Lookahead` for `carry_lookahead`.
@@ -87,6 +84,16 @@ impl Measure {
             Measure::Throughput | Measure::Pulse => format!("{n}t"),
             Measure::AtLeast => format!("at least {n}"),
         }
+    }
+}
+
+named_values! {
+    /// Whether a build remembers anything.
+    Logic {
+        /// Once its inputs stop changing, its outputs depend only on them.
+        Stateless = "stateless", "Stateless";
+        /// It remembers.
+        Stateful = "stateful", "Stateful";
     }
 }
 

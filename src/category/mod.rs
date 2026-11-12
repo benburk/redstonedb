@@ -11,11 +11,12 @@ mod catalogue;
 mod table;
 
 pub use catalogue::{
-    Category, Design, Flag, Measure, NO_DESIGN, Section, aliases,
+    Category, Design, Flag, Logic, Measure, NO_DESIGN, Section, aliases,
     check_category, flags_among, words,
 };
 
-use crate::{models::schematic::Logic, recognize::probe::Line, simulate::Test};
+pub use crate::interface::Lines;
+use crate::{recognize::probe::Line, simulate::Test};
 
 /// A standard category.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -237,6 +238,11 @@ impl Kind {
         self.facts().behaviour.test
     }
 
+    /// What its unsigned control and status lines are taken to be.
+    pub fn lines(self) -> Lines {
+        self.facts().behaviour.lines
+    }
+
     /// Whether its inputs take hex digits; see `Facts::digit_inputs`.
     pub fn digit_inputs(self) -> bool {
         self.facts().digit_inputs
@@ -351,42 +357,6 @@ pub enum Reads {
     /// Its widest output, the value it holds, as a counter's, which may
     /// have no A.
     Output,
-}
-
-/// What a category's unsigned control and status lines are taken to be.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Lines {
-    /// Every line needs a sign naming it.
-    #[default]
-    Signed,
-    /// Its lone control line and lone status line need no sign, their roles
-    /// being plain, and go by these names, such as an adder's carry in and
-    /// carry out. With `lone_output`, its one output is the status line
-    /// whatever its colour, as a carry out's is.
-    Lone {
-        control: &'static str,
-        status: &'static str,
-        lone_output: bool,
-    },
-    /// A register's: its unsigned control lines are its cells' writes, each
-    /// driven by a button, and reads, by a lever, and its data bus in and
-    /// out go by those roles.
-    Register,
-    /// A comparison's: its one output, an output bus or a status line, is its result, which
-    /// needs no sign and goes by this name, such as `A > B`.
-    Result(&'static str),
-    /// An inverter's, multiplier's, or T flip-flop's: its lone control line
-    /// needs no sign and goes by this name, such as `invert` or
-    /// `calculate`; it has no status line.
-    Control(&'static str),
-    /// A buffer's: its data bus in and out as a register's, and its
-    /// unsigned control lines its cells' writes, by a button, or by a lever
-    /// when none has a button, as it has no reads; a lone one needs no
-    /// sign.
-    Buffer,
-    /// A counter's: each control line a lever of its own, its clock or its
-    /// write enable, which its test tells apart, a sign naming it.
-    Counter,
 }
 
 /// What a category's copies stacked do with its data buses and its

@@ -5,7 +5,7 @@
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
 use crate::{
-    recognize::inspect,
+    interface::inspect,
     schem::Pos,
     simulate::{self, Test},
 };
@@ -102,7 +102,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::{
-        recognize::{colour, probe::recognize_as},
+        interface::colour,
+        recognize::probe::recognize_as,
         schem::{self, Blocks, Pos},
     };
 

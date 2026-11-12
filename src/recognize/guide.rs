@@ -192,7 +192,7 @@ pub fn examples() -> Vec<Example> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recognize::inspect;
+    use crate::interface::inspect;
 
     /// Each kept example passes the rule it shows; each broken one fails
     /// it, by name where the check names it.

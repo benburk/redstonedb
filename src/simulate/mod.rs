@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     category::{self, Kind},
-    recognize::interface::{self, Interface},
+    interface::{self, Interface},
     schem::{Blocks, Pos},
 };
 
@@ -247,7 +247,7 @@ fn counting(
     blocks: &Blocks,
     interface: &mut Interface,
 ) -> Result<bench::Spec> {
-    interface::name_lines(kind, blocks, interface);
+    interface::name_lines(kind.lines(), blocks, interface);
     incrementer::spec(interface, Some(counts))
 }
 
@@ -294,7 +294,7 @@ impl Test {
                 Kind::Multiplier,
                 // Its lone control line is named for its role, calculate.
                 Way::spec(|b, i| {
-                    interface::name_lines(Kind::Multiplier, b, i);
+                    interface::name_lines(Kind::Multiplier.lines(), b, i);
                     multiplier::spec(i)
                 }),
             ),
@@ -321,7 +321,7 @@ impl Test {
                 Kind::Negator,
                 // Its lone control line is named for its role, negate.
                 Way::spec(|b, i| {
-                    interface::name_lines(Kind::Negator, b, i);
+                    interface::name_lines(Kind::Negator.lines(), b, i);
                     negator::spec(i)
                 }),
             ),
@@ -349,7 +349,7 @@ impl Test {
                 // Its lone control line is named for its role, invert.
                 Way::stacked(
                     |b, i| {
-                        interface::name_lines(Kind::Inverter, b, i);
+                        interface::name_lines(Kind::Inverter.lines(), b, i);
                         inverter::spec(i)
                     },
                     inverter::stacker,

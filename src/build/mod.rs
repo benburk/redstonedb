@@ -4,7 +4,6 @@
 
 mod credits;
 mod entry;
-mod facts;
 mod file;
 mod name;
 mod specs;
@@ -16,13 +15,16 @@ mod tests;
 
 pub use credits::Credits;
 pub use entry::Entry;
-pub use facts::{Encoding, Logic, Orientation};
 pub use file::File;
 pub use name::file_stem;
 pub use specs::Specs;
 pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use status::{Operands, Status};
 
+pub use crate::{
+    category::Logic,
+    interface::{Encoding, Orientation},
+};
 use crate::{
     category::{Design, Flag, Kind, Measure},
     models::tag::Tag,

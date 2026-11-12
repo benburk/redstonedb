@@ -6,7 +6,8 @@ mod common;
 use app::{
     details::{self, Candidate, Details, Ready},
     import::{self, Purpose},
-    models::schematic::{Encoding, Orientation, Specs, StackDirection},
+    interface::{Encoding, Orientation},
+    models::schematic::{Specs, StackDirection},
     schem::{self, Blocks},
 };
 use sqlx::SqlitePool;

@@ -36,8 +36,8 @@ use anyhow::{Result, ensure};
 
 use crate::{
     category::{self, Behaviour, Kind},
-    models::schematic::{Faces, Orientation, StackDirection},
-    recognize::{interface, repeater_outputs},
+    interface::{self, Orientation, repeater_outputs},
+    models::schematic::{Faces, StackDirection},
     schem::{
         self, AIR, Blocks, Direction, Pos,
         lines::{Role, Roles},

@@ -5,7 +5,7 @@
 
 use super::{Fault, Order, Role, Roles, lengths, split, try_roles};
 use crate::{
-    recognize::inspect::{self, Run},
+    interface::inspect::{self, Run},
     schem::Pos,
     simulate::{self, Test},
 };

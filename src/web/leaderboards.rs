@@ -135,7 +135,7 @@ fn facets(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::Orientation;
+    use crate::interface::Orientation;
 
     fn build(category: &str, unaligned: bool) -> Build {
         Build {
