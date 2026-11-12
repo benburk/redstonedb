@@ -23,6 +23,7 @@ use crate::{
     import::Upload,
     models::{schematic, simulation, user::User},
     recognize::fault,
+    recognize::probe::Recognition,
     simulate::{Report, Test},
     web::{app_state::AppState, error::AppError},
 };
@@ -268,11 +269,14 @@ async fn cases(
         let content = html! { (note.unwrap_or_default()) (content) };
         pages::simulation_results(&simulate, &content).into_response()
     };
-    let report = match test(pairs, &data)? {
+    let category = meant_category(pairs);
+    let recognition = recognized(&data, &category).await;
+    let lined = lined(&data, recognition.as_ref());
+    let report = match test(pairs, &lined)? {
         None => None,
         Some(test) => match stored_result(state, s, test).await? {
             Some(report) => Some(report),
-            None => match simulation::run(test, data.clone()).await {
+            None => match simulation::run(test, lined.clone()).await {
                 Ok(report) => Some(report),
                 Err(err) => {
                     return Ok(panel(&could_not(&err.to_string()), false));
@@ -280,14 +284,11 @@ async fn cases(
             },
         },
     };
-    let categories = Category::all();
-    let category = details::meant(&categories, &Form::read(pairs).category)
-        .map_or_else(String::new, |c| c.name.clone());
     let original = Some(form::first(pairs, "original"))
         .filter(|o| !o.is_empty())
         .and_then(|o| STANDARD.decode(o).ok());
     let passes = report.as_ref().is_some_and(Report::passed);
-    let file = read_file(&data, &category, original, passes).await;
+    let file = read_file(&data, &category, recognition, original, passes).await;
     let why = match &filing {
         Some(Filing::Unverified(why)) => Some(why.as_str()),
         _ => None,
@@ -297,11 +298,23 @@ async fn cases(
     } else {
         let size = crate::schem::Blocks::read(&data)
             .map_or([0; 3], |blocks| blocks.size);
+        // Its buses as its recognized lines lay them, which the conventions
+        // may not.
+        let unaligned =
+            crate::schem::Blocks::read(&lined).is_ok_and(|blocks| {
+                blocks.roles.is_some()
+                    && crate::recognize::interface::Kept::of(
+                        &crate::recognize::interface::read(&blocks),
+                    )
+                    .unaligned()
+            });
         pages::Subject {
             size: (size[0].into(), size[1].into(), size[2].into()),
             category: &category,
-            unranked: None,
-            unaligned: false,
+            // Unranked is said only of one that works.
+            unranked: (unaligned && passes)
+                .then(|| "unaligned buses".to_owned()),
+            unaligned,
             conventional: true,
             unverified: why,
         }
@@ -321,6 +334,53 @@ async fn cases(
     ))
 }
 
+/// The category the form names, as the site lists it, or what an
+/// off-list name stands in for; empty for none.
+fn meant_category(pairs: &[(String, String)]) -> String {
+    let categories = Category::all();
+    details::meant(&categories, &Form::read(pairs).category)
+        .map_or_else(String::new, |c| c.name.clone())
+}
+
+/// What probing `data` as `category` finds, off the async threads: for a
+/// category the site recognizes builds of, the build recognized, or the
+/// fault to show with the file carrying the closest try's lines, as a
+/// failing adder's split operands; `None` for any other category. Probing
+/// doesn't read hex inputs, so a hex adder's faults are its test's.
+async fn recognized(
+    data: &[u8],
+    category: &str,
+) -> Option<Result<Recognition, String>> {
+    if !category::blessed(category) || category == "hex_adder" {
+        return None;
+    }
+    let (data, meant) = (data.to_vec(), category.to_owned());
+    let found = tokio::task::spawn_blocking(move || {
+        crate::recognize::probe::recognize_as(&data, Some(&meant))
+    })
+    .await;
+    Some(match found {
+        Ok(Ok(recognition)) => Ok(recognition),
+        Ok(Err(err)) => Err(err.to_string()),
+        Err(err) => Err(err.to_string()),
+    })
+}
+
+/// `data` carrying the lines `recognition` found, so its test reads them
+/// as a stored build's does, rather than guessing from their shapes; as it
+/// is when it found none.
+fn lined(
+    data: &[u8],
+    recognition: Option<&Result<Recognition, String>>,
+) -> Vec<u8> {
+    match recognition {
+        Some(Ok(r)) if crate::models::simulation::carries_roles(&r.file) => {
+            r.file.clone()
+        }
+        _ => data.to_vec(),
+    }
+}
+
 /// The file `data` as the checks read it, as a build of `category`: its
 /// lines, its blocks, and, for a category the site recognizes, what keeps
 /// it from being one, as a stored build's page re-reads it; and what
@@ -330,29 +390,15 @@ async fn cases(
 async fn read_file(
     data: &[u8],
     category: &str,
+    recognition: Option<Result<Recognition, String>>,
     original: Option<Vec<u8>>,
     passes: bool,
 ) -> Result<pages::FileRead, String> {
     let blocks =
         crate::schem::Blocks::read(data).map_err(|err| err.to_string())?;
-    // Probing doesn't read hex inputs, so a hex adder's faults are its
-    // test's.
-    let recognition = if category::blessed(category) && category != "hex_adder"
-    {
-        let (data, meant) = (data.to_vec(), category.to_owned());
-        Some(
-            tokio::task::spawn_blocking(move || {
-                crate::recognize::probe::recognize_as(&data, Some(&meant))
-            })
-            .await
-            .map_err(|err| err.to_string())?,
-        )
-    } else {
-        None
-    };
     let problems = match &recognition {
         Some(Ok(r)) => r.problems.clone(),
-        Some(Err(err)) => vec![err.to_string()],
+        Some(Err(err)) => vec![err.clone()],
         None => Vec::new(),
     };
     let found = match recognition {
@@ -460,6 +506,9 @@ async fn timing(
     data: Vec<u8>,
     s: Option<&schematic::Schematic>,
 ) -> Result<Response, AppError> {
+    // Timed on the lines recognition finds, as its cases were.
+    let category = meant_category(pairs);
+    let data = lined(&data, recognized(&data, &category).await.as_ref());
     let Some(test) = test(pairs, &data)? else {
         return Ok(nothing());
     };

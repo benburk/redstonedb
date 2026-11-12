@@ -160,6 +160,14 @@ fn recognize_laid(
             Err(fault) => faults.push((kind, fault)),
         }
     }
+    // Meant as a kind never probed, it is no adder either.
+    if reorient
+        && meant != Some(None)
+        && let Some((kind, (data_inputs, file, found))) =
+            loose(meant.flatten(), data, &blocks, &report, &mut faults)?
+    {
+        return Ok(accept(kind, &data_inputs, file, found));
+    }
     // Meant as a kind never probed, nothing was, so there is no fault.
     let fault = fault_of(&blocks, &report, meant.flatten(), &faults);
     // Laid as the roles of the try that came nearest have it read.
@@ -176,14 +184,6 @@ fn recognize_laid(
                 return Ok(again);
             }
         }
-    }
-    // Meant as a kind never probed, it is no adder either.
-    if reorient
-        && meant != Some(None)
-        && let Some((kind, (data_inputs, file, found))) =
-            loose_adder(meant.flatten(), data, &blocks, &report)?
-    {
-        return Ok(accept(kind, &data_inputs, file, found));
     }
     // Lines that bend the conventions, as top bits out of line or outputs
     // unevenly spaced, may still read as the kind meant: matching finds
@@ -208,27 +208,58 @@ fn recognize_laid(
 
 /// The build in `data`, with `blocks` and `report`, as an adder whose
 /// lines bend the conventions, as operands split in two or outputs
-/// unevenly spaced, laid out loosely, every case right: its I/O unaligned.
-/// Only as the kind `meant`, when one is; `None` when no loose layout
-/// adds.
+/// unevenly spaced, laid out loosely, every case right: what it found, its
+/// I/O unaligned. Its test run and cases wrong, a failing one, its fault
+/// takes the place among `faults` of a strict reading's that couldn't run,
+/// so it is shown as the adder it is.
+fn loose(
+    meant: Option<Kind>,
+    data: &[u8],
+    blocks: &Blocks,
+    report: &inspect::Report,
+    faults: &mut Vec<(Kind, Fault)>,
+) -> anyhow::Result<Option<(Kind, Found)>> {
+    match loose_adder(meant, data, blocks, report)? {
+        Some((kind, Ok(found))) => return Ok(Some((kind, found))),
+        Some((kind, Err(fault))) => {
+            match faults.iter().position(|(k, _)| *k == kind) {
+                Some(i) if !faults[i].1.ran() => faults[i].1 = fault,
+                Some(_) => {}
+                None => faults.push((kind, fault)),
+            }
+        }
+        None => {}
+    }
+    Ok(None)
+}
+
+/// The build in `data`, with `blocks` and `report`, as an adder whose
+/// lines bend the conventions, as operands split in two or outputs
+/// unevenly spaced, laid out loosely: what it found, every case right, its
+/// I/O unaligned; or the fault of a layout whose test ran and got cases
+/// wrong, carrying that layout's lines. Only as the kind `meant`, when one
+/// is; `None` when no loose layout's test runs.
 fn loose_adder(
     meant: Option<Kind>,
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
-) -> anyhow::Result<Option<(Kind, Found)>> {
+) -> anyhow::Result<Option<(Kind, Result<Found, Fault>)>> {
+    let mut wrong = None;
     for &(kind, how, test) in &Kind::probed() {
         if how != Probe::Adder || meant.is_some_and(|meant| meant != kind) {
             continue;
         }
         let order = Order::default();
-        if let Ok(found) =
-            probe_by(kind, how, test, data, blocks, report, true, order)?
-        {
-            return Ok(Some((kind, found)));
+        match probe_by(kind, how, test, data, blocks, report, true, order)? {
+            Ok(found) => return Ok(Some((kind, Ok(found)))),
+            Err(fault) if fault.ran() && wrong.is_none() => {
+                wrong = Some((kind, Err(fault)));
+            }
+            Err(_) => {}
         }
     }
-    Ok(None)
+    Ok(wrong)
 }
 
 /// `file`, a reading of a build of `kind`, with the top bit of an adder's
