@@ -175,18 +175,11 @@ impl Kind {
     }
 }
 
-/// Which cases a test tries.
-pub(crate) enum Cases {
-    /// Every combination of the inputs when they come to at most
-    /// `EXHAUSTIVE_BITS`, else those the function gives, with how many of
-    /// them pair the test patterns. A quick look pairs a few telling values
-    /// of each input instead.
-    Combinations(Box<dyn FnOnce() -> (Vec<Case>, u64)>),
-    /// Only the values of A the function gives, quick or not, with whether
-    /// they are every one, for an input that takes only some values, as a
-    /// BCD input takes only decimal digits.
-    Only(Box<dyn Fn(bool) -> (Vec<Value>, bool)>),
-}
+/// The cases a test tries when its inputs come to more than
+/// `EXHAUSTIVE_BITS`, with how many of them pair the test patterns; with
+/// fewer, every combination is tried. A quick look pairs a few telling
+/// values of each input instead.
+pub(crate) type Cases = Box<dyn FnOnce() -> (Vec<Case>, u64)>;
 
 impl Spec {
     /// Runs the cases through `blocks`, whose interface is `interface`, or
@@ -200,18 +193,7 @@ impl Spec {
     ) -> Result<Run> {
         self.bench.fits(interface)?;
         let widths = self.bench.widths(interface);
-        let (cases, exhaustive, patterns) = match self.cases {
-            Cases::Only(values) => {
-                let (values, every) = values(quick);
-                let cases: Vec<Case> =
-                    values.into_iter().map(|a| [a, 0, 0]).collect();
-                let selected = if every { 0 } else { cases.len() as u64 };
-                (cases, every, selected)
-            }
-            Cases::Combinations(structured) => {
-                chosen(&widths, quick, structured)
-            }
-        };
+        let (cases, exhaustive, patterns) = chosen(&widths, quick, self.cases);
         let got = observe(blocks, interface, &self.bench, &cases, None)?;
         let run = best(interface, &self.bench, &self.kinds, &cases, &got)
             .context("a test has something to check")?;
@@ -234,8 +216,8 @@ impl Spec {
     }
 
     /// Measures when the outputs settle, on every core, stopping early once
-    /// `cancel` is set; an input that takes only some values takes only
-    /// those, and with `patterned` each other takes the test patterns.
+    /// `cancel` is set; with `patterned` each input takes the test
+    /// patterns.
     pub fn time(
         self,
         blocks: &Blocks,
@@ -245,14 +227,7 @@ impl Spec {
     ) -> Result<Timing> {
         self.bench.fits(interface)?;
         if self.bench.press.is_some() {
-            let every = match self.cases {
-                Cases::Combinations(structured) => {
-                    cases(&self.bench.widths(interface), structured).0
-                }
-                Cases::Only(values) => {
-                    values(false).0.into_iter().map(|a| [a, 0, 0]).collect()
-                }
-            };
+            let every = cases(&self.bench.widths(interface), self.cases).0;
             return timing::pressed(
                 blocks,
                 interface,
@@ -261,31 +236,21 @@ impl Spec {
                 cancel,
             );
         }
-        let values = match &self.cases {
-            Cases::Only(values) => {
-                let (valid, every) = values(false);
-                Some((vec![valid], !every))
-            }
-            Cases::Combinations(_) if patterned => Some((
-                self.bench
-                    .inputs
-                    .iter()
-                    .map(|&port| patterns(input_bits(&interface.inputs[port])))
-                    .collect(),
-                true,
-            )),
-            Cases::Combinations(_) => None,
-        };
-        // Only the values a selection of cases gives may drive it at random,
-        // as only valid BCD drives a converter from it; test patterns stand
-        // for every value.
-        let any = !matches!(self.cases, Cases::Only(_));
+        let values = patterned.then(|| {
+            let patterns = self
+                .bench
+                .inputs
+                .iter()
+                .map(|&port| patterns(input_bits(&interface.inputs[port])))
+                .collect();
+            (patterns, true)
+        });
         timing::measure(
             blocks,
             interface,
             &self.bench.inputs,
             &self.bench.held,
-            (values, any),
+            values,
             cancel,
         )
     }

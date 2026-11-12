@@ -10,7 +10,7 @@ use crate::{
     schem::Blocks,
     simulate::{
         Broken, Counts, Reading, Value,
-        bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
     },
 };
@@ -51,9 +51,7 @@ pub(super) fn spec(
     let widths = bench.widths(interface);
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || {
-            incrementer_cases(&widths)
-        })),
+        cases: Box::new(move || incrementer_cases(&widths)),
         kinds,
         by_digit: false,
     })

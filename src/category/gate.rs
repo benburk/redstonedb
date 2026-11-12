@@ -11,7 +11,7 @@ use crate::{
     interface::Interface,
     simulate::{
         Broken, Stacker, Value,
-        bench::{Bench, Case, Cases, Kind, Spec, mask},
+        bench::{Bench, Case, Kind, Spec, mask},
         broken,
     },
 };
@@ -114,9 +114,7 @@ pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
     bench.invertible = false;
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || {
-            adder_cases(width, false, 8)
-        })),
+        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![Kind::new(pattern, move |case| {
             gate.apply(case[0], case[1], width)
         })],
@@ -166,9 +164,7 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
     let xnor = move |case: &Case| !(case[0] ^ case[1]) & all;
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![first, second], NAND_XNOR),
-        cases: Cases::Combinations(Box::new(move || {
-            adder_cases(width, false, 8)
-        })),
+        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![
             Kind::new(NAND_XNOR, move |case| nand(case) | xnor(case) << width),
             Kind::new(XNOR_NAND, move |case| xnor(case) | nand(case) << width),

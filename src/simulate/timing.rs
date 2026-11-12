@@ -355,17 +355,15 @@ pub struct BitTiming {
 /// `inputs`, A first, using every core, with the `held` inputs set and
 /// left alone, such as the control lines choosing an ALU's operation. Each
 /// input takes the values `chosen` gives, 0 first, with whether they are a
-/// selection rather than every one, as for an input in BCD; else every
-/// value, or the test patterns when that would be too many. Changes drawn
-/// at random take any value of each input's width when `any`, as an
-/// adder's operands may, else only the values `chosen` gives, as only
-/// valid BCD may drive a converter from it.
+/// selection rather than every one; else every value, or the test patterns
+/// when that would be too many. Changes drawn at random take any value of
+/// each input's width.
 pub(crate) fn measure(
     blocks: &Blocks,
     interface: &Interface,
     inputs: &[usize],
     held: &[(usize, Value)],
-    (chosen, any): (Chosen, bool),
+    chosen: Chosen,
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let widths: Vec<usize> = inputs
@@ -378,7 +376,7 @@ pub(crate) fn measure(
         interface,
         (inputs, None),
         held,
-        (values, patterns, any),
+        (values, patterns),
         cancel,
     )
 }
@@ -449,7 +447,7 @@ pub(crate) fn measure_controlled(
         interface,
         (inputs, Some(settings)),
         held,
-        (values, patterns, true),
+        (values, patterns),
         cancel,
     )
 }
@@ -459,13 +457,13 @@ type Settings<'a> = &'a [Vec<(usize, Value)>];
 
 /// [`measure`] and [`measure_controlled`]: `inputs` and the control group,
 /// if any, taking `values`, the group's last, by setting, and at random
-/// any value of their widths when `any`.
+/// any value of their widths.
 fn measured(
     blocks: &Blocks,
     interface: &Interface,
     (inputs, controls): (&[usize], Option<Settings>),
     held: &[(usize, Value)],
-    (values, patterns, any): (Vec<Vec<Value>>, bool, bool),
+    (values, patterns): (Vec<Vec<Value>>, bool),
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     let outputs: Vec<usize> = interface
@@ -486,7 +484,6 @@ fn measured(
         controls,
         held,
         values: &values,
-        any,
         outputs: &outputs,
         status: &status,
         cancel,
@@ -956,9 +953,6 @@ struct Rig<'a> {
     outputs: &'a [usize],
     /// Whether each output port is a status line, such as carry out.
     status: &'a [bool],
-    /// Whether a change drawn at random may take any value of each data
-    /// input's width, rather than only those in `values`.
-    any: bool,
     cancel: &'a AtomicBool,
 }
 
@@ -1264,9 +1258,7 @@ impl Rig<'_> {
             .map(|_| {
                 (0..self.count())
                     .map(|input| {
-                        if let Some(&width) =
-                            widths.get(input).filter(|_| self.any)
-                        {
+                        if let Some(&width) = widths.get(input) {
                             let value = Value::from(rng.draw()) << 64
                                 | Value::from(rng.draw());
                             value & bench::mask(width)

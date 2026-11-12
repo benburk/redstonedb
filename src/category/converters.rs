@@ -11,55 +11,11 @@ use crate::{
     interface::{Interface, Port},
     simulate::{
         Broken, Reading, Value,
-        bench::{
-            Bench, Case, Cases, Distinct, EXHAUSTIVE_BITS, Kind, Spec, mask,
-            patterns,
-        },
+        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
         circuit::output_bits,
     },
 };
-
-/// A binary-to-BCD converter's every value of A, or with too many, each
-/// byte's, the test patterns, and each power of ten and the number before
-/// it, giving A in BCD, the ones digit lowest. Outputs too few for A's
-/// largest value in BCD make it broken.
-pub(super) fn binary_to_bcd(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "converter")?;
-    let width = bench.widths(interface)[0];
-    let result: usize = bench.output_widths(interface).iter().sum();
-    let largest = mask(width);
-    let needed = (Value::BITS - to_bcd(largest).leading_zeros()) as usize;
-    if result < needed {
-        broken!(
-            "A has {width} bits, so up to {largest}, which takes {needed} \
-             bits in BCD, but the outputs have {result}."
-        );
-    }
-    Ok(Spec {
-        bench,
-        cases: Cases::Combinations(Box::new(move || binary_cases(width))),
-        kinds: vec![Kind::new("A in BCD", |case| to_bcd(case[0]))],
-        by_digit: false,
-    })
-}
-
-/// A BCD-to-binary converter's every value of A whose digits are all
-/// decimal and whose number the outputs can hold, or with too many, a
-/// selection, giving A's number in binary.
-pub(super) fn bcd_to_binary(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "converter")?;
-    let width = bench.widths(interface)[0];
-    let result: usize = bench.output_widths(interface).iter().sum();
-    Ok(Spec {
-        bench,
-        cases: Cases::Only(Box::new(move |quick| {
-            bcd_values(width, result, quick)
-        })),
-        kinds: vec![Kind::new("A from BCD", |case| from_bcd(case[0]))],
-        by_digit: false,
-    })
-}
 
 /// An absolute-value build's every value of A, or with too many, each
 /// byte's and the test patterns: A taken as a signed number, two's
@@ -72,7 +28,7 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
     at_least_two(width, "An absolute value")?;
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("|A|", move |case| absolute(case[0], width))],
         by_digit: false,
     })
@@ -127,7 +83,7 @@ pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("ones in A", |case| {
             Value::from(case[0].count_ones())
         })],
@@ -155,7 +111,7 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
     interface.outputs[out].signal_strength = true;
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("A as a strength", |case| case[0])],
         by_digit: false,
     })
@@ -188,7 +144,7 @@ pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("A in binary", |case| case[0])],
         by_digit: false,
     })
@@ -214,7 +170,7 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
     let most = u32::try_from(width).unwrap_or(u32::MAX);
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        cases: Box::new(move || byte_cases(width)),
         kinds: (1..=most)
             .map(|k| {
                 Kind::new(&threshold_pattern(k), move |case| {
@@ -241,7 +197,7 @@ pub(super) fn parity(interface: &Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || byte_cases(width))),
+        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("xor of A's bits", |case| {
             Value::from(case[0].count_ones() % 2 == 1)
         })],
@@ -281,73 +237,6 @@ pub(super) fn one_input_bench(
     Ok(Bench::new(vec![0], outputs, ""))
 }
 
-/// `value` in binary-coded decimal: each decimal digit in four bits, the
-/// ones lowest.
-fn to_bcd(mut value: Value) -> Value {
-    let mut bcd = 0;
-    let mut shift = 0;
-    while value > 0 && shift < Value::BITS {
-        bcd |= (value % 10) << shift;
-        value /= 10;
-        shift += 4;
-    }
-    bcd
-}
-
-/// The number binary-coded decimal `bcd` holds, its digits being decimal.
-fn from_bcd(bcd: Value) -> Value {
-    (0..Value::BITS / 4)
-        .rev()
-        .fold(0, |value, digit| value * 10 + (bcd >> (4 * digit) & 0xf))
-}
-
-/// Whether `value` fits in `bits` bits.
-fn fits(value: Value, bits: usize) -> bool {
-    bits >= Value::BITS as usize || value >> bits == 0
-}
-
-/// The binary-coded decimal values of `width` bits whose numbers fit in
-/// `result` bits, in order, with whether they are every one: every one
-/// when there are few enough and not `quick`, else every number below
-/// 1,000, each digit's every value alone, each run of nines, and the
-/// largest.
-fn bcd_values(width: usize, result: usize, quick: bool) -> (Vec<Value>, bool) {
-    let valid = |n: Value| fits(to_bcd(n), width) && fits(n, result);
-    if !quick {
-        // Both tests rise with the number, so the valid ones run from 0.
-        let every: Vec<Value> = (0..=1 << EXHAUSTIVE_BITS)
-            .take_while(|&n| valid(n))
-            .map(to_bcd)
-            .collect();
-        if every.len() <= 1 << EXHAUSTIVE_BITS {
-            return (every, true);
-        }
-    }
-    let mut numbers: Vec<Value> = (0..1000).collect();
-    let mut power: Value = 1;
-    while let Some(next) = power.checked_mul(10) {
-        numbers.extend((1..10).map(|d| d * power));
-        numbers.push(next - 1);
-        power = next;
-    }
-    // The largest valid number, found digit by digit from the top.
-    let mut largest: Value = 0;
-    for digit in (0..power.ilog10()).rev() {
-        for d in (0..10).rev() {
-            let n = largest + d * Value::pow(10, digit);
-            if valid(n) {
-                largest = n;
-                break;
-            }
-        }
-    }
-    numbers.push(largest);
-    numbers.retain(|&n| valid(n));
-    numbers.sort_unstable();
-    numbers.dedup();
-    (numbers.into_iter().map(to_bcd).collect(), false)
-}
-
 /// The magnitude of `a`, a signed number of `width` bits, unsigned in as
 /// many bits: `a` when its top bit is clear, else its negative, which for
 /// the most negative is itself.
@@ -377,33 +266,6 @@ pub(super) fn byte_cases(width: usize) -> (Vec<Case>, u64) {
     (cases.cases, paired)
 }
 
-/// The values a binary-to-BCD converter too wide to try every one of is
-/// checked on: `byte_cases`, and each power of ten and the number before
-/// it, as far as A holds them.
-fn binary_cases(width: usize) -> (Vec<Case>, u64) {
-    let (bytes, patterns) = byte_cases(width);
-    let mut cases = Distinct::default();
-    for case in bytes {
-        cases.add(case);
-    }
-    let before = cases.len();
-    let mut power: Value = 1;
-    while fits(power, width) {
-        cases.add([power, 0, 0]);
-        cases.add([power - 1, 0, 0]);
-        match power.checked_mul(10) {
-            Some(next) => power = next,
-            None => break,
-        }
-    }
-    let rest = patterns + (cases.len() - before) as u64;
-    (cases.cases, rest)
-}
-
-pub(super) const BINARY_TO_BCD: BySpec =
-    BySpec::spec(|_, interface| binary_to_bcd(interface));
-pub(super) const BCD_TO_BINARY: BySpec =
-    BySpec::spec(|_, interface| bcd_to_binary(interface));
 pub(super) const ABSOLUTE_VALUE: BySpec =
     BySpec::spec(|_, interface| absolute_value(interface));
 pub(super) const POPCOUNT: BySpec =
@@ -431,30 +293,6 @@ mod tests {
         assert_eq!(absolute(0xff, 8), 1);
         assert_eq!(absolute(0x81, 8), 0x7f);
         assert_eq!(absolute(0x80, 8), 0x80);
-    }
-
-    #[test]
-    fn bcd_holds_each_decimal_digit_in_four_bits() {
-        assert_eq!(to_bcd(0), 0);
-        assert_eq!(to_bcd(255), 0x255);
-        assert_eq!(from_bcd(0x255), 255);
-        assert_eq!(from_bcd(to_bcd(4_294_967_295)), 4_294_967_295);
-    }
-
-    #[test]
-    fn a_bcd_input_takes_only_decimal_digits_that_its_outputs_hold() {
-        // Ten bits of BCD hold up to 399, but eight output bits only 255.
-        let (values, every) = bcd_values(10, 8, false);
-        assert!(every);
-        assert_eq!(values.len(), 256);
-        assert_eq!((values[0], values[255]), (0, 0x255));
-        assert!(values.contains(&0x199) && !values.contains(&0x1a0));
-        // Too many to try every one: a selection, the largest of the eight
-        // digits among them.
-        let (values, every) = bcd_values(32, 27, false);
-        assert!(!every);
-        assert_eq!(values.last(), Some(&to_bcd(99_999_999)));
-        assert!(values.iter().all(|&v| from_bcd(v) < 1 << 27));
     }
 
     /// A popcount counts at least four bits: one of fewer is refused, as

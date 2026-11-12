@@ -424,16 +424,12 @@ pub enum Kept {
     /// As built, unverified as its category, one the site recognizes
     /// builds of, for this reason.
     Unverified(String),
-    /// As built, under this category of its own, as its category is one
-    /// the site lists but recognizes no builds of yet; see
-    /// `details::off_list_name`.
-    OffList(String),
     /// As built, in the category it was given, one of its author's own.
     Original,
 }
 
 /// Which of `upload`'s files a build given as `category` keeps: the
-/// standard one when it is recognized as that category, a blessed one;
+/// standard one when it is recognized as that category, a standard one;
 /// else the original. The `Err` says it could not be simulated.
 pub async fn kept(
     categories: &[Category],
@@ -443,14 +439,6 @@ pub async fn kept(
     let Some(listed) = Category::find(categories, category) else {
         return Ok(Ok(Kept::Original));
     };
-    // Only a blessed build goes on the list; any other listed category's
-    // goes off it, named for what it is.
-    if !category::blessed(&listed.name) {
-        let width = upload.standard.as_ref().ok().and_then(|standard| {
-            derived_width(&listed.name, &interface::read(&standard.blocks))
-        });
-        return Ok(Ok(Kept::OffList(details::off_list_name(listed, width))));
-    }
     let unrecognized = match &upload.standard {
         Ok(standard) => {
             details::unrecognized(listed, details::Candidate::of(standard))
@@ -509,7 +497,7 @@ pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
     if blocks.roles.is_some() {
         return Ok(data.to_vec());
     }
-    let meant = Kind::named(category).filter(|kind| kind.blessed());
+    let meant = Kind::named(category);
     let marked = crate::recognize::legacy::operand_marks(&blocks);
     let order = probe::Order {
         marked: Some(&marked),
@@ -523,12 +511,12 @@ pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
 }
 
 /// The file in `data` carrying the roles probing finds for its inputs and
-/// outputs, as an upload's are, for a build meant as one of a blessed
-/// category, see `category::Facts::listed_as`: its inputs are its levers
+/// outputs, as an upload's are, for a build meant as one of a standard
+/// category: its inputs are its levers
 /// and buttons, whatever colour they sit on. Any other build, or one
 /// probing doesn't recognize, as it is.
 pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
-    if !category::blessed(meant) {
+    if !category::listed(meant) {
         return Ok(data.to_vec());
     }
     let (data, meant) = (data.to_vec(), meant.to_owned());
@@ -554,7 +542,7 @@ pub async fn verified_by(
     file: &Prepared,
     keep_paste: bool,
 ) -> Result<Option<Prepared>> {
-    if !category::blessed(&category.name) {
+    if !category::listed(&category.name) {
         return Ok(None);
     }
     let coloured = probed(&file.data, &category.name).await?;

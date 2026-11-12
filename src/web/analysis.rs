@@ -1,6 +1,6 @@
 //! An upload's analysis, or a new version's check, run in the background
 //! so choosing a file answers at once and its page shows how far it has
-//! got: recognizing a file probes it as each blessed category in turn, and
+//! got: recognizing a file probes it as each standard category in turn, and
 //! checking a version probes it as its build's, which takes seconds for a
 //! large build.
 

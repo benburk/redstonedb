@@ -48,9 +48,6 @@ pub struct Build {
     /// For a leaderboard's entry of copies of a build stacked to a wider
     /// width, the build's own width; see `Build::widened_to`.
     pub stacked_from: Option<i64>,
-    /// The name the build was given, for a category that takes one, such
-    /// as `Bus Crossing` under bussing.
-    pub given_name: Option<String>,
     /// The flags it has, such as an adder's carry in, in their category's
     /// order.
     pub flags: Vec<Flag>,

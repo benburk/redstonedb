@@ -76,7 +76,7 @@ pub fn parse(query: &str) -> Vec<Term> {
 
 /// Units a number may be written before, as in `3 ticks`, so the two read
 /// as one term.
-const UNITS: [&str; 6] = ["bit", "bits", "tick", "ticks", "byte", "bytes"];
+const UNITS: [&str; 4] = ["bit", "bits", "tick", "ticks"];
 
 /// Splits on spaces, keeping quoted runs together and dropping the quotes;
 /// a `-` before a quote stays with the quoted run, and a number stays with
@@ -268,20 +268,8 @@ fn facts(s: &Build) -> Vec<String> {
         ]);
     }
     facts.extend(s.specs.latency.into_iter().flat_map(ticks));
-    if let Some(b) = s.specs.bytes {
-        facts.extend([
-            format!("{b}-byte"),
-            format!("{b} byte"),
-            format!("{b} bytes"),
-        ]);
-    }
     if let Some(t) = s.specs.throughput {
         facts.push(format!("throughput:{t}"));
-        // Only a serial build's throughput goes by its ticks alone, as its
-        // name does; another's `3t` is its latency.
-        if s.has(Measure::Throughput) {
-            facts.extend(ticks(t));
-        }
     }
     if let Some(k) = s.specs.at_least {
         facts.push(Measure::AtLeast.term(k));
@@ -337,9 +325,6 @@ fn facts(s: &Build) -> Vec<String> {
             .unwrap_or(NO_DESIGN)
             .replace('_', " "),
     );
-    if let Some(label) = s.listed_design().and_then(|listed| listed.label) {
-        facts.push(label.to_lowercase());
-    }
     for flag in &s.flags {
         match flag.name {
             // The short names a carry or borrow line's sign may use.
@@ -450,7 +435,6 @@ pub(crate) mod tests {
             built_on: None,
             flags: Vec::new(),
             description: None,
-            given_name: None,
             unverified: None,
             status: crate::models::schematic::Status::default(),
             operands: crate::models::schematic::Operands::Split,
@@ -534,9 +518,6 @@ pub(crate) mod tests {
     fn a_plural_finds_its_singular() {
         let s = schematic("multiplier", Orientation::Horizontal, &[]);
         assert!(find("multipliers", &s));
-        let memory =
-            schematic("serial_write_memory", Orientation::Horizontal, &[]);
-        assert!(find("memories", &memory));
     }
 
     #[test]
@@ -597,22 +578,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_capacity_matches_in_bytes_not_bits() {
-        let mut ram = schematic("ram", Orientation::Horizontal, &[]);
-        ram.specs.bytes = Some(32);
-        assert!(find("32-byte", &ram));
-        assert!(!find("32b", &ram), "32b means 32 bits wide");
-    }
-
-    #[test]
-    fn a_serial_throughput_matches_in_ticks() {
-        let mut serial =
-            schematic("serial_adder", Orientation::Horizontal, &[]);
-        serial.specs.throughput = Some(2);
-        assert!(find("2t", &serial));
-        assert!(find("2-tick", &serial));
-        assert!(find("throughput:2", &serial));
-        assert!(!find("3t", &serial));
+    fn a_throughput_is_found_by_its_own_term() {
+        let mut adder = schematic("adder", Orientation::Horizontal, &[]);
+        adder.specs.throughput = Some(2);
+        assert!(find("throughput:2", &adder));
+        assert!(!find("2t", &adder), "2t means a latency of 2 ticks");
     }
 
     #[test]

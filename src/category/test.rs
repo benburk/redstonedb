@@ -40,12 +40,6 @@ pub enum Test {
     IncDec,
     /// The products of A and B, plus C when there is one.
     Multiplier,
-    /// A in binary-coded decimal: each decimal digit in four bits, the
-    /// ones lowest.
-    BinaryToBcd,
-    /// A's number from binary-coded decimal, for each A whose digits are
-    /// all decimal and whose number the outputs can hold.
-    BcdToBinary,
     /// Each operation an ALU's control lines name, and any other they give.
     Alu,
     /// Each value written into every cell, then read.
@@ -318,8 +312,6 @@ impl Test {
             Test::Decrementer => Kind::Decrementer,
             Test::IncDec => Kind::IncDec,
             Test::Multiplier => Kind::Multiplier,
-            Test::BinaryToBcd => Kind::BinaryToBcd,
-            Test::BcdToBinary => Kind::BcdToBinary,
             Test::Alu => Kind::Alu,
             Test::Register => Kind::Register,
             Test::Buffer => Kind::Buffer,
@@ -609,7 +601,6 @@ mod tests {
         assert_eq!(Test::of("adder", Some(65)), None);
         assert_eq!(Test::of("adder", None), None);
         assert_eq!(Test::of("register", Some(8)), Some(Test::Register));
-        assert_eq!(Test::of("ram", Some(8)), None);
         assert_eq!(Test::of("multiplier", Some(65)), None);
     }
 }

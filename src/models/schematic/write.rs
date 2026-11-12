@@ -124,11 +124,11 @@ pub async fn insert(
     let id = sqlx::query_scalar!(
         r#"INSERT INTO build (id, category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
-            imported_by, conventional, design, description, given_name,
-            logic, throughput, at_least, pulse, bytes, torches, works_from,
-            works_from_by, keeps_paste, uploaded_by, unverified)
-         VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?)
+            imported_by, conventional, design, description, logic,
+            throughput, at_least, pulse, torches, works_from, works_from_by,
+            keeps_paste, uploaded_by, unverified)
+         VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?, ?, ?)
          RETURNING id as "id!""#,
         new.id,
         details.category,
@@ -145,12 +145,10 @@ pub async fn insert(
         file.conventional,
         details.specs.design,
         details.description,
-        details.given_name,
         details.specs.logic,
         details.specs.throughput,
         details.specs.at_least,
         details.specs.pulse,
-        details.specs.bytes,
         facts.torches,
         facts.works_from.release,
         facts.works_from.because,
@@ -182,16 +180,13 @@ pub async fn set_details(
     if ready.evaluated {
         sqlx::query!(
             "UPDATE build SET category = ?, built_on = ?,
-                description = ?, given_name = ?, at_least = ?, bytes = ?,
-                unverified = NULL,
+                description = ?, at_least = ?, unverified = NULL,
                 edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
              WHERE id = ?",
             details.category,
             details.built_on,
             details.description,
-            details.given_name,
             details.specs.at_least,
-            details.specs.bytes,
             id,
         )
         .execute(&mut *tx)
@@ -202,8 +197,8 @@ pub async fn set_details(
     sqlx::query!(
         "UPDATE build SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
-            built_on = ?, description = ?, given_name = ?, logic = ?,
-            throughput = ?, at_least = ?, pulse = ?, bytes = ?, unverified = ?,
+            built_on = ?, description = ?, logic = ?, throughput = ?,
+            at_least = ?, pulse = ?, unverified = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -215,12 +210,10 @@ pub async fn set_details(
         details.specs.design,
         details.built_on,
         details.description,
-        details.given_name,
         details.specs.logic,
         details.specs.throughput,
         details.specs.at_least,
         details.specs.pulse,
-        details.specs.bytes,
         details.unverified,
         id,
     )

@@ -457,9 +457,6 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         "throughput   {}",
         unknown(s.specs.throughput.map(|t| format!("{t} ticks")))
     );
-    if let Some(bytes) = s.specs.bytes {
-        println!("capacity     {bytes} bytes");
-    }
     if let Some(k) = s.specs.at_least {
         println!("at least     {k} on");
     }

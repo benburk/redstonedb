@@ -263,7 +263,7 @@ async fn why_not_recognized(s: &Build, data: &[u8]) -> Vec<String> {
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
     if s.verified()
-        || !crate::category::blessed(&s.category)
+        || !crate::category::listed(&s.category)
         || s.category == "hex_adder"
     {
         return Vec::new();

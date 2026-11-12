@@ -33,9 +33,6 @@ pub struct Details {
     /// A date such as `2024-02-02`.
     pub built_on: Option<String>,
     pub description: Option<String>,
-    /// The build's own name, kept only for a category that names each
-    /// build.
-    pub given_name: Option<String>,
     /// Flags it has; any not of its category are dropped.
     pub flags: Vec<String>,
     /// The names credited, each respelled as its player spells it.
@@ -58,7 +55,6 @@ impl Details {
             specs: s.specs.clone(),
             built_on: s.built_on.clone(),
             description: s.description.clone(),
-            given_name: s.given_name.clone(),
             flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
             credits: s.credits.clone(),
             stacking: s.stacking.clone(),
@@ -119,8 +115,8 @@ pub struct Ready {
 /// named, to be made under `other`.
 ///
 /// A category off the list, such as a piston door, has no width, encoding,
-/// or throughput; only a category that names each build keeps a given name;
-/// only one ranked by a measure, as a memory is by its capacity, keeps it.
+/// or throughput; only one ranked by a measure, as a threshold is by the
+/// fewest inputs on, keeps it.
 pub async fn check(
     db: &SqlitePool,
     details: Details,
@@ -155,22 +151,18 @@ impl From<sqlx::Error> for Stop {
 
 /// [`check`], with `?` for both ways it stops.
 /// Drops from `details` what a build of `category` has no use for: a
-/// width, throughput, or encoding where it isn't `listed`, a given name
-/// where it names no build, a measure it isn't ranked by, and flags not
-/// of it. A number kept is above zero.
+/// width, throughput, or encoding where it isn't `listed`, a measure it
+/// isn't ranked by, and flags not of it. A number kept is above zero.
 fn keep_what_applies(details: &mut Details, category: &Category, listed: bool) {
     let positive = |n: Option<i64>| n.filter(|n| *n > 0);
     let specs = &mut details.specs;
     specs.width = positive(specs.width).filter(|_| listed);
     specs.throughput = positive(specs.throughput).filter(|_| listed);
     specs.encoding = specs.encoding.filter(|_| listed);
-    specs.bytes =
-        positive(specs.bytes).filter(|_| category.has(Measure::Bytes));
     specs.at_least =
         positive(specs.at_least).filter(|_| category.has(Measure::AtLeast));
     specs.pulse =
         positive(specs.pulse).filter(|_| category.has(Measure::Pulse));
-    details.given_name = details.given_name.take().filter(|_| category.named);
     details.flags = category::flags_among(&category.name, &details.flags)
         .into_iter()
         .map(|flag| flag.name.to_owned())
@@ -186,7 +178,6 @@ async fn ready(
     for text in [
         &mut details.built_on,
         &mut details.description,
-        &mut details.given_name,
         &mut details.specs.design,
     ] {
         *text = text
@@ -210,25 +201,11 @@ async fn ready(
         &details.category,
         details.specs.design.as_deref(),
     )?;
-    // Only a blessed build, one probing recognizes, goes on the list.
-    if listed && !category::blessed(&category.name) {
-        let width = simulation::derived_width(&category.name, true, build.data)
-            .ok()
-            .flatten();
-        return Err(format!(
-            "Only {} go on the list so far: give it a category of its own, \
-             such as {}.",
-            Kind::listed(),
-            off_list_name(&category, width).replace('_', " ")
-        )
-        .into());
-    }
-
     keep_what_applies(&mut details, &category, listed);
 
     // Only a build of a category the site recognizes builds of is
     // unverified as one.
-    if !category::blessed(&category.name) {
+    if !listed {
         details.unverified = None;
     }
     evaluated(&category, &mut details, build).await?;
@@ -355,22 +332,11 @@ async fn evaluated(
     Ok(())
 }
 
-/// The category of its own a build of `category`, a listed one the site
-/// recognizes no builds of yet, goes up under, named for what it is, such
-/// as `8-bit ram`: from the category's name rather than its label, which
-/// may hold characters no name may, as `NAND+NOR Gate` does.
-pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
-    let words = category.name.replace('_', " ");
-    width.map_or_else(
-        || format!("unrecognized {words}"),
-        |w| format!("{w}-bit {words}"),
-    )
-}
-
-/// Why `build` is not recognized as a build of `category`, a blessed one,
-/// see `category::Facts::listed_as`: it must be standardized, take no
+/// Why `build` is not recognized as a build of `category`, a standard
+/// one: it must be standardized, take no
 /// signal-strength input, be of a width its test reads, and pass it.
-/// `None` when it is, or when the category is not blessed; else a short
+/// `None` when it is, or when the category is one of its author's own;
+/// else a short
 /// sentence about the build, without its full stop, such as `Couldn't
 /// recognize inputs without levers`. The `Err` says it could not be
 /// simulated at all.
@@ -378,7 +344,7 @@ pub async fn unrecognized(
     category: &Category,
     build: Candidate<'_>,
 ) -> Result<Option<String>, String> {
-    let Some(kind) = Kind::named(&category.name).filter(|k| k.blessed()) else {
+    let Some(kind) = Kind::named(&category.name) else {
         return Ok(None);
     };
     let width = simulation::derived_width(&category.name, true, build.data)
@@ -479,13 +445,6 @@ fn shaped(details: &Details) -> Result<(), String> {
             "{name} is not a Minecraft name: letters, digits, and \
              underscores, up to 16."
         ));
-    }
-    if details
-        .given_name
-        .as_deref()
-        .is_some_and(|name| name.chars().count() > 60)
-    {
-        return Err("A name is at most 60 characters.".to_owned());
     }
     if let Some(date) = details.built_on.as_deref() {
         if !is_date(date) {

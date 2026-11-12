@@ -266,7 +266,6 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
     let number = |n: Option<i64>| n.map(|n| n.to_string());
     vec![
         ("category", Some(s.category_label())),
-        ("name", s.given_name.clone()),
         ("design", s.design_label()),
         ("description", s.description.clone()),
         ("date built", s.built_on.clone()),
@@ -284,7 +283,6 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
         ("throughput", number(s.specs.throughput)),
         ("at least", number(s.specs.at_least)),
         ("pulse", number(s.specs.pulse)),
-        ("bytes", number(s.specs.bytes)),
         (
             "flags",
             list(s.flags.iter().map(|f| f.label.to_owned()).collect()),

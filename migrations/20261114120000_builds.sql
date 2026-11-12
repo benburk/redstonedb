@@ -10,6 +10,10 @@
 -- which the code read back; those move to their categories here.
 --
 -- The welcome steps are gone, so no account keeps whether it saw them.
+--
+-- No build has a capacity or a name of its own: only categories the site
+-- never recognized a build of took either, and those are gone from the
+-- list, so the columns go.
 
 DROP VIEW current_file;
 
@@ -97,3 +101,5 @@ WHERE category GLOB 'unrecognized_?*'
 DROP TABLE recognized;
 
 ALTER TABLE user DROP COLUMN welcomed;
+ALTER TABLE build DROP COLUMN bytes;
+ALTER TABLE build DROP COLUMN given_name;

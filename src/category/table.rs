@@ -1,5 +1,5 @@
 //! The table of every standard category, one row each, in the order of
-//! [`Kind`]: the blessed categories as the list of what goes on it names
+//! [`Kind`]: the standard categories as the list of what goes on it names
 //! them, then the rest by name. It is the list of standard categories:
 //! people add to it here.
 
@@ -158,16 +158,15 @@ const ROW: Facts = Facts {
     label: "",
     noun: "",
     plural: None,
-    named: false,
     section: Section::Arithmetic,
     logic: None,
     measures: &[Measure::Width],
     designs: &[],
     flags: &[],
     aliases: &[],
-    listed_as: None,
-    probe: Probing::Not,
-    guess: Guess::Not,
+    listed_as: "",
+    probe: Probing::As(Kind::Adder),
+    guess: Guess::ByRunOf(Kind::Adder),
     role_words: &[],
     digit_inputs: false,
     runs: None,
@@ -179,11 +178,7 @@ const fn design(
     name: &'static str,
     abbreviation: Option<&'static str>,
 ) -> Design {
-    Design {
-        name,
-        abbreviation,
-        label: None,
-    }
+    Design { name, abbreviation }
 }
 
 /// An adder's, a hex adder's, and a subtractor's designs, as a subtractor's
@@ -194,17 +189,6 @@ const ADDER_DESIGNS: &[Design] = &[
     design("carry_lookahead", Some("CLA")),
     design("hybrid", None),
     design("ripple_carry", Some("RCA")),
-];
-
-/// An RNG's designs.
-const RNG_DESIGNS: &[Design] = &[
-    design("dropper", None),
-    Design {
-        name: "lfsr",
-        abbreviation: None,
-        label: Some("LFSR"),
-    },
-    design("xorshift", None),
 ];
 
 /// A flag named `name`, read as `label`.
@@ -248,7 +232,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 49] = [
+pub(super) const TABLE: [Facts; 36] = [
     Facts {
         kind: Kind::Adder,
         runs: Some(&adder::ADDER),
@@ -259,7 +243,7 @@ pub(super) const TABLE: [Facts; 49] = [
         logic: Some(Logic::Stateless),
         designs: ADDER_DESIGNS,
         flags: ADDER_FLAGS,
-        listed_as: Some("adders"),
+        listed_as: "adders",
         probe: probed(150, Probe::Adder),
         guess: Guess::Tried(10),
         role_words: ADDER_WORDS,
@@ -275,7 +259,7 @@ pub(super) const TABLE: [Facts; 49] = [
         logic: Some(Logic::Stateless),
         designs: ADDER_DESIGNS,
         flags: ADDER_FLAGS,
-        listed_as: Some("hex adders"),
+        listed_as: "hex adders",
         // First, as only a build with signal-strength inputs can be one,
         // and one without is told so at once.
         probe: probed(5, Probe::HexAdder),
@@ -299,7 +283,7 @@ pub(super) const TABLE: [Facts; 49] = [
             INVERTED_CARRY_IN_FLAG,
             INVERTED_CARRY_OUT_FLAG,
         ],
-        listed_as: Some("subtractors"),
+        listed_as: "subtractors",
         probe: Probing::As(Kind::Adder),
         guess: Guess::ByRunOf(Kind::Adder),
         behaviour: ADDER,
@@ -321,7 +305,7 @@ pub(super) const TABLE: [Facts; 49] = [
             INVERTED_CARRY_IN_FLAG,
             INVERTED_CARRY_OUT_FLAG,
         ],
-        listed_as: Some("inverted adders"),
+        listed_as: "inverted adders",
         probe: Probing::As(Kind::Adder),
         guess: Guess::ByRunOf(Kind::Adder),
         role_words: ADDER_WORDS,
@@ -338,7 +322,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         flags: ALU_FLAGS,
-        listed_as: Some("ALUs"),
+        listed_as: "ALUs",
         probe: probed(240, Probe::Alu),
         guess: Guess::Tried(270),
         // Its flags are the operations its test finds; it never stacks.
@@ -360,7 +344,7 @@ pub(super) const TABLE: [Facts; 49] = [
             flag("upper_product", "Upper product"),
             flag("fma", "FMA (A×B+C)"),
         ],
-        listed_as: Some("multipliers"),
+        listed_as: "multipliers",
         probe: probed(270, Probe::Multiplier),
         guess: Guess::Tried(160),
         role_words: &["calculate", "calc", "reset"],
@@ -382,7 +366,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         aliases: &["inc"],
-        listed_as: Some("incrementers"),
+        listed_as: "incrementers",
         probe: one_operand(160, Line::Maybe),
         guess: Guess::Tried(150),
         role_words: &["increment", "inc", "carry out", "cout"],
@@ -404,7 +388,7 @@ pub(super) const TABLE: [Facts; 49] = [
         plural: Some("Inc/Dec"),
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
-        listed_as: Some("incrementers"),
+        listed_as: "incrementers",
         probe: one_operand(180, Line::Maybe),
         guess: Guess::ByRunOf(Kind::Incrementer),
         // Its line may mean either way, so it keeps its own name.
@@ -420,7 +404,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         aliases: &["dec"],
-        listed_as: Some("decrementers"),
+        listed_as: "decrementers",
         probe: one_operand(170, Line::Maybe),
         guess: Guess::ByRunOf(Kind::Incrementer),
         role_words: &["decrement", "dec", "borrow out", "bout"],
@@ -441,7 +425,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         aliases: &["comparator", "eq"],
-        listed_as: Some("comparators"),
+        listed_as: "comparators",
         probe: operands(80),
         guess: Guess::Tried(240),
         behaviour: compares("A = B", Test::Equality),
@@ -458,7 +442,7 @@ pub(super) const TABLE: [Facts; 49] = [
         logic: Some(Logic::Stateless),
         flags: &[flag("signed", "Signed")],
         aliases: &["comparator", "gt"],
-        listed_as: Some("comparators"),
+        listed_as: "comparators",
         probe: operands(90),
         guess: Guess::Tried(230),
         behaviour: compares("A > B", Test::GreaterThan),
@@ -473,7 +457,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         aliases: &["cout"],
-        listed_as: Some("carry outs"),
+        listed_as: "carry outs",
         probe: operands(100),
         guess: Guess::Tried(220),
         role_words: &["carry in", "cin", "carry out", "cout"],
@@ -498,7 +482,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         aliases: &["abs"],
-        listed_as: Some("absolute values"),
+        listed_as: "absolute values",
         probe: one_operand(120, Line::Never),
         guess: Guess::Tried(210),
         behaviour: evaluated(Test::AbsoluteValue, Stacking::Never),
@@ -514,7 +498,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         aliases: &["neg", "negate", "twos complement"],
-        listed_as: Some("negators"),
+        listed_as: "negators",
         probe: one_operand(125, Line::Maybe),
         guess: Guess::Tried(215),
         role_words: &["negate", "neg"],
@@ -533,7 +517,7 @@ pub(super) const TABLE: [Facts; 49] = [
         noun: "popcount",
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
-        listed_as: Some("popcounts"),
+        listed_as: "popcounts",
         probe: one_operand(190, Line::Never),
         guess: Guess::Tried(120),
         behaviour: evaluated(Test::Popcount, Stacking::Never),
@@ -549,7 +533,7 @@ pub(super) const TABLE: [Facts; 49] = [
         logic: Some(Logic::Stateless),
         measures: &[Measure::Width, Measure::AtLeast],
         aliases: &["majority"],
-        listed_as: Some("thresholds"),
+        listed_as: "thresholds",
         probe: one_operand(210, Line::Never),
         guess: Guess::Tried(140),
         behaviour: evaluated(Test::Threshold, Stacking::Never),
@@ -565,7 +549,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Logic,
         logic: Some(Logic::Stateless),
         aliases: &["parity checker", "parity generator", "xor reduce"],
-        listed_as: Some("parity circuits"),
+        listed_as: "parity circuits",
         probe: one_operand(215, Line::Never),
         guess: Guess::Tried(145),
         behaviour: evaluated(Test::Parity, Stacking::Never),
@@ -580,7 +564,7 @@ pub(super) const TABLE: [Facts; 49] = [
         plural: Some("Binary to Hex"),
         section: Section::Conversion,
         logic: Some(Logic::Stateless),
-        listed_as: Some("binary-to-hex converters"),
+        listed_as: "binary-to-hex converters",
         probe: one_operand(200, Line::Never),
         guess: Guess::Tried(130),
         behaviour: evaluated(Test::BinaryToHex, Stacking::Never),
@@ -595,7 +579,7 @@ pub(super) const TABLE: [Facts; 49] = [
         plural: Some("Hex to Binary"),
         section: Section::Conversion,
         logic: Some(Logic::Stateless),
-        listed_as: Some("hex-to-binary converters"),
+        listed_as: "hex-to-binary converters",
         // Next to the hex adder, as only a build with a signal-strength
         // input can be one.
         probe: probed(6, Probe::HexToBinary),
@@ -613,7 +597,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["gate", "xor", "xor xnor gate"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(10),
         guess: Guess::Tried(60),
         behaviour: gate(Test::Xor),
@@ -628,7 +612,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["gate", "xnor", "xor xnor gate"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(20),
         guess: Guess::Tried(70),
         behaviour: gate(Test::Xnor),
@@ -643,7 +627,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["and", "and nand gate", "gate"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(30),
         guess: Guess::Tried(80),
         behaviour: gate(Test::And),
@@ -658,7 +642,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["and nand gate", "gate", "nand"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(40),
         guess: Guess::Tried(90),
         behaviour: gate(Test::Nand),
@@ -673,7 +657,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["gate", "or", "or nor gate"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(50),
         guess: Guess::Tried(100),
         behaviour: gate(Test::Or),
@@ -688,7 +672,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["gate", "nor", "or nor gate"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(60),
         guess: Guess::Tried(110),
         behaviour: gate(Test::Nor),
@@ -703,7 +687,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Gates,
         logic: Some(Logic::Stateless),
         aliases: &["gate"],
-        listed_as: Some("gates"),
+        listed_as: "gates",
         probe: operands(70),
         guess: Guess::Tried(30),
         behaviour: gate(Test::NandXnor),
@@ -718,7 +702,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Logic,
         logic: Some(Logic::Stateless),
         aliases: &["conditional inverter", "controlled inverter", "xor bank"],
-        listed_as: Some("inverters"),
+        listed_as: "inverters",
         probe: one_operand(110, Line::Always),
         guess: Guess::Tried(50),
         role_words: &["invert", "inv"],
@@ -741,7 +725,7 @@ pub(super) const TABLE: [Facts; 49] = [
         noun: "decoder",
         section: Section::Logic,
         logic: Some(Logic::Stateless),
-        listed_as: Some("decoders"),
+        listed_as: "decoders",
         probe: probed(250, Probe::Decoder),
         guess: Guess::Tried(20),
         // Its copies side by side are separate decoders, each with its own
@@ -762,7 +746,7 @@ pub(super) const TABLE: [Facts; 49] = [
             flag("rotate", "Rotate"),
             flag("arithmetic", "Arithmetic"),
         ],
-        listed_as: Some("barrel shifters"),
+        listed_as: "barrel shifters",
         probe: probed(260, Probe::Shifter),
         guess: Guess::Tried(40),
         behaviour: evaluated(Test::BarrelShifter, Stacking::Never),
@@ -782,7 +766,7 @@ pub(super) const TABLE: [Facts; 49] = [
             flag("falling_edge", "Falling edge"),
         ],
         aliases: &["mono", "pulse generator"],
-        listed_as: Some("monostables"),
+        listed_as: "monostables",
         probe: one_operand(130, Line::Never),
         guess: Guess::Tried(250),
         behaviour: monostable(Test::Monostable),
@@ -799,7 +783,7 @@ pub(super) const TABLE: [Facts; 49] = [
         measures: &[Measure::Pulse],
         flags: &[flag("inverted", "Inverted")],
         aliases: &["mono", "monostable", "pulse generator"],
-        listed_as: Some("monostables"),
+        listed_as: "monostables",
         probe: one_operand(140, Line::Never),
         guess: Guess::Tried(260),
         behaviour: monostable(Test::DualEdgeMonostable),
@@ -814,7 +798,7 @@ pub(super) const TABLE: [Facts; 49] = [
         section: Section::Memory,
         logic: Some(Logic::Stateful),
         flags: &[flag("inverted", "Inverted reads")],
-        listed_as: Some("registers"),
+        listed_as: "registers",
         probe: probed(220, Probe::Register),
         guess: Guess::Tried(190),
         role_words: &["write", "read", "write enable", "data in", "data out"],
@@ -834,7 +818,7 @@ pub(super) const TABLE: [Facts; 49] = [
         noun: "buffer",
         section: Section::Memory,
         logic: Some(Logic::Stateful),
-        listed_as: Some("buffers"),
+        listed_as: "buffers",
         probe: probed(230, Probe::Register),
         guess: Guess::Tried(200),
         role_words: &["write", "write enable", "data in", "data out"],
@@ -854,7 +838,7 @@ pub(super) const TABLE: [Facts; 49] = [
         noun: "counter",
         section: Section::Memory,
         logic: Some(Logic::Stateful),
-        listed_as: Some("counters"),
+        listed_as: "counters",
         probe: probed(280, Probe::Sequential),
         guess: Guess::Tried(280),
         role_words: &["clock", "clk", "write", "write enable", "load"],
@@ -876,7 +860,7 @@ pub(super) const TABLE: [Facts; 49] = [
             flag("bidirectional", "Bidirectional"),
             flag("writeable", "Writeable"),
         ],
-        listed_as: Some("shift registers"),
+        listed_as: "shift registers",
         probe: probed(290, Probe::Sequential),
         guess: Guess::Tried(290),
         behaviour: held(Test::ShiftRegister),
@@ -893,7 +877,7 @@ pub(super) const TABLE: [Facts; 49] = [
         // Its one bit names nothing, so it is ranked by nothing.
         measures: &[],
         aliases: &["flip flop", "tff", "toggle"],
-        listed_as: Some("T flip-flops"),
+        listed_as: "T flip-flops",
         probe: probed(300, Probe::Sequential),
         guess: Guess::Tried(300),
         role_words: &["toggle", "t", "clock", "clk", "q"],
@@ -906,152 +890,6 @@ pub(super) const TABLE: [Facts; 49] = [
             stacking: Stacking::Inferred,
             ..held(Test::TFlipFlop)
         },
-        ..ROW
-    },
-    Facts {
-        kind: Kind::BcdToBinary,
-        runs: Some(&converters::BCD_TO_BINARY),
-        name: "bcd_to_binary",
-        label: "BCD to Binary",
-        noun: "bcd to binary",
-        plural: Some("BCD to Binary"),
-        section: Section::Conversion,
-        logic: Some(Logic::Stateless),
-        aliases: &["bcd"],
-        guess: Guess::Tried(180),
-        behaviour: tested(Test::BcdToBinary),
-        ..ROW
-    },
-    Facts {
-        kind: Kind::BinaryToBcd,
-        runs: Some(&converters::BINARY_TO_BCD),
-        name: "binary_to_bcd",
-        label: "Binary to BCD",
-        noun: "binary to bcd",
-        plural: Some("Binary to BCD"),
-        section: Section::Conversion,
-        logic: Some(Logic::Stateless),
-        aliases: &["bcd"],
-        guess: Guess::Tried(170),
-        behaviour: tested(Test::BinaryToBcd),
-        ..ROW
-    },
-    Facts {
-        kind: Kind::Bussing,
-        name: "bussing",
-        label: "Bussing",
-        noun: "bussing",
-        plural: Some("Bussing"),
-        named: true,
-        section: Section::Wiring,
-        logic: None,
-        ..ROW
-    },
-    Facts {
-        kind: Kind::CarrySaveAdder,
-        name: "carry_save_adder",
-        label: "Carry Save Adder",
-        noun: "carry save adder",
-        section: Section::Arithmetic,
-        logic: Some(Logic::Stateless),
-        aliases: &["csa"],
-        ..ROW
-    },
-    Facts {
-        kind: Kind::Dataloop,
-        name: "dataloop",
-        label: "Dataloop",
-        noun: "dataloop",
-        section: Section::Memory,
-        logic: Some(Logic::Stateful),
-        ..ROW
-    },
-    Facts {
-        kind: Kind::Display,
-        name: "display",
-        label: "Display",
-        noun: "display",
-        named: true,
-        section: Section::Display,
-        logic: None,
-        ..ROW
-    },
-    Facts {
-        kind: Kind::Divider,
-        name: "divider",
-        label: "Divider",
-        noun: "divider",
-        section: Section::Arithmetic,
-        logic: Some(Logic::Stateless),
-        ..ROW
-    },
-    Facts {
-        kind: Kind::LineDrawer,
-        name: "line_drawer",
-        label: "Line Drawer",
-        noun: "line drawer",
-        section: Section::Display,
-        logic: None,
-        ..ROW
-    },
-    Facts {
-        kind: Kind::NandNorGate,
-        name: "nand_nor_gate",
-        label: "NAND+NOR Gate",
-        noun: "NAND+NOR gate",
-        section: Section::Gates,
-        logic: Some(Logic::Stateless),
-        aliases: &["gate"],
-        ..ROW
-    },
-    Facts {
-        kind: Kind::Ram,
-        name: "ram",
-        label: "RAM",
-        noun: "RAM",
-        plural: Some("RAM"),
-        section: Section::Memory,
-        logic: Some(Logic::Stateful),
-        measures: &[Measure::Width, Measure::Bytes],
-        // Its copies across its bits are more words on one bus.
-        behaviour: Behaviour {
-            copies: Copies::SharedBuses,
-            group: Group::SharedLines,
-            ..NOTHING
-        },
-        ..ROW
-    },
-    Facts {
-        kind: Kind::Rng,
-        name: "rng",
-        label: "RNG",
-        noun: "RNG",
-        plural: Some("RNGs"),
-        section: Section::Logic,
-        logic: Some(Logic::Stateful),
-        designs: RNG_DESIGNS,
-        flags: &[flag("seedable", "Seedable")],
-        ..ROW
-    },
-    Facts {
-        kind: Kind::SerialAdder,
-        name: "serial_adder",
-        label: "Serial Adder",
-        noun: "serial adder",
-        section: Section::Arithmetic,
-        logic: Some(Logic::Stateful),
-        measures: &[Measure::Throughput],
-        ..ROW
-    },
-    Facts {
-        kind: Kind::SerialWriteMemory,
-        name: "serial_write_memory",
-        label: "Serial Write Memory",
-        noun: "serial write memory",
-        plural: Some("Serial Write Memories"),
-        section: Section::Memory,
-        logic: Some(Logic::Stateful),
-        measures: &[Measure::Width, Measure::Bytes],
         ..ROW
     },
 ];
@@ -1081,7 +919,6 @@ const _: () = {
         }
         match row.guess {
             Guess::Tried(_) => assert!(tested, "a kind guessed with no test"),
-            Guess::Not => assert!(!tested, "a kind with a test not guessed"),
             Guess::ByRunOf(_) => assert!(tested, "a kind found with no test"),
         }
         let mut j = 0;
