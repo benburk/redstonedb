@@ -516,7 +516,7 @@ fn shape(
     let single = interface::read(blocks);
     let two =
         interface::read(&Blocks::read(&along(data, direction, 2, stacking)?)?);
-    let way = direction.name().replace('-', " and ");
+    let way = direction.words();
     for (name, bits) in buses(&single) {
         let stacked = buses(&two)
             .into_iter()

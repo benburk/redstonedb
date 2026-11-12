@@ -37,8 +37,8 @@ pub use shifter::flags as shifter_flags;
 pub use test::{Guessed, Test, guess};
 
 pub use catalogue::{
-    Category, Design, Flag, Logic, Measure, NO_DESIGN, Section, aliases,
-    check_category, flags_among, words,
+    Category, Design, Flag, Inverts, Logic, Measure, NO_DESIGN, Section,
+    aliases, check_category, flags_among, inverts, words,
 };
 
 pub use crate::{

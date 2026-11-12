@@ -8,7 +8,7 @@ use crate::{
     leaderboard::Record,
     web::{
         href,
-        leaderboard::view,
+        leaderboard::people_view,
         ui::{
             PAGE_TITLE, SECTION_TITLE,
             cards::{Viewing, cards},
@@ -80,7 +80,7 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
             @if !records.is_empty() {
                 section aria-labelledby="records-heading" class="mb-10" {
                     h2 id="records-heading" class={ (SECTION_TITLE) " mb-3" } { "Records" }
-                    (view::record_table(records, Some(name)))
+                    (people_view::record_table(records, Some(name)))
                 }
             }
             // One only named in descriptions has no credits to list.

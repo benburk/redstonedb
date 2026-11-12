@@ -1,5 +1,6 @@
 //! The leaderboards: who holds the records, and each category's ranking.
 
+pub(crate) mod people_view;
 pub(crate) mod view;
 
 use axum::{
@@ -20,7 +21,7 @@ use crate::{
         app_state::AppState,
         browse::list_view::Facet,
         error::AppError,
-        leaderboard::view::{LeaderboardPage, PeoplePage},
+        leaderboard::{people_view::PeoplePage, view::LeaderboardPage},
     },
 };
 
@@ -103,7 +104,7 @@ pub async fn people(
     let stacks = leaderboard::stacked(&all);
     let builds: Vec<&Build> = all.iter().chain(&stacks).collect();
     let records = leaderboard::records(&builds);
-    Ok(view::people(
+    Ok(people_view::people(
         user_opt.as_ref(),
         &PeoplePage {
             records: &records,

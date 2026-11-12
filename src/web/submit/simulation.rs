@@ -10,7 +10,6 @@ use std::sync::{
 use axum::{
     body::Bytes,
     extract::{Path, Query, State},
-    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -40,23 +39,6 @@ use crate::{
         ui::text,
     },
 };
-
-/// Build `id`'s simulation, for its page to ask after while storing it
-/// simulates it in the background: 204 until that is done, then the page
-/// again, its checks drawn from what was stored.
-pub async fn poll(
-    Path(id): Path<String>,
-    State(state): State<AppState>,
-) -> Result<Response, AppError> {
-    builds::get(&state.db, &id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    if jobs::completing(&id) {
-        return Ok(StatusCode::NO_CONTENT.into_response());
-    }
-    let page = format!("/schematics/{id}#checks");
-    Ok((StatusCode::NO_CONTENT, [("FX-Redirect", page)]).into_response())
-}
 
 /// Which part of a simulation the details form asks for: the cases, or,
 /// once they pass, the slower timing, as `?step=timing`.

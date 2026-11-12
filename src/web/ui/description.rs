@@ -8,8 +8,9 @@
 
 use std::fmt::Write as _;
 
-use crate::web::ui::person;
 use maud::{Markup, PreEscaped};
+
+use crate::web::ui::person;
 
 /// `text` as HTML: blank lines part paragraphs, lines within one break,
 /// and a run of `> ` lines is a quote.

@@ -821,6 +821,21 @@ fn placed<'a, K: PartialEq>(
         .collect()
 }
 
+/// Each of `people` with their place, a tie sharing one.
+pub fn places(people: &[Standing]) -> Vec<(usize, &Standing)> {
+    let mut place = 0;
+    people
+        .iter()
+        .enumerate()
+        .map(|(i, person)| {
+            if i == 0 || people[i - 1].count != person.count {
+                place = i + 1;
+            }
+            (place, person)
+        })
+        .collect()
+}
+
 /// A person's count in a people ranking, under the spelling first seen.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Standing {
@@ -950,6 +965,28 @@ enum Trait {
 /// The most traits a record's board narrows to.
 const MOST_TRAITS: usize = 3;
 
+/// Of `records`, the first for each set of holders, so builds first on
+/// several boards are listed once, under the board that comes first.
+pub fn one_for_each_holder<'r, 'a>(
+    records: &'r [Record<'a>],
+) -> Vec<&'r Record<'a>> {
+    let mut kept: Vec<&Record> = Vec::new();
+    for record in records {
+        let same = |other: &&Record| {
+            other.holders.len() == record.holders.len()
+                && other
+                    .holders
+                    .iter()
+                    .zip(&record.holders)
+                    .all(|(a, b)| a.id == b.id)
+        };
+        if !kept.iter().any(same) {
+            kept.push(record);
+        }
+    }
+    kept
+}
+
 /// First place on a board: a standard category's verified builds of one
 /// value of each of its measures and one state, narrowed to a latency and
 /// tags the site finds, ranked fastest or smallest.
@@ -976,7 +1013,19 @@ pub struct Record<'a> {
     pub authors: usize,
 }
 
-impl Record<'_> {
+impl<'a> Record<'a> {
+    /// The build that holds it: on a tie, `player`'s when one of them is
+    /// theirs, whatever the case of their name, else the first.
+    pub fn holder(&self, player: Option<&str>) -> &'a Build {
+        let theirs = self.holders.iter().find(|s| {
+            s.credits
+                .authors
+                .iter()
+                .any(|b| player.is_some_and(|p| b.eq_ignore_ascii_case(p)))
+        });
+        theirs.unwrap_or(&self.holders[0])
+    }
+
     /// Such as `Smallest 3-tick 8-bit synced CCA adder`.
     pub fn name(&self) -> String {
         let (designs, tags): (Vec<&Tag>, Vec<&Tag>) =

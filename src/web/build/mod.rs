@@ -3,14 +3,16 @@
 //! unless it is the 3D viewer's `?preview=yes` fetch, which anyone may
 //! make, or a HEAD request.
 
+pub(crate) mod actions_view;
 pub(crate) mod checks_view;
 pub(crate) mod detail;
 pub(crate) mod detail_view;
 pub(crate) mod diff_view;
 pub(crate) mod download;
+pub(crate) mod info_view;
 pub(crate) mod interface_view;
-pub(crate) mod simulation;
 pub(crate) mod simulation_view;
+pub(crate) mod sources;
 pub(crate) mod stack_guide_view;
 pub(crate) mod trace;
 pub(crate) mod trace_view;
@@ -34,7 +36,6 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/schematics/{id}/favorite", post(detail::favorite))
         .route("/schematics/{id}/download", get(download::download))
         .route("/schematics/{id}/merge", post(versions::merge))
-        .route("/schematics/{id}/versions/new", get(versions::form))
         .route(
             "/schematics/{id}/versions/{version}/download",
             get(versions::download),
@@ -46,9 +47,6 @@ pub(crate) fn routes() -> Router<AppState> {
         .route("/schematics/{id}/diff", get(versions::diff_page))
         .route("/schematics/{id}/diff/{side}", get(versions::diff_file))
         .route("/schematics/{id}/trace/glitch", get(trace::glitch_fragment))
-        .route(
-            "/schematics/{id}/simulation",
-            get(simulation::poll).post(simulation::stored),
-        )
-        .route("/upload/simulation", post(simulation::upload))
+        .route("/schematics/{id}/simulation", get(detail::poll))
+        .route("/schematics/{id}/delete", post(detail::delete))
 }

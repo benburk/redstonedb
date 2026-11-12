@@ -2,7 +2,6 @@
 //! choose one from, and how sending a build to it went.
 
 use maud::{Markup, html};
-
 use serde::Deserialize;
 
 use crate::{
