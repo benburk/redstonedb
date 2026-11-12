@@ -173,16 +173,12 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                         li { "You can keep parts out of the stack, like a carry in, by putting them on an outer face." }
                         li { "Stackable builds whose data crosses bits also compete on the leaderboards at 8, 16, 32, and 64 bits, timed at each: copies that work stacked are taken to work at any width." }
                     }
-                    h2 id="records" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Records" }
+                    h2 id="leaderboards" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Leaderboards" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
-                        li { "A board is a category at one width and state, narrowed by up to three of: its latency, and tags RedstoneDB finds, like synced, torchless, alpha, a design, an orientation, or a pitch class." }
+                        li { "A board is a category at one width and state, narrowed by its latency and by tags RedstoneDB finds, like synced, torchless, alpha, a design, an orientation, or a pitch class." }
                         li { "Gates, monostables, inverters, registers, buffers, and RAM rank as cells, at no width: an 8-bit XOR gate is eight XOR gates. A board of them can narrow to a pitch class, like 2-wide stackable, and ranks them by their blocks a bit: each copy's step that way where it names one, or, under Alone, each build's box by itself, without the air its copies need. Those on shared lines show how many copies still work." }
-                        li { "A looser class's board takes the tighter classes' builds too, so a 2-wide stackable gate can hold the smallest 4-wide stackable record; if it holds the 2-wide one as well, it's listed once, as 2-wide." }
+                        li { "A looser class's board takes the tighter classes' builds too, so a 2-wide stackable gate also ranks among the 4-wide stackable ones." }
                         li { "Builds whose inputs are interleaved, A's and B's bits taking turns along one row, compete on their own boards, or with the rest when you ask for both." }
-                        li { "First place on a board of two or more builds, fastest or smallest, is a record." }
-                        li { "Each tag or latency has to change who's first. Most 8-bit adders are 3-tick CCAs, so there's no fastest CCA, but there is a smallest 3-tick adder." }
-                        li { "Boards of the same builds with the same first place are one record, named for its pitch class first, then its design, then its latency: the smallest 1-bit 2-wide stackable adder, not the smallest 6-tick 1-bit adder, when those boards rank the same adders." }
-                        li { "Fastest counts only when speed decides it. When builds tie on ticks, the record is the smallest at that latency." }
                     }
                     h2 id="per-category" class={ (SECTION_TITLE) " mt-8 mb-2 scroll-mt-4" } { "Per-category rules" }
                     ul class="mb-4 flex list-disc flex-col gap-1.5 pl-5" {
