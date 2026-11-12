@@ -175,11 +175,7 @@ fn interleaved<K: Copy>(
             None
         }
     };
-    let apart = |a: &Run, b: &Run| {
-        (0..3)
-            .map(|axis| (a.bits[0][axis] - b.bits[0][axis]).abs())
-            .sum::<i32>()
-    };
+    let apart = |a: &Run, b: &Run| schem::distance(a.bits[0], b.bits[0]);
     let mut pairs: Vec<(i32, usize, usize)> = Vec::new();
     for i in 0..runs.len() {
         for j in i + 1..runs.len() {

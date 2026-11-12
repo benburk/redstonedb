@@ -275,8 +275,7 @@ impl Pool {
     /// at that end, with the pool left after.
     fn strays(&self, width: usize) -> Vec<(Vec<BitAt>, u32, Pool)> {
         let mut found = Vec::new();
-        let apart =
-            |x: Pos, y: Pos| (0..3).map(|i| (x[i] - y[i]).abs()).sum::<i32>();
+        let apart = crate::schem::distance;
         for (i, run) in self.stretches.iter().enumerate() {
             let whole = run.len() == self.runs[run[0].0].len();
             if !whole || run.len() + 1 != width {

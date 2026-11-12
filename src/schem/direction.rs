@@ -123,3 +123,8 @@ pub fn step(pos: Pos, direction: Direction) -> Pos {
 pub fn add(a: Pos, b: Pos) -> Pos {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
+
+/// How many blocks `a` is from `b`, stepping along the axes.
+pub fn distance(a: Pos, b: Pos) -> i32 {
+    (0..3).map(|axis| (a[axis] - b[axis]).abs()).sum()
+}

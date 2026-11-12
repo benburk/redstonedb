@@ -900,7 +900,9 @@ pub fn lsb_first(blocks: &Blocks, members: &mut [Pos]) {
     let [width, _, length] = blocks.size;
     let corner = [width - 1, 0, length - 1];
     let axis = longest_axis(members);
-    if let Some(&lsb) = members.iter().min_by_key(|&&pos| distance(pos, corner))
+    if let Some(&lsb) = members
+        .iter()
+        .min_by_key(|&&pos| schem::distance(pos, corner))
     {
         members.sort_by_key(|&pos| along(pos, lsb, axis));
     }
@@ -1012,10 +1014,6 @@ fn strength(line: &str) -> Option<u8> {
     line.trim().strip_suffix("ss")?.parse().ok()
 }
 
-fn distance(a: Pos, b: Pos) -> i32 {
-    (0..3).map(|i| (a[i] - b[i]).abs()).sum()
-}
-
 /// The axis `members` spread furthest along, which a bus runs along even
 /// when its bits zig-zag across it, as a double density adder's alternate
 /// between two columns.
@@ -1031,7 +1029,7 @@ fn longest_axis(members: &[Pos]) -> usize {
 /// How far `pos` is from `from` along `axis`, then in all, so bits level
 /// along the axis count up from the nearer.
 fn along(pos: Pos, from: Pos, axis: usize) -> (i32, i32) {
-    ((pos[axis] - from[axis]).abs(), distance(pos, from))
+    ((pos[axis] - from[axis]).abs(), schem::distance(pos, from))
 }
 
 #[cfg(test)]
