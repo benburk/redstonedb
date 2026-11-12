@@ -60,42 +60,49 @@ impl Turn {
 
 /// The build in `data` turned as `turn` says, its box fitted to it.
 pub fn turned(data: &[u8], turn: Turn) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let [width, height, length] = blocks.size;
-    let place = |pos: Pos| -> Pos {
-        let [mut x, y, mut z] = pos;
-        let (mut across, mut along) = (width, length);
-        if turn.mirrored {
-            x = across - 1 - x;
-        }
-        for _ in 0..turn.quarters {
-            // A quarter clockwise from above takes north to east.
-            (x, z) = (along - 1 - z, x);
-            (across, along) = (along, across);
-        }
-        [x, y, z]
-    };
-    let size = if turn.quarters % 2 == 1 {
-        [length, height, width]
-    } else {
-        [width, height, length]
-    };
-    let grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| (place(pos), turned_state(state, turn)))
-        .collect();
-    let mut nbt = schem::decode(data)?;
-    let entities = nbt
-        .take_entities()
-        .iter()
-        .filter_map(|entity| {
-            Some(schem::with_pos(entity, place(schem::entity_pos(entity)?)))
-        })
-        .collect();
-    nbt.move_roles(|pos| Some(place(pos)));
-    nbt.write_blocks([0, 0, 0], size, &grid, entities)?;
-    schem::encode(nbt)
+    Blocks::read(data)?.turned(turn)?.encode()
+}
+
+impl Blocks {
+    /// The build turned as `turn` says, its box fitted to it.
+    pub fn turned(&self, turn: Turn) -> Result<Blocks> {
+        let blocks = self;
+        let [width, height, length] = blocks.size;
+        let place = |pos: Pos| -> Pos {
+            let [mut x, y, mut z] = pos;
+            let (mut across, mut along) = (width, length);
+            if turn.mirrored {
+                x = across - 1 - x;
+            }
+            for _ in 0..turn.quarters {
+                // A quarter clockwise from above takes north to east.
+                (x, z) = (along - 1 - z, x);
+                (across, along) = (along, across);
+            }
+            [x, y, z]
+        };
+        let size = if turn.quarters % 2 == 1 {
+            [length, height, width]
+        } else {
+            [width, height, length]
+        };
+        let grid: HashMap<Pos, String> = blocks
+            .iter()
+            .filter(|(_, state)| *state != AIR)
+            .map(|(pos, state)| (place(pos), turned_state(state, turn)))
+            .collect();
+        let mut nbt = self.nbt()?;
+        let entities = nbt
+            .take_entities()
+            .iter()
+            .filter_map(|entity| {
+                Some(schem::with_pos(entity, place(schem::entity_pos(entity)?)))
+            })
+            .collect();
+        nbt.move_roles(|pos| Some(place(pos)));
+        nbt.write_blocks([0, 0, 0], size, &grid, entities)?;
+        Blocks::of(nbt)
+    }
 }
 
 /// A block state turned as `turn` says: its facing, axis, joining sides,

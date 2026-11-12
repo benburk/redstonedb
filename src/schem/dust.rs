@@ -107,12 +107,20 @@ fn side(
 /// the wrong way is set right. A file whose dust is right comes back as it
 /// was.
 pub fn update(data: &[u8]) -> Result<Vec<u8>> {
-    let changes: BTreeMap<Pos, String> =
-        reshaped(&Blocks::read(data)?).into_iter().collect();
-    if changes.is_empty() {
-        return Ok(data.to_vec());
+    match updated(&Blocks::read(data)?)? {
+        Some(updated) => updated.encode(),
+        None => Ok(data.to_vec()),
     }
-    crate::schem::edit(data, &changes)
+}
+
+/// `blocks` with their dust shaped as the game shapes it; `None` when it
+/// is right already.
+pub fn updated(blocks: &Blocks) -> Result<Option<Blocks>> {
+    let changes: BTreeMap<Pos, String> = reshaped(blocks).into_iter().collect();
+    if changes.is_empty() {
+        return Ok(None);
+    }
+    blocks.edited(&changes).map(Some)
 }
 
 /// `blocks`' dust, each at the shape the game gives it, by position, for

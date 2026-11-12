@@ -13,18 +13,25 @@ use anyhow::Result;
 
 use crate::{
     recognize::interface,
-    schem::{
-        Blocks, Direction,
-        turn::{Turn, turned},
-    },
+    schem::{Blocks, Direction, turn::Turn},
     simulate,
 };
 
 /// The build in `data` laid the standard way, with how it was turned; the
 /// file is returned unchanged when it already lies so.
 pub fn orient(data: &[u8]) -> Result<(Vec<u8>, Turn)> {
-    let blocks = Blocks::read(data)?;
-    let entered = entered(&blocks);
+    let (laid, turn) = oriented(&Blocks::read(data)?)?;
+    let file = match laid {
+        Some(laid) => laid.encode()?,
+        None => data.to_vec(),
+    };
+    Ok((file, turn))
+}
+
+/// `blocks` laid the standard way, with how they were turned; `None` for
+/// the blocks when they already lie so.
+pub fn oriented(blocks: &Blocks) -> Result<(Option<Blocks>, Turn)> {
+    let entered = entered(blocks);
     // Each way of mirroring, turned so A is entered from the south.
     let candidates = [false, true].map(|mirrored| {
         let quarters = entered.map_or(0, |side| {
@@ -33,14 +40,14 @@ pub fn orient(data: &[u8]) -> Result<(Vec<u8>, Turn)> {
         });
         Turn { mirrored, quarters }
     });
-    let laid = |turn: Turn| -> Result<Vec<u8>> {
+    let laid = |turn: Turn| -> Result<Option<Blocks>> {
         if turn.is_none() {
-            Ok(data.to_vec())
+            Ok(None)
         } else {
-            turned(data, turn)
+            blocks.turned(turn).map(Some)
         }
     };
-    let wrong = |file: &[u8]| Blocks::read(file).ok().and_then(|b| wrong(&b));
+    let wrong = |laid: &Option<Blocks>| wrong(laid.as_ref().unwrap_or(blocks));
     let plain = laid(candidates[0])?;
     let plain_wrong = wrong(&plain);
     if plain_wrong == Some(0) {
@@ -129,8 +136,10 @@ mod tests {
                 mirrored: false,
                 quarters,
             };
-            let (laid, _) =
-                orient(&turned(&probed.file, turn).unwrap()).unwrap();
+            let (laid, _) = orient(
+                &crate::schem::turn::turned(&probed.file, turn).unwrap(),
+            )
+            .unwrap();
             let blocks = Blocks::read(&laid).unwrap();
             assert_eq!(entered(&blocks), Some(Direction::South), "{quarters}");
         }
