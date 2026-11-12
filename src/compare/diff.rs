@@ -16,8 +16,8 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::{
+    compare::blocks,
     schem::{self, Blocks, Pos, block},
-    version,
 };
 
 /// What changed between two versions.
@@ -95,13 +95,13 @@ enum Part {
 fn part(state: &str) -> Option<Part> {
     let name = schem::short(state);
     if name.ends_with("_sign") {
-        return Some(Part::Component(version::compared(state)));
+        return Some(Part::Component(blocks::compared(state)));
     }
     match block::block_kind(name)? {
         "Solid" | "Transparent" => Some(Part::Building {
             solid: block::solid(state),
         }),
-        _ => Some(Part::Component(version::compared(state))),
+        _ => Some(Part::Component(blocks::compared(state))),
     }
 }
 
@@ -109,7 +109,7 @@ fn part(state: &str) -> Option<Part> {
 /// of a new version lines them up.
 pub fn diff(old: &[u8], new: &[u8]) -> Result<Diff> {
     let (old_blocks, new_blocks) = (Blocks::read(old)?, Blocks::read(new)?);
-    let (_, shift) = version::aligned(&old_blocks, &new_blocks);
+    let (_, shift) = blocks::aligned(&old_blocks, &new_blocks);
     let to_new = |pos: Pos| [0, 1, 2].map(|axis| pos[axis] + shift[axis]);
     let to_old = |pos: Pos| [0, 1, 2].map(|axis| pos[axis] - shift[axis]);
     // Each side's blocks, the newer's in the older's positions.
@@ -287,7 +287,7 @@ mod tests {
             .iter()
             .map(|&(pos, state)| (pos, format!("minecraft:{state}")))
             .collect();
-        let any = include_bytes!("../tests/fixtures/monostable-3.schem");
+        let any = include_bytes!("../../tests/fixtures/monostable-3.schem");
         schem::rebox(any, &grid, [0, 0, 0], size).unwrap()
     }
 

@@ -75,7 +75,7 @@ fn inline(text: &str) -> String {
             continue;
         }
         let prior = html.chars().last();
-        if let Some(name) = mention(rest, prior) {
+        if let Some(name) = crate::build::mention(rest, prior) {
             html.push_str(&player_badge(name));
             rest = &rest[name.len() + 1..];
             continue;
@@ -159,39 +159,6 @@ fn link(text: &str) -> Option<(String, usize)> {
         return Some((anchor(url, &escape(url)), url.len()));
     }
     None
-}
-
-/// The player `@name` names at the start of `text`, `prior` the character
-/// before: an in-game name of 3 to 16 letters, digits, and underscores,
-/// after no word, as an email address's `@` is not.
-fn mention(text: &str, prior: Option<char>) -> Option<&str> {
-    let rest = text.strip_prefix('@')?;
-    if prior.is_some_and(|c| c.is_alphanumeric() || c == '_') {
-        return None;
-    }
-    let end = rest
-        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .unwrap_or(rest.len());
-    let name = &rest[..end];
-    (3..=16).contains(&name.len()).then_some(name)
-}
-
-/// Every player `text` names with `@name`, as written, each once whatever
-/// its capitals.
-pub fn mentions(text: &str) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    for line in text.lines() {
-        let mut prior = None;
-        for (at, c) in line.char_indices() {
-            if let Some(name) = mention(&line[at..], prior)
-                && !found.iter().any(|n| n.eq_ignore_ascii_case(name))
-            {
-                found.push(name.to_owned());
-            }
-            prior = Some(c);
-        }
-    }
-    found
 }
 
 /// A player as a badge in running text: their head, blank until it loads,
@@ -311,7 +278,7 @@ mod tests {
             assert!(!html(typed).contains("mention"), "{typed}");
         }
         assert_eq!(
-            mentions("@mop_u and @Mop_U\n> @Aminotreal, a@b.com"),
+            crate::build::mentions("@mop_u and @Mop_U\n> @Aminotreal, a@b.com"),
             ["mop_u", "Aminotreal"]
         );
     }

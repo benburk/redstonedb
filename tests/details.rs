@@ -4,10 +4,13 @@
 mod common;
 
 use app::{
-    build::Specs,
-    details::{self, Candidate, Details, Ready},
-    import::{self, Purpose},
+    build::{Details, Ready, Specs},
+    ingest::{
+        details::{self, Candidate},
+        prepare::{self, Purpose},
+    },
     interface::{Encoding, Orientation},
+    recognize::fault::{ADDS, NO_HEX_INPUTS, SUBTRACTS, WITHOUT_LEVERS},
     schem::{self, Blocks},
     stack::StackDirection,
 };
@@ -20,7 +23,7 @@ fn prepared(name: &str, standardize: bool) -> Vec<u8> {
         conventional: true,
         keep_paste: false,
     };
-    import::prepare_for(&common::fixture(name), purpose)
+    prepare::prepare_for(&common::fixture(name), purpose)
         .expect("fixture prepares")
         .data
 }
@@ -208,7 +211,7 @@ async fn a_build_that_passed_is_not_tested_again() {
     };
     let checked =
         |passes| details::check(&db, given("adder"), tested(passes), false);
-    let unverified = |ready: details::Ready| ready.details.unverified;
+    let unverified = |ready: Ready| ready.details.unverified;
     assert!(unverified(checked(false).await.unwrap().unwrap()).is_some());
     assert!(unverified(checked(true).await.unwrap().unwrap()).is_none());
 }
@@ -255,12 +258,12 @@ async fn hex_inputs_make_a_hex_adder_and_levers_an_adder() {
     );
     assert_eq!(
         why(check_file(&db, given("adder"), &hex, true).await).as_deref(),
-        Some(details::WITHOUT_LEVERS)
+        Some(WITHOUT_LEVERS)
     );
     assert_eq!(why(check(&db, given("adder")).await), None);
     assert_eq!(
         why(check(&db, given("hex adder")).await).as_deref(),
-        Some(details::NO_HEX_INPUTS)
+        Some(NO_HEX_INPUTS)
     );
 }
 
@@ -278,7 +281,7 @@ async fn a_hex_to_binary_converters_digit_input_is_its_own() {
     );
     assert_eq!(
         why(check_file(&db, given("adder"), &data, true).await).as_deref(),
-        Some(details::WITHOUT_LEVERS)
+        Some(WITHOUT_LEVERS)
     );
 }
 
@@ -297,7 +300,8 @@ async fn adders_and_subtractors_are_each_their_own_category() {
         conventional: true,
         keep_paste: false,
     };
-    let subtractor = import::prepare_for(&coloured, standardized).unwrap().data;
+    let subtractor =
+        prepare::prepare_for(&coloured, standardized).unwrap().data;
     assert_eq!(
         why(check_file(&db, given("subtractor"), &subtractor, true).await),
         None
@@ -305,10 +309,10 @@ async fn adders_and_subtractors_are_each_their_own_category() {
     assert_eq!(
         why(check_file(&db, given("adder"), &subtractor, true).await)
             .as_deref(),
-        Some(details::SUBTRACTS)
+        Some(SUBTRACTS)
     );
     assert_eq!(
         why(check(&db, given("subtractor")).await).as_deref(),
-        Some(details::ADDS)
+        Some(ADDS)
     );
 }

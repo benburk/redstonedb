@@ -16,10 +16,12 @@ use uuid::Uuid;
 use crate::{
     account::User,
     category::{self, Guessed, Kind},
-    import::{self, Upload},
-    models::simulation,
+    ingest::{
+        jobs,
+        prepare::{self, Upload},
+        version::Checked,
+    },
     recognize::probe::{self, Recognition},
-    version::Checked,
     web::app_state::AppState,
 };
 
@@ -210,9 +212,9 @@ pub fn start(
         if let Ok(analyzed) = &analyzed
             && analyzed.recognition.found.is_some()
             && let Ok(standard) = &analyzed.upload.standard
-            && let Ok(kept) = import::rewrapped(standard)
+            && let Ok(kept) = prepare::rewrapped(standard)
         {
-            simulation::evaluate_ahead(kept.data, kept.sha256);
+            jobs::evaluate_ahead(kept.data, kept.sha256);
         }
         finish(&analyses, id, Done::Upload(Arc::new(analyzed)));
     });

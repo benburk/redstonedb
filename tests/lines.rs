@@ -5,9 +5,11 @@
 mod common;
 
 use app::{
-    details::{self, Candidate, Details},
-    import,
-    ingest::standardize,
+    build::Details,
+    ingest::{
+        details::{self, Candidate},
+        prepare, publish,
+    },
     interface::{self, Kept},
     recognize::palette::{self, Palette},
     schem::{
@@ -15,6 +17,7 @@ use app::{
         lines::{self, Role},
         turn::{self, Turn},
     },
+    standard::standardize,
     store::versions,
 };
 
@@ -63,12 +66,12 @@ fn roles_move_with_their_blocks() {
 #[test]
 fn a_file_is_kept_without_its_roles() {
     let data = common::fixture("alpha-rca");
-    let prepared = import::prepare_for(&data, common::IN_PLACE).unwrap();
+    let prepared = prepare::prepare_for(&data, common::IN_PLACE).unwrap();
     assert!(prepared.roles().is_some());
     let stored = prepared.stored().unwrap();
     assert_eq!(Blocks::read(&stored).unwrap().roles, None);
     let bare =
-        import::prepare_for(&lines::without(&data).unwrap(), common::IN_PLACE)
+        prepare::prepare_for(&lines::without(&data).unwrap(), common::IN_PLACE)
             .unwrap();
     assert_eq!(bare.sha256, prepared.sha256);
 }
@@ -103,7 +106,7 @@ async fn a_versions_roles_are_kept_with_it() {
         .await
         .unwrap()
         .unwrap();
-    let id = import::store(&db, &first, &ready, None, None, None, None)
+    let id = publish::store(&db, &first, &ready, None, None, None, None)
         .await
         .unwrap()
         .unwrap();
@@ -182,7 +185,7 @@ fn a_theme_colours_an_input_lamp_as_its_role() {
 fn interchangeable_operands_follow_the_authors_marking() {
     let raw = std::fs::read("tests/fixtures/cca-8-b-slower.schem").unwrap();
     let a_at = |data: &[u8]| {
-        let found = import::with_roles(data, "adder").unwrap();
+        let found = publish::with_roles(data, "adder").unwrap();
         let roles = lines::of(&found).unwrap().expect("its roles");
         let xs: Vec<i32> = roles
             .0

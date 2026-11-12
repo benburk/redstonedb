@@ -5,11 +5,12 @@
 mod common;
 
 use app::{
-    build::{Build, Specs, tag},
-    details::{self, Candidate, Details},
-    import,
+    build::{Build, Details, Specs, tag},
+    ingest::{
+        details::{self, Candidate},
+        prepare, results,
+    },
     interface::{Encoding, Orientation},
-    models::simulation,
     simulate::Report,
     store::builds,
 };
@@ -51,7 +52,7 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     };
     let id = store(&db, "alpha-rca", typed).await;
 
-    let report = simulation::refresh(&db, &id, false).await.unwrap();
+    let report = results::refresh(&db, &id, false).await.unwrap();
     assert!(matches!(report, Some(Report::Ran(_))), "{report:?}");
     assert!(report.unwrap().passed());
     let s = builds::get(&db, &id).await.unwrap().unwrap();
@@ -59,12 +60,12 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     assert_eq!(s.specs.orientation, Orientation::Horizontal);
     assert_eq!(s.specs.encoding, Some(Encoding::Binary));
     assert!(!s.tags.iter().any(|t| t.name == tag::FAILING));
-    assert!(simulation::current(&db, &s).await.unwrap().is_some());
+    assert!(results::current(&db, &s).await.unwrap().is_some());
 
     // The result is current and the details already match, so refreshing
     // again runs nothing and writes nothing.
     let before = changes(&db).await;
-    let again = simulation::refresh(&db, &id, false).await.unwrap();
+    let again = results::refresh(&db, &id, false).await.unwrap();
     assert!(again.is_some_and(|report| report.passed()));
     assert_eq!(changes(&db).await, before);
 }
@@ -81,12 +82,7 @@ async fn a_build_without_a_test_keeps_no_result() {
         ..Details::default()
     };
     let id = store(&db, "mult-8-buttons", typed).await;
-    assert!(
-        simulation::refresh(&db, &id, false)
-            .await
-            .unwrap()
-            .is_none()
-    );
+    assert!(results::refresh(&db, &id, false).await.unwrap().is_none());
     let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.specs.latency, Some(64), "its author's latency stands");
 }
@@ -106,7 +102,7 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
         ..Details::default()
     };
     let id = store(&db, "rca-slice-capped", typed).await;
-    let report = simulation::refresh(&db, &id, false).await.unwrap();
+    let report = results::refresh(&db, &id, false).await.unwrap();
     assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
     let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.specs.design.as_deref(), Some("ripple_carry"));
@@ -157,7 +153,7 @@ async fn an_unverified_build_is_tested_as_its_category() {
         ..Details::default()
     };
     let id = store(&db, "cca-8-dust-out", typed).await;
-    let report = simulation::refresh(&db, &id, false)
+    let report = results::refresh(&db, &id, false)
         .await
         .unwrap()
         .expect("it is tested");
@@ -169,7 +165,7 @@ async fn an_unverified_build_is_tested_as_its_category() {
     assert!(s.tags.iter().any(|t| t.name == tag::FAILING));
     assert_eq!(s.specs.latency, Some(99), "its typed details stay");
     assert_eq!(s.specs.width, Some(8));
-    let stored = simulation::current(&db, &s).await.unwrap();
+    let stored = results::current(&db, &s).await.unwrap();
     assert!(stored.is_some_and(|report| report.failed()));
     let board = app::leaderboard::board(
         &[&s],
@@ -188,7 +184,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
         ..Details::default()
     };
     let id = store(&db, "rca-slice-capped", typed).await;
-    simulation::refresh(&db, &id, false).await.unwrap();
+    results::refresh(&db, &id, false).await.unwrap();
     let ran_at = || async {
         sqlx::query_scalar::<_, String>(
             "SELECT ran_at FROM simulation WHERE build_id = ?",
@@ -219,7 +215,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
     nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)
         .unwrap();
     let new = app::schem::encode(nbt).unwrap();
-    let prepared = import::prepare_for(&new, common::IN_PLACE).unwrap();
+    let prepared = prepare::prepare_for(&new, common::IN_PLACE).unwrap();
     let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,
@@ -231,7 +227,7 @@ async fn a_new_file_with_the_same_circuit_keeps_its_result() {
         .unwrap();
 
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    let report = simulation::refresh(&db, &id, false).await.unwrap();
+    let report = results::refresh(&db, &id, false).await.unwrap();
     assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
     assert_eq!(ran_at().await, first, "it was not simulated again");
 }
@@ -252,7 +248,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
         },
     )
     .await;
-    simulation::refresh(&db, &id, false).await.unwrap();
+    results::refresh(&db, &id, false).await.unwrap();
     let measured = builds::get(&db, &id).await.unwrap().unwrap();
     assert!(
         measured.specs.latency.is_some() && measured.specs.throughput.is_some()
@@ -275,7 +271,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
         .unwrap()
         .unwrap();
     builds::set_details(&db, &id, &ready).await.unwrap();
-    simulation::refresh(&db, &id, false).await.unwrap();
+    results::refresh(&db, &id, false).await.unwrap();
 
     let s = builds::get(&db, &id).await.unwrap().unwrap();
     // Respelled as the player spells it, whatever that is.
@@ -309,12 +305,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         ..Details::default()
     };
     let id = store(&db, "alpha-rca", typed).await;
-    assert!(
-        simulation::refresh(&db, &id, false)
-            .await
-            .unwrap()
-            .is_some()
-    );
+    assert!(results::refresh(&db, &id, false).await.unwrap().is_some());
     let on = |data: &[u8]| {
         app::schem::Blocks::read(data)
             .unwrap()
@@ -370,7 +361,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         data == current,
         on(&data)
     );
-    let mut prepared = import::prepare_for(&data, common::IN_PLACE).unwrap();
+    let mut prepared = prepare::prepare_for(&data, common::IN_PLACE).unwrap();
     prepared.data = data;
     prepared.sha256 = app::schem::sha256(&prepared.data);
     let how = app::store::versions::Replacing::NextVersion {
@@ -383,7 +374,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         .await
         .unwrap();
 
-    let report = simulation::refresh(&db, &id, false).await.unwrap().unwrap();
+    let report = results::refresh(&db, &id, false).await.unwrap().unwrap();
     assert!(report.passed());
     let now = app::store::versions::current_file(&db, &id)
         .await
@@ -400,7 +391,7 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
 fn a_failing_build_probed_again_keeps_its_nearest_reading() {
     let raw = std::fs::read("tests/fixtures/adder-16-split-no-carry-out.schem")
         .expect("fixture is readable");
-    let data = app::ingest::standardize::without_trapdoors(&raw).unwrap();
+    let data = app::standard::standardize::without_trapdoors(&raw).unwrap();
     let (file, found) = app::recognize::probe::reprobe(&data, "adder")
         .unwrap()
         .expect("its test ran");

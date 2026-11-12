@@ -2,71 +2,22 @@
 //! place whichever way they arrive: the upload page, the edit page, or
 //! `rsdb set`.
 
-use sqlx::SqlitePool;
-
 use crate::{
-    build::{Build, Credits, Specs, tag, valid_player_name},
+    build::{Details, Prepared, Ready, tag, valid_player_name},
     category::{self, Category, Kind, Measure, Test},
     external::mojang,
-    import::Prepared,
+    ingest::{jobs, results},
     interface::Orientation,
-    models::simulation,
     players,
+    recognize::fault::{
+        ADDS, INVERTS_SUM, KEEPS_SUM, NO_HEX_INPUTS, SUBTRACTS, WITHOUT_LEVERS,
+        WRONG_OUTPUTS,
+    },
     simulate::Report,
-    stack::{self, StackDirection},
+    stack::{self},
     store::tags,
 };
-
-/// A build's details, typed. As given they may break a rule, such as naming
-/// the category by its label, giving a capacity to a category not ranked
-/// by one, or crediting a name no player has; [`check`] holds them to every
-/// rule.
-#[derive(Debug, Clone, Default)]
-pub struct Details {
-    /// A standard category by its name or label, in any capitals, or a name
-    /// of the author's own.
-    pub category: String,
-    /// Its specs as given; its design one of the category's, or `None`
-    /// for `other`.
-    pub specs: Specs,
-    /// A date such as `2024-02-02`.
-    pub built_on: Option<String>,
-    pub description: Option<String>,
-    /// Flags it has; any not of its category are dropped.
-    pub flags: Vec<String>,
-    /// The names credited, each respelled as its player spells it.
-    pub credits: Credits,
-    /// Empty for a build that does not stack.
-    pub stacking: Vec<StackDirection>,
-    /// Tag names, which may be written with spaces and capitals.
-    pub tags: Vec<String>,
-    /// Why it is not recognized as its category, one the site recognizes
-    /// builds of, so it goes up unverified with the details given; see
-    /// [`unrecognized`].
-    pub unverified: Option<String>,
-}
-
-impl Details {
-    /// Build `s`'s details as stored, to change some and check them again.
-    pub fn of(s: &Build) -> Self {
-        Details {
-            category: s.category.clone(),
-            specs: s.specs.clone(),
-            built_on: s.built_on.clone(),
-            description: s.description.clone(),
-            flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
-            credits: s.credits.clone(),
-            stacking: s.stacking.clone(),
-            tags: s
-                .tags
-                .iter()
-                .filter(|tag| !tag.is_derived())
-                .map(|tag| tag.name.clone())
-                .collect(),
-            unverified: s.unverified.clone(),
-        }
-    }
-}
+use sqlx::SqlitePool;
 
 /// The file the details describe, as far as the rules ask about it.
 #[derive(Clone, Copy)]
@@ -82,7 +33,7 @@ pub struct Candidate<'a> {
 }
 
 impl<'a> Candidate<'a> {
-    /// A file as `import::prepare_for` made it.
+    /// A file as `prepare::prepare_for` made it.
     pub fn of(prepared: &'a Prepared) -> Self {
         Candidate {
             data: &prepared.data,
@@ -90,22 +41,6 @@ impl<'a> Candidate<'a> {
             passes: false,
         }
     }
-}
-
-/// Details that keep every rule, ready to store.
-pub struct Ready {
-    /// The category, as the list has it, or one of the author's own.
-    pub category: Category,
-    /// The category by its name, the fields it has no use for dropped,
-    /// flags not of it dropped, the names respelled as their players spell
-    /// them, and tags in the form [`tag::name`] gives.
-    pub details: Details,
-    /// Whether the simulation decides how it stacks, so the stacking given
-    /// counts for nothing and whatever the simulation found stays.
-    pub stacking_inferred: bool,
-    /// Whether the simulation works out its every measured detail, as for
-    /// a conventional adder, so an edit leaves them as it set them.
-    pub evaluated: bool,
 }
 
 /// Holds `details` of `build` to every rule, and returns them ready to
@@ -231,7 +166,7 @@ async fn ready(
     let named = details
         .description
         .as_deref()
-        .map(crate::web::mentions)
+        .map(crate::build::mentions)
         .unwrap_or_default();
     let asked: Vec<String> =
         details.credits.everyone().chain(&named).cloned().collect();
@@ -291,7 +226,7 @@ async fn evaluated(
     if details.unverified.is_some() {
         if details.specs.width.is_none() {
             details.specs.width =
-                simulation::derived_width(&category.name, true, build.data)
+                results::derived_width(&category.name, true, build.data)
                     .ok()
                     .flatten();
         }
@@ -313,7 +248,7 @@ async fn evaluated(
     details.flags.clear();
     let read = crate::schem::Blocks::read(build.data)
         .map(|blocks| {
-            crate::import::derived(
+            crate::ingest::read::derived(
                 &category.name,
                 &crate::interface::read(&blocks),
             )
@@ -325,7 +260,7 @@ async fn evaluated(
         read.orientation.unwrap_or(Orientation::Horizontal);
     details.specs.encoding = read.encoding;
     details.specs.width =
-        simulation::derived_width(&category.name, true, build.data)
+        results::derived_width(&category.name, true, build.data)
             .ok()
             .flatten();
     Ok(())
@@ -346,7 +281,7 @@ pub async fn unrecognized(
     let Some(kind) = Kind::named(&category.name) else {
         return Ok(None);
     };
-    let width = simulation::derived_width(&category.name, true, build.data)
+    let width = results::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
     let off = |why: String| Ok(Some(why));
@@ -375,7 +310,7 @@ pub async fn unrecognized(
             ),
         });
     };
-    let report = simulation::run(test, build.data.to_vec())
+    let report = jobs::run(test, build.data.to_vec())
         .await
         .map_err(|err| format!("It could not be simulated: {err}."))?;
     match &report {
@@ -407,30 +342,6 @@ pub async fn unrecognized(
         Report::Broken { .. } => off(WRONG_OUTPUTS.to_owned()),
     }
 }
-
-/// Why a hex adder or hex-to-binary converter whose inputs are levers is
-/// not verified as one.
-pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
-
-/// Why an adder whose B is subtracted is not verified as an adder.
-pub const SUBTRACTS: &str = "It subtracts";
-
-/// Why an adder that adds is not verified as a subtractor.
-pub const ADDS: &str = "It adds";
-
-/// Why an inverted adder is not verified as an adder.
-pub const INVERTS_SUM: &str = "Its sum reads inverted, as an inverted adder's";
-
-/// Why an adder is not verified as an inverted adder.
-pub const KEEPS_SUM: &str = "Its sum reads as it is, as an adder's";
-
-/// Why a build its test finds broken is not verified, and a build that got
-/// some cases of its test wrong was, before each said which.
-pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";
-
-/// Why a build whose inputs take a signal strength, rather than a lever's
-/// on or off, is not recognized.
-pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
 
 /// Refuses details whose fields are not of the shape they must be, each
 /// with a sentence saying which.

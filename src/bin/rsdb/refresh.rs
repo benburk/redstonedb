@@ -10,7 +10,7 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
-    models::simulation,
+    ingest::{jobs, results},
     simulate::{Action, Report, Stacking, Step, Timing},
     store,
 };
@@ -98,7 +98,7 @@ async fn refresh_all(
     let mut failed = 0;
     // Each build simulates on its own thread, `AT_ONCE` at a time, and
     // says how it went as it finishes.
-    simulation::run_at_once(AT_ONCE);
+    jobs::run_at_once(AT_ONCE);
     let gate = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
     let mut running = tokio::task::JoinSet::new();
     for id in ids {
@@ -148,11 +148,7 @@ pub(super) async fn refresh_one(
     if how.rejudge {
         builds::rejudge(db, id).await?;
     }
-    let report = match simulation::refresh(db, id, how.again).await? {
-        Some(_) => simulation::refresh_timing(db, id, how.again).await?,
-        None => None,
-    };
-    simulation::keep_needs(db, id).await?;
+    let report = results::measure(db, id, how.again).await?;
     if how.prune {
         versions::prune(db, id, false).await?;
     }
@@ -218,7 +214,7 @@ async fn compare(
             .await?
             .context("schematic vanished")?;
         // Its test and timing spread over every core already.
-        let e = match app::recognize::evaluate::evaluate(&file) {
+        let e = match app::ingest::evaluate::evaluate(&file) {
             Ok(e) => e,
             Err(err) => {
                 println!("{name}: could not evaluate: {err}");

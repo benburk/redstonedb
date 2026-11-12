@@ -15,8 +15,12 @@ use sqlx::SqlitePool;
 use crate::{
     account::User,
     build::Build,
-    import::{self, Analysis},
-    models::{similarity, simulation},
+    ingest::{
+        jobs,
+        prepare::{self, Purpose},
+        read::Analysis,
+        results, similar,
+    },
     recognize::palette,
     schem::{self, Blocks},
     stack,
@@ -127,7 +131,7 @@ async fn similar_to(
     id: &str,
     viewer: Option<&User>,
 ) -> anyhow::Result<Vec<(Build, u32)>> {
-    let similar = similarity::similar(db, id).await?;
+    let similar = similar::similar(db, id).await?;
     Ok(super::super::similar::builds(db, &similar, viewer).await?)
 }
 
@@ -147,9 +151,9 @@ pub struct Asked {
 /// standardized first, as recognizing it would.
 fn read_for_page(s: &Build, data: &[u8], blocks: &Blocks) -> Analysis {
     if !s.verified()
-        && let Ok(standard) = import::prepare_for(
+        && let Ok(standard) = prepare::prepare_for(
             data,
-            import::Purpose::Standard {
+            Purpose::Standard {
                 keep_paste: s.file.keeps_paste,
             },
         )
@@ -176,9 +180,9 @@ pub async fn detail(
     let db = &state.db;
     let from = crate::web::back::came_from(&headers, from.as_deref());
     let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
-    let simulation = simulation::current(db, &s).await?;
+    let simulation = results::current(db, &s).await?;
     let report = simulation.as_ref();
-    let simulating = simulation::completing(&id);
+    let simulating = jobs::completing(&id);
     let panel = panel.as_deref().filter(|_| fixi);
     if panel == Some("banner") {
         return Ok(pages::build_banner(&s, simulating).into_response());
@@ -228,7 +232,7 @@ pub async fn detail(
     // Its stored blocks, its author's, differ from the site's colours
     // once a theme colours its roles, as for a build that follows the
     // conventions; one kept as built shows only as built.
-    let original = crate::models::simulation::carries_roles(&data);
+    let original = crate::ingest::results::carries_roles(&data);
     let colours = pages::ColoursShown {
         chosen: match colours {
             Some(Colours::Original) if original => Colours::Original,

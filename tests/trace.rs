@@ -5,7 +5,7 @@ mod common;
 
 use app::{
     category::Kind,
-    import,
+    ingest::publish,
     interface::Interface,
     schem::{Blocks, Pos},
     simulate::trace::Tracer,
@@ -17,7 +17,7 @@ fn traced(
     name: &str,
     set_up: fn(&Blocks, Interface) -> anyhow::Result<Tracer>,
 ) -> Tracer {
-    let data = import::with_roles(&common::fixture(name), "adder").unwrap();
+    let data = publish::with_roles(&common::fixture(name), "adder").unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let lines = Kind::Adder.test().unwrap().lines(&blocks).unwrap();
     set_up(&blocks, lines).unwrap()

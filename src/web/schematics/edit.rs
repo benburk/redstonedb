@@ -11,17 +11,17 @@ use sqlx::SqlitePool;
 
 use crate::{
     account::User,
-    build::{self, Build},
+    build::{self, Build, Prepared},
     category::{self, Category},
-    details,
-    import::{self, Prepared},
-    models::{similarity, simulation},
+    ingest::{
+        details, jobs, prepare, publish, results, similar,
+        version::{Checked, check as check_version},
+    },
     schem::Blocks,
     store::{
         activity, builds,
         versions::{self, Replacing},
     },
-    version::{Checked, check as check_version},
     web::{
         analysis,
         app_state::AppState,
@@ -168,8 +168,8 @@ pub async fn save(
         tracing::info!(id, by = user.username, ip, "new version");
     }
     // A new file, category, or width may call for a test, or another.
-    simulation::complete_soon(db, &id);
-    similarity::refresh_soon(db);
+    jobs::complete_soon(db, &id);
+    similar::refresh_soon(db);
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }
 
@@ -370,13 +370,13 @@ async fn version_kept(
     if listed.name == s.category
         && !s.verified()
         && let Some(verified) =
-            import::verified_by(listed, prepared, s.file.keeps_paste).await?
+            publish::verified_by(listed, prepared, s.file.keeps_paste).await?
     {
         return Ok(Some(verified));
     }
     let evaluated = category::behaviour(&listed.name).evaluated;
     if evaluated && prepared.conventional && s.unverified.is_none() {
-        return Ok(Some(import::rewrapped(prepared)?));
+        return Ok(Some(prepare::rewrapped(prepared)?));
     }
     Ok(None)
 }
@@ -413,7 +413,7 @@ async fn saved(
             data: &stored,
             conventional: s.file.conventional,
             passes: same
-                && simulation::current(db, s)
+                && results::current(db, s)
                     .await?
                     .is_some_and(|report| report.passed()),
         }
@@ -454,7 +454,7 @@ pub(in crate::web) async fn show_edit(
         reply,
     } = view;
     let versions = versions::list(db, &s.id).await?;
-    let simulation = simulation::current(db, s).await?;
+    let simulation = results::current(db, s).await?;
     let stored = Form::of(s);
     // What the page shows is the new file's, when one is waiting.
     let (encoded, stored_blocks);

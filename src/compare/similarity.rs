@@ -10,7 +10,7 @@
 //! score over 90%, an author's revisions of a design 70% to 77%, and
 //! different builds of one design mostly under 60%.
 //!
-//! This is the measure alone: `models::similarity` keeps each build's scores,
+//! This is the measure alone: `ingest::similar` keeps each build's scores,
 //! and `web::similar` scores a file nobody has uploaded.
 
 use std::collections::HashMap;

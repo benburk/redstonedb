@@ -6,11 +6,13 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use app::{
-    build::Build,
+    build::{Build, Details},
     category::Category,
-    details::{self, Details},
-    import,
-    models::simulation,
+    ingest::{
+        details,
+        prepare::{self, Purpose},
+        publish, results,
+    },
     store::{
         builds,
         versions::{self, Replacing},
@@ -63,8 +65,7 @@ async fn refile(
     file: &[u8],
     standardize: bool,
 ) -> Result<()> {
-    let prepared =
-        import::prepare_for(file, import::Purpose::of(s, standardize))?;
+    let prepared = prepare::prepare_for(file, Purpose::of(s, standardize))?;
     let facts = &prepared.facts;
     let stored = (
         s.file.torches,
@@ -143,7 +144,7 @@ pub(super) async fn merge(
         _ => format!("Merged from {}, {}", from.name(), &from.id[..8]),
     };
     let by = Some(app::account::REDSTONEDB);
-    match app::version::merge(db, &from, &into, by, &note).await? {
+    match app::ingest::version::merge(db, &from, &into, by, &note).await? {
         Ok(number) => println!(
             "merged {}  {} into {}  {}: version {number}",
             &from.id[..8],
@@ -185,7 +186,7 @@ async fn next_version(
 ) -> Result<()> {
     let id = &s.id;
     let checked =
-        app::version::check(db, s, raw, standardizing.asked()).await?;
+        app::ingest::version::check(db, s, raw, standardizing.asked()).await?;
     let comparison = checked.comparison;
     println!(
         "changed {} of {} blocks",
@@ -214,8 +215,12 @@ async fn next_version(
     let categories = Category::all();
     let verified = match Category::find(&categories, &s.category) {
         Some(category) if !s.verified() => {
-            import::verified_by(category, &checked.prepared, s.file.keeps_paste)
-                .await?
+            publish::verified_by(
+                category,
+                &checked.prepared,
+                s.file.keeps_paste,
+            )
+            .await?
         }
         _ => None,
     };
@@ -279,7 +284,8 @@ pub(super) async fn prune(
             return Ok(());
         }
     };
-    let checked = app::version::check(db, &s, &pruned.file, false).await?;
+    let checked =
+        app::ingest::version::check(db, &s, &pruned.file, false).await?;
     if let Some(refusal) = checked.refusals.first() {
         println!("skip    {name}: {refusal}");
         return Ok(());
@@ -302,9 +308,6 @@ pub(super) async fn prune(
         restores: None,
     };
     versions::replace(db, id, &checked.prepared, how).await?;
-    if simulation::refresh(db, id, false).await?.is_some() {
-        simulation::refresh_timing(db, id, false).await?;
-    }
-    simulation::keep_needs(db, id).await?;
+    results::measure(db, id, false).await?;
     Ok(())
 }

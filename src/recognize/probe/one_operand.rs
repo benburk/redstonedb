@@ -125,7 +125,7 @@ mod tests {
             let raw =
                 std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
             let standard =
-                crate::ingest::standardize::standardize(&raw).unwrap();
+                crate::standard::standardize::standardize(&raw).unwrap();
             let changes: BTreeMap<Pos, String> = Blocks::read(&standard)
                 .unwrap()
                 .iter()

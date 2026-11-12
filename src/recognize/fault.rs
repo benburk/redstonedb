@@ -143,17 +143,17 @@ const CASES: &[Case] = &[
         rule: Some("data-inputs"),
     },
     Case {
-        when: &[Is(crate::details::SUBTRACTS)],
+        when: &[Is(crate::recognize::fault::SUBTRACTS)],
         fix: "Upload it as a Subtractor, which ranks apart from adders.",
         rule: Some("per-category"),
     },
     Case {
-        when: &[Is(crate::details::ADDS)],
+        when: &[Is(crate::recognize::fault::ADDS)],
         fix: "Upload it as an Adder.",
         rule: Some("per-category"),
     },
     Case {
-        when: &[Is(crate::details::NO_HEX_INPUTS)],
+        when: &[Is(crate::recognize::fault::NO_HEX_INPUTS)],
         fix: "A hex adder's or hex-to-binary converter's inputs each take a \
               hex digit, a signal strength through a comparator with air \
               behind it. An adder with levers is an Adder.",
@@ -192,7 +192,10 @@ const CASES: &[Case] = &[
         rule: Some("per-category"),
     },
     Case {
-        when: &[Is(crate::details::WRONG_OUTPUTS), Has("cases wrong")],
+        when: &[
+            Is(crate::recognize::fault::WRONG_OUTPUTS),
+            Has("cases wrong"),
+        ],
         fix: "See which cases fail under Simulation, fix the circuit, and \
               upload it as a new version.",
         rule: None,
@@ -227,7 +230,8 @@ const CASES: &[Case] = &[
 /// category's, which leaves it untested.
 pub fn wrong_outputs(reason: &str) -> bool {
     let reason = reason.trim();
-    reason == crate::details::WRONG_OUTPUTS || reason.contains("cases wrong")
+    reason == crate::recognize::fault::WRONG_OUTPUTS
+        || reason.contains("cases wrong")
 }
 
 /// The advice for `reason`, one line of a build's reasons it isn't
@@ -247,6 +251,30 @@ pub fn advice(reason: &str) -> Option<Advice> {
             rule: case.rule,
         })
 }
+
+/// Why a hex adder or hex-to-binary converter whose inputs are levers is
+/// not verified as one.
+pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
+
+/// Why an adder whose B is subtracted is not verified as an adder.
+pub const SUBTRACTS: &str = "It subtracts";
+
+/// Why an adder that adds is not verified as a subtractor.
+pub const ADDS: &str = "It adds";
+
+/// Why an inverted adder is not verified as an adder.
+pub const INVERTS_SUM: &str = "Its sum reads inverted, as an inverted adder's";
+
+/// Why an adder is not verified as an inverted adder.
+pub const KEEPS_SUM: &str = "Its sum reads as it is, as an adder's";
+
+/// Why a build its test finds broken is not verified, and a build that got
+/// some cases of its test wrong was, before each said which.
+pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";
+
+/// Why a build whose inputs take a signal strength, rather than a lever's
+/// on or off, is not recognized.
+pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
 
 #[cfg(test)]
 mod tests {
@@ -278,10 +306,10 @@ mod tests {
     #[test]
     fn each_reason_for_an_unverified_build_has_advice() {
         for reason in [
-            crate::details::WITHOUT_LEVERS,
-            crate::details::NO_HEX_INPUTS,
-            crate::details::SUBTRACTS,
-            crate::details::ADDS,
+            crate::recognize::fault::WITHOUT_LEVERS,
+            crate::recognize::fault::NO_HEX_INPUTS,
+            crate::recognize::fault::SUBTRACTS,
+            crate::recognize::fault::ADDS,
             "Couldn't read its inputs and outputs",
             "Couldn't read its file",
             "Couldn't count its bits",

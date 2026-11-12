@@ -5,8 +5,8 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
 use crate::{
-    account::REDSTONEDB, diff::Counts, import::Prepared, interface::Kept,
-    recognize::palette::Needs,
+    account::REDSTONEDB, build::Prepared, compare::diff::Counts,
+    interface::Kept, recognize::palette::Needs,
 };
 
 /// One version, without its file.
@@ -229,7 +229,7 @@ pub async fn colours(
 /// Build `id`'s current file, its highest version's, carrying the roles
 /// kept with it, as every reading of its lines takes them; see
 /// [`crate::schem::lines`]. A version whose roles are not yet found
-/// carries none, and `simulation::refresh` finds them.
+/// carries none, and `ingest::results::refresh` finds them.
 pub async fn current_file<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
@@ -274,7 +274,7 @@ fn stored(file: &Prepared) -> Result<Vec<u8>, sqlx::Error> {
 }
 
 /// Keeps the roles the file `data`, build `id`'s current one, carries as
-/// those of its version, as `simulation::refresh` does for one whose
+/// those of its version, as `ingest::results::refresh` does for one whose
 /// roles were not yet found.
 pub async fn set_current_roles<'e, E: SqliteExecutor<'e>>(
     db: E,

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use app::{
     account::{Role, User},
-    details::Details,
+    build::Details,
     store::{
         builds,
         sessions::{Session, now_micros},
@@ -367,7 +367,8 @@ async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
         "minecraft:white_stained_glass".to_owned(),
     )]);
     let new = app::schem::edit(&old, &changes).unwrap();
-    let prepared = app::import::prepare_for(&new, common::IN_PLACE).unwrap();
+    let prepared =
+        app::ingest::prepare::prepare_for(&new, common::IN_PLACE).unwrap();
     let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,
@@ -388,9 +389,7 @@ async fn a_tested_build_shows_its_glitch_traced() {
     let owner = common::sign_in(&site.db, "1", "steve").await;
     let id = site.adder(&owner).await;
 
-    app::models::simulation::complete(&site.db, &id)
-        .await
-        .unwrap();
+    app::ingest::jobs::complete(&site.db, &id).await.unwrap();
     let build = site.get(&format!("/schematics/{id}"), None).await;
     let build = build.text().await.unwrap();
     assert!(
@@ -558,7 +557,8 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
         "minecraft:white_stained_glass".to_owned(),
     )]);
     let fixed = app::schem::edit(&first, &glass).unwrap();
-    let fixed = app::import::prepare_for(&fixed, common::IN_PLACE).unwrap();
+    let fixed =
+        app::ingest::prepare::prepare_for(&fixed, common::IN_PLACE).unwrap();
     let how = app::store::versions::Replacing::NextVersion {
         added_by: None,
         added_from: None,

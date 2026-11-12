@@ -1,7 +1,9 @@
-//! The engine's modules are layers, each using only those below it: the
-//! file format at the bottom, then a build's inputs and outputs, stacking,
-//! the simulator, and the categories with their tests. A module's own unit
-//! tests may reach higher, as for a fixture an upload prepares.
+//! The crate's modules below the web are layers, each using only those
+//! before it: the file format at the bottom, then a build's inputs and
+//! outputs, stacking, the simulator, the categories with their tests, and
+//! recognizing a build; then what a stored build is, the database, and at
+//! the top the path that takes a file in. A module's own unit tests may
+//! reach higher, as for a fixture an upload prepares.
 
 use std::{
     collections::BTreeSet,
@@ -9,9 +11,27 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// The layers, lowest first.
-const LAYERS: [&str; 5] =
-    ["schem", "interface", "stack", "simulate", "category"];
+/// The layers, lowest first, each a folder of `src` or a file.
+const LAYERS: [&str; 18] = [
+    "schem",
+    "interface",
+    "stack",
+    "simulate",
+    "category",
+    "standard",
+    "recognize",
+    "works_from",
+    "compare",
+    "thumbnail",
+    "build",
+    "account",
+    "search",
+    "leaderboard",
+    "external",
+    "store",
+    "players",
+    "ingest",
+];
 
 /// Every Rust file under `dir`.
 fn files(dir: &Path, found: &mut Vec<PathBuf>) {
@@ -19,7 +39,9 @@ fn files(dir: &Path, found: &mut Vec<PathBuf>) {
         let path = entry.unwrap().path();
         if path.is_dir() {
             files(&path, found);
-        } else if path.extension().is_some_and(|ext| ext == "rs") {
+        } else if path.extension().is_some_and(|ext| ext == "rs")
+            && path.file_name().is_some_and(|name| name != "tests.rs")
+        {
             found.push(path);
         }
     }
@@ -81,7 +103,12 @@ fn each_layer_uses_only_the_layers_below_it() {
     for (place, layer) in LAYERS.iter().enumerate() {
         let allowed = &LAYERS[..=place];
         let mut found = Vec::new();
-        files(&Path::new("src").join(layer), &mut found);
+        let folder = Path::new("src").join(layer);
+        if folder.is_dir() {
+            files(&folder, &mut found);
+        } else {
+            found.push(folder.with_extension("rs"));
+        }
         assert!(!found.is_empty(), "{layer} has no files");
         for path in found {
             let source = fs::read_to_string(&path).unwrap();

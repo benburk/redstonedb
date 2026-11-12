@@ -9,7 +9,7 @@ use maud::{Markup, html};
 use crate::{
     account::User,
     build::Build,
-    diff::Counts,
+    compare::diff::Counts,
     store::versions::{Measures, Version},
 };
 

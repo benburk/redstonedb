@@ -4,12 +4,15 @@ use std::collections::BTreeMap;
 
 use app::{
     category::Logic,
-    import,
-    ingest::standardize,
+    ingest::{
+        evaluate::evaluate,
+        prepare::{self, Purpose},
+        publish,
+    },
     interface::Orientation,
-    recognize::evaluate::evaluate,
     schem::{self, Blocks},
     simulate::{Report, Stacking},
+    standard::standardize,
 };
 
 /// The fixture file at `path`, carrying the roles its colours mark, as the
@@ -62,7 +65,7 @@ fn a_counters_value_changes_only_on_a_clock_pulse() {
         let raw =
             std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
         let blocks =
-            Blocks::read(&import::with_roles(&raw, "counter").unwrap())
+            Blocks::read(&publish::with_roles(&raw, "counter").unwrap())
                 .unwrap();
         let Report::Ran(run) = app::category::Test::Counter.run(&blocks) else {
             panic!("{name} ran");
@@ -219,12 +222,10 @@ fn a_multiplier_calculated_on_a_wooden_button_holds() {
 fn a_gate_is_read_whole_from_its_file_its_stacking_by_its_copies() {
     // Prepared as an upload is, turned the standard way.
     let raw = read_fixture("tests/fixtures/xor-1.schem").unwrap();
-    let file = import::prepare_for(
-        &raw,
-        import::Purpose::Standard { keep_paste: false },
-    )
-    .unwrap()
-    .data;
+    let file =
+        prepare::prepare_for(&raw, Purpose::Standard { keep_paste: false })
+            .unwrap()
+            .data;
     let e = evaluate(&file).unwrap();
     assert_eq!(e.category, Some("xor_gate"));
     assert!(e.passes(), "{:?}", e.report);
@@ -271,7 +272,7 @@ fn an_incrementer_with_no_carry_out_does_not_stack() {
 /// way.
 fn uploaded(name: &str) -> Vec<u8> {
     let raw = read_fixture(&format!("tests/fixtures/{name}.schem")).unwrap();
-    import::prepare_for(&raw, import::Purpose::Standard { keep_paste: false })
+    prepare::prepare_for(&raw, Purpose::Standard { keep_paste: false })
         .unwrap()
         .data
 }
@@ -591,9 +592,9 @@ fn inverted_lines_are_flags_not_categories() {
     assert!(subtractor.design.is_some());
 
     let raw = read_fixture("tests/fixtures/vert-3t-cca.schem").unwrap();
-    let file = import::prepare_for(
+    let file = prepare::prepare_for(
         &raw,
-        import::Purpose::InPlace {
+        Purpose::InPlace {
             standardize: false,
             conventional: true,
             keep_paste: false,

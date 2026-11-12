@@ -10,10 +10,10 @@ use maud::{Markup, html};
 use crate::{
     account::User,
     build::Build,
-    import::Analysis,
+    compare::blocks::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
+    ingest::read::Analysis,
     recognize::fault::wrong_outputs,
     simulate::Report,
-    version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
 };
 
 use super::{
@@ -109,7 +109,7 @@ pub struct DetailsPage<'a> {
     pub choices: &'a Choices,
     /// The width and orientation an adder reads from the file; see
     /// `fields`.
-    pub derived: crate::import::Derived,
+    pub derived: crate::ingest::read::Derived,
     /// The tags its file gives it, such as torchless, shown in the tag
     /// field but not to be removed.
     pub fixed: &'a [crate::build::tag::Tag],

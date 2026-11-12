@@ -6,9 +6,13 @@
 
 use app::{
     account::User,
-    details::{self, Candidate, Details},
+    build::{Details, Prepared},
     external::discord::DiscordProfile,
-    import::{self, Prepared, Purpose},
+    ingest::{
+        details::{self, Candidate},
+        prepare::{self, Purpose},
+        publish,
+    },
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -52,7 +56,7 @@ pub const IN_PLACE: Purpose = Purpose::InPlace {
 /// The fixture `name` as a conventional build's file is kept where it
 /// lies; see [`IN_PLACE`].
 pub fn conventional(name: &str) -> Prepared {
-    import::prepare_for(&fixture(name), IN_PLACE).expect("fixture prepares")
+    prepare::prepare_for(&fixture(name), IN_PLACE).expect("fixture prepares")
 }
 
 /// Signs in the Discord account `id` as `username`, shown as
@@ -80,7 +84,7 @@ pub async fn store(
         .await
         .expect("the database answers")
         .expect("the details keep the rules");
-    import::store(db, &prepared, &ready, by.map(|u| u.id), None, None, None)
+    publish::store(db, &prepared, &ready, by.map(|u| u.id), None, None, None)
         .await
         .expect("the database answers")
         .expect("the file is new")

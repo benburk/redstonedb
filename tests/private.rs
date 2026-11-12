@@ -5,7 +5,7 @@ mod common;
 
 use app::{
     account::{Role, User},
-    details::Details,
+    build::Details,
     store::builds,
 };
 use sqlx::SqlitePool;
@@ -35,7 +35,7 @@ async fn a_private_build_is_listed_only_for_its_uploader_and_admins() {
     let id = store(&db, "alpha-rca", &owner).await;
     let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert!(s.entry.public, "a build is public unless made private");
-    assert!(s.listed_to(None));
+    assert!(app::account::lists(None, &s));
 
     builds::set_public(&db, &id, false).await.unwrap();
     let listed = |viewer: Option<&User>| {

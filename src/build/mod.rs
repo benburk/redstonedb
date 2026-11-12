@@ -1,12 +1,14 @@
 //! A stored build: what it is, what was measured of it, who made it, and
-//! how it stands. Its file lives in its versions; see `models::version`.
-//! Loading and storing builds is `models::schematic`.
+//! how it stands. Its file lives in its versions; loading and storing
+//! builds is `store::builds`.
 
 mod changes;
 mod credits;
+mod details;
 mod entry;
 mod file;
 mod name;
+mod prepared;
 mod specs;
 mod stacking;
 mod status;
@@ -16,10 +18,12 @@ mod tags;
 mod tests;
 
 pub use changes::{Change, Restorable, changed, revertible};
-pub use credits::{Credits, valid_player_name};
+pub use credits::{Credits, mention, mentions, valid_player_name};
+pub use details::{Details, Ready};
 pub use entry::Entry;
 pub use file::File;
 pub use name::file_stem;
+pub use prepared::{FileFacts, Prepared};
 pub use specs::Specs;
 pub use stacking::Widened;
 pub use status::{Operands, Status};
@@ -77,7 +81,7 @@ pub struct Build {
     /// Sorted by kind in glossary order (restriction, other),
     /// then name, after `failing` if it is not recognized as its
     /// category or simulating its file got some cases wrong, see
-    /// `models::simulation`; `torchless` when its file has
+    /// `ingest::results`; `torchless` when its file has
     /// no torches, and `alpha` when it works from Alpha.
     pub tags: Vec<Tag>,
 }
@@ -198,13 +202,5 @@ impl Build {
         self.logic() == Some(Logic::Stateless)
             && self.specs.synchronized == Some(true)
             && matches!((self.specs.throughput, self.specs.latency), (Some(t), Some(l)) if t < l)
-    }
-
-    /// Whether listings show it to `viewer`: a public build to anyone, and
-    /// a private one to its uploader and admins. Anyone with its link may
-    /// open it either way.
-    pub fn listed_to(&self, viewer: Option<&crate::account::User>) -> bool {
-        self.entry.public
-            || viewer.is_some_and(|user| user.is_admin() || user.uploaded(self))
     }
 }

@@ -4,12 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use app::{
     category::Kind,
-    import,
-    ingest::standardize,
+    ingest::prepare::{self, Purpose},
     interface::{self, Orientation},
     schem::{self, Blocks, Direction, lines::Role},
     simulate,
     stack::{self, StackDirection},
+    standard::standardize,
 };
 
 fn raw(name: &str) -> Vec<u8> {
@@ -45,9 +45,9 @@ fn names(ports: &[interface::Port]) -> Vec<(&str, usize)> {
 
 #[test]
 fn size_leaves_out_the_interface_layers() {
-    let size = import::measure(&blocks("alpha-cla"), true).unwrap();
+    let size = prepare::measure(&blocks("alpha-cla"), true).unwrap();
     assert_eq!((size.x, size.y, size.z), (19, 11, 18));
-    let size = import::measure(&blocks("alpha-rca"), true).unwrap();
+    let size = prepare::measure(&blocks("alpha-rca"), true).unwrap();
     assert_eq!((size.x, size.y, size.z), (16, 6, 9));
 }
 
@@ -335,7 +335,7 @@ fn a_layer_of_only_inputs_does_not_count_toward_size() {
     // drops rather than keeping as part of the build.
     let data = standardize::standardize(&raw("cca-16-raw")).unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let size = import::measure(&blocks, true).unwrap();
+    let size = prepare::measure(&blocks, true).unwrap();
     assert_eq!((size.x, size.y, size.z), (7, 35, 8));
     let all_layers = blocks.full_size();
     assert!(all_layers.z > size.z, "the input layer is left out");
@@ -494,7 +494,7 @@ fn a_comparator_with_air_behind_is_a_signal_strength_input() {
     // The comparator's layer is left out; the dust it feeds, on the block
     // that was the input before the build took a comparator, is the
     // build's.
-    let size = import::measure(&blocks, true).unwrap();
+    let size = prepare::measure(&blocks, true).unwrap();
     assert_eq!(
         (size.x, size.y, size.z),
         (8, 3, 12),
@@ -590,9 +590,9 @@ fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
         .iter()
         .find(|(_, state)| state.starts_with("minecraft:furnace"))
         .unwrap();
-    let prepared = import::prepare_for(
+    let prepared = prepare::prepare_for(
         &data,
-        import::Purpose::InPlace {
+        Purpose::InPlace {
             standardize: false,
             conventional: true,
             keep_paste: false,
@@ -706,7 +706,7 @@ fn an_output_sticking_out_is_not_measured() {
     let data =
         std::fs::read("tests/fixtures/rca-1-vert-output-out.schem").unwrap();
     let blocks = app::schem::Blocks::read(&data).unwrap();
-    let size = app::import::measure(&blocks, true).unwrap();
+    let size = app::ingest::prepare::measure(&blocks, true).unwrap();
     assert_eq!((size.y, size.x, size.z), (6, 4, 6));
     let (low, high) = app::interface::core(&blocks);
     assert_eq!(high[0] - low[0] + 1, 5, "the core keeps the output");
@@ -879,12 +879,12 @@ fn an_incrementers_unsigned_line_is_its_increment() {
 fn signs_written_as_text_components_are_read_and_written_plain() {
     let raw = raw("alu-8-extra-signs");
     for standardized in [false, true] {
-        let prepared = import::prepare_for(
+        let prepared = prepare::prepare_for(
             &raw,
             if standardized {
-                import::Purpose::Standard { keep_paste: false }
+                Purpose::Standard { keep_paste: false }
             } else {
-                import::Purpose::InPlace {
+                Purpose::InPlace {
                     standardize: false,
                     conventional: true,
                     keep_paste: false,
@@ -989,7 +989,7 @@ fn input_levers(data: &[u8]) -> (Vec<bool>, Vec<bool>) {
 }
 
 fn standardized(data: &[u8]) -> Vec<u8> {
-    import::prepare_for(data, import::Purpose::Standard { keep_paste: false })
+    prepare::prepare_for(data, Purpose::Standard { keep_paste: false })
         .unwrap()
         .data
 }

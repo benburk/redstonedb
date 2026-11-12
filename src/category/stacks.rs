@@ -241,19 +241,23 @@ pub(super) fn bitwise<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{import, simulate::stacking::Way, stack::PITCHES};
+    use crate::{
+        ingest::{
+            prepare::{self, Purpose},
+            publish,
+        },
+        simulate::stacking::Way,
+        stack::PITCHES,
+    };
 
     /// The 1-wide inverted monostable, as an upload standardizes it.
     fn one_wide() -> Vec<u8> {
         let raw = std::fs::read("tests/fixtures/monostable-3-inverted.schem")
             .unwrap();
         let raw = crate::recognize::legacy::with_colour_roles(&raw).unwrap();
-        import::prepare_for(
-            &raw,
-            import::Purpose::Standard { keep_paste: false },
-        )
-        .unwrap()
-        .data
+        prepare::prepare_for(&raw, Purpose::Standard { keep_paste: false })
+            .unwrap()
+            .data
     }
 
     /// Copies of a build 1 wide, 2 apart, a block of air between each,
@@ -311,7 +315,7 @@ mod tests {
     #[test]
     fn only_adders_are_tried_end_to_end() {
         let raw = std::fs::read("tests/fixtures/rca-1-5-wide.schem").unwrap();
-        let data = import::with_roles(&raw, "adder").unwrap();
+        let data = publish::with_roles(&raw, "adder").unwrap();
         let works = |_: Step, _: usize, _| Err("untried".to_owned());
         let pitches = |kind| {
             Stacker::new(

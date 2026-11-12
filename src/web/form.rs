@@ -7,10 +7,9 @@ use sqlx::SqlitePool;
 use super::pages::{self, Choices, DetailsPage, File, Reply};
 use crate::{
     account::User,
-    build::{Build, Credits, Specs, tag},
+    build::{Build, Credits, Details, FileFacts, Specs, tag},
     category::{Category, Guessed, Logic},
-    details::Details,
-    import::{self, Analysis, FileFacts},
+    ingest::read::{self, Analysis},
     interface::{self, Interface, Orientation},
     schem::{Blocks, Size},
     stack::StackDirection,
@@ -326,7 +325,7 @@ impl Form {
 
     /// The details the text gives, or a sentence saying which field is not
     /// a number, one of its choices, or a stacking step. The rules they
-    /// must keep are [`crate::details::check`]'s. What the form doesn't
+    /// must keep are [`crate::ingest::details::check`]'s. What the form doesn't
     /// take, a listed build's probing and simulation work out, and a build
     /// off the list has none of.
     pub fn parse(&self) -> Result<Details, String> {
@@ -415,7 +414,7 @@ pub async fn page(
     let derived = shown
         .blocks
         .filter(|_| conventional)
-        .map(|blocks| import::read_from_file(&interface::read(blocks)))
+        .map(|blocks| read::read_from_file(&interface::read(blocks)))
         .unwrap_or_default();
     // The tags the file gives the build, which no one may add or remove.
     let fixed = match (shown.blocks, &shown.file) {

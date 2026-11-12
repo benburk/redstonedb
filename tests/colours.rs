@@ -5,8 +5,11 @@
 mod common;
 
 use app::{
-    details::{self, Candidate, Details},
-    import,
+    build::Details,
+    ingest::{
+        details::{self, Candidate},
+        publish,
+    },
     recognize::colouring,
     store::versions::{self, Replacing},
 };
@@ -23,7 +26,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         .await
         .unwrap()
         .unwrap();
-    let id = import::store(&db, &first, &ready, None, None, None, None)
+    let id = publish::store(&db, &first, &ready, None, None, None, None)
         .await
         .unwrap()
         .unwrap();
@@ -87,7 +90,7 @@ async fn a_turned_new_version_is_compared_turned_back() {
         .await
         .unwrap()
         .unwrap();
-    let id = import::store(&db, &first, &ready, None, None, None, None)
+    let id = publish::store(&db, &first, &ready, None, None, None, None)
         .await
         .unwrap()
         .unwrap();
@@ -97,6 +100,8 @@ async fn a_turned_new_version_is_compared_turned_back() {
         quarters: 2,
     };
     let turned = app::schem::turn::turned(&first.data, turn).unwrap();
-    let checked = app::version::check(&db, &s, &turned, false).await.unwrap();
+    let checked = app::ingest::version::check(&db, &s, &turned, false)
+        .await
+        .unwrap();
     assert_eq!(checked.comparison.changed, 0);
 }

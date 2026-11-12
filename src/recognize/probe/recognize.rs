@@ -12,7 +12,6 @@ use super::{
 };
 use crate::{
     category::{Kind, Probe, Probing, Test},
-    ingest::orient,
     interface::inspect,
     recognize::{bus_drivable::not_bus_drivable, matching},
     schem::{
@@ -20,6 +19,7 @@ use crate::{
         lines::{self, Role},
     },
     simulate,
+    standard::orient,
 };
 
 /// What the check by function makes of an uploaded file: the file carrying
@@ -42,7 +42,7 @@ pub struct Recognition {
 /// furnace, cauldron, or cake as a barrel giving the same strength. Every
 /// colour stays.
 pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let data = crate::ingest::standardize::barrels(data, &[])?;
+    let data = crate::standard::standardize::barrels(data, &[])?;
     let blocks = Blocks::read(&data)?;
     let changes: BTreeMap<Pos, String> = blocks
         .iter()
@@ -636,7 +636,7 @@ mod tests {
             ["29 of 121 cases wrong: A=128 B=0 → output=0b11111111, \
               expected 0b00000000"]
         );
-        let width = crate::models::simulation::derived_width(
+        let width = crate::ingest::results::derived_width(
             "multiplier",
             true,
             &found.file,
@@ -692,10 +692,12 @@ mod tests {
         let with = crate::schem::edit(&data, &changes).unwrap();
         let found = recognize(&with).unwrap();
         assert!(found.found.is_some(), "{:?}", found.problems);
-        let kept =
-            crate::import::prepare_for(&with, crate::import::Purpose::AS_BUILT)
-                .unwrap()
-                .blocks;
+        let kept = crate::ingest::prepare::prepare_for(
+            &with,
+            crate::ingest::prepare::Purpose::AS_BUILT,
+        )
+        .unwrap()
+        .blocks;
         assert!(
             !kept.iter().any(|(_, state)| state.contains("trapdoor")),
             "its trapdoor is taken out"

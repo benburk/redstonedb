@@ -1,6 +1,6 @@
 //! Finding the stored builds most like a file, without uploading it: the
 //! file is read as it is, with no conventions checked and nothing kept. It is
-//! scored by `crate::similarity`, as stored builds are against each other.
+//! scored by `crate::compare::similarity`, as stored builds are against each other.
 
 use axum::{
     extract::{Multipart, Query, State},
@@ -11,7 +11,7 @@ use serde::Deserialize;
 use crate::{
     account::User,
     build::Build,
-    models::similarity,
+    ingest::similar,
     schem::Blocks,
     store::builds,
     web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},
@@ -84,7 +84,7 @@ pub(super) async fn builds(
     let builds = builds::get_many(db, &ids).await?;
     Ok(builds
         .into_iter()
-        .filter(|s| s.listed_to(viewer))
+        .filter(|s| crate::account::lists(viewer, s))
         .filter_map(|s| {
             let (_, permille) = ranked.iter().find(|(id, _)| *id == s.id)?;
             Some((s, *permille))
@@ -165,7 +165,7 @@ pub async fn search(
             return Ok(refused(user, fixi, &message));
         }
     };
-    let ranked = similarity::ranked(&state.db, &blocks, LISTED).await?;
+    let ranked = similar::ranked(&state.db, &blocks, LISTED).await?;
     // The results go in the address, so Back and reloading keep them: a
     // plain form goes there, and fixi's page takes it as its address.
     let at = shown_at(&name, &found_of(&ranked));

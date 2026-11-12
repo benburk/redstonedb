@@ -404,7 +404,8 @@ fn problems(known: &Known) -> Vec<Problem> {
     let strength = file.strength_inputs
         && !crate::category::Kind::named(known.s.category)
             .is_some_and(crate::category::Kind::digit_inputs);
-    let strength = strength.then(|| crate::details::WITHOUT_LEVERS.to_owned());
+    let strength =
+        strength.then(|| crate::recognize::fault::WITHOUT_LEVERS.to_owned());
     let mut kinds: BTreeMap<String, Problem> = BTreeMap::new();
     for said in strength.iter().chain(&file.unrecognized) {
         if said.is_empty() || fault::wrong_outputs(said) {

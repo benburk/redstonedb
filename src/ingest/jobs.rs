@@ -16,7 +16,7 @@ use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
     category::Test,
-    recognize::evaluate::{Evaluation, evaluate},
+    ingest::evaluate::{Evaluation, evaluate},
     schem::{self, Blocks},
     simulate::{Report, Timing},
 };
@@ -190,14 +190,13 @@ pub async fn time(
 }
 
 /// Brings newly stored build `id` wholly up to date, as storing a build,
-/// a new version of one, or an edit starts it doing: its result, see
-/// `refresh`, its timing, see `refresh_timing`, and, once it passes, its
-/// unused blocks taken out, see `finish`. Nothing runs again later: a
-/// build's page shows what was stored here.
+/// a new version of one, or an edit starts it doing: its test and timing,
+/// see `results::tested`, and, once it passes, its unused blocks taken
+/// out, see `results::finish`. Nothing runs again later: a build's page
+/// shows what was stored here.
 pub async fn complete(db: &SqlitePool, id: &str) -> Result<()> {
-    super::refresh(db, id, false).await?;
-    super::refresh_timing(db, id, false).await?;
-    super::finish(db, id).await
+    super::results::tested(db, id, false).await?;
+    super::results::finish(db, id).await
 }
 
 /// The builds being completed in the background.

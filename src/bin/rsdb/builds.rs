@@ -5,11 +5,10 @@ use std::{collections::HashMap, fs, io::Write as _, path::Path};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
-    build::tag,
+    build::{Details, tag},
     category::{self, Logic},
-    details::{self, Details},
+    ingest::{details, results},
     interface::{Encoding, Orientation},
-    models::simulation,
     search,
     stack::{self, StackDirection},
     store::{builds, tags, versions},
@@ -193,7 +192,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     // Its stored file, kept under its category, passed its test already.
     let passes = details.category == s.category
         && conventional == s.file.conventional
-        && simulation::current(db, &s)
+        && results::current(db, &s)
             .await?
             .is_some_and(|report| report.passed());
     let build = details::Candidate {

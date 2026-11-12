@@ -4,7 +4,6 @@
 
 pub mod bus_drivable;
 pub mod colouring;
-pub mod evaluate;
 pub mod fault;
 pub mod guide;
 pub mod legacy;

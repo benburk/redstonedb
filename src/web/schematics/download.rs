@@ -195,7 +195,7 @@ pub(in crate::web) async fn export(
     // site kept them, which go on its blocks before any stacking; and so
     // always for a build the site can't read, its file carrying no roles.
     if asked.colours == Some(Colours::Original)
-        || !crate::models::simulation::carries_roles(&data)
+        || !crate::ingest::results::carries_roles(&data)
     {
         let data = match versions::colours(db, id).await? {
             Some(colours) => {

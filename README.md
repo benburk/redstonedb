@@ -110,29 +110,36 @@ On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's
 
 ## How it works
 
-1. **Import.** `import.rs` reads a Sponge `.schem` file (`schem/`), and `ingest/` lays it the standard way, takes out corner markers, and fits its box. Files live only in `build_version`; a later file becomes a new version only if `version.rs` finds it the same build, fixed.
+1. **Ingest.** `ingest/` takes a Sponge `.schem` file in: it reads it (`schem/`), lays it the standard way and fits its box (`standard/`), holds its details to the rules, and stores it. Files live only in `build_version`; a later file becomes a new version only if `compare/` finds it the same build, fixed.
 2. **Recognition.** `interface/` finds a build's inputs and outputs and checks each one, and `recognize/probe/` finds each line's role by trying the categories' tests. Roles are stored with the version; the file keeps its author's colours. `works_from.rs` finds the oldest release the build works in.
-3. **Simulation.** `category/` holds each category's facts and its test. `simulate/` is the engine: it runs the build in Redpiler through a test's cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`stack/`). Each result is stored with its file's hash.
-4. **Search, leaderboards, and similarity.** `search.rs` parses queries like `register vertical -torchless`, `leaderboard.rs` ranks builds and finds records, and `similarity.rs` scores how alike two builds are by the share of their redstone components that line up.
+3. **Simulation.** `category/` holds each category's facts and its test. `simulate/` is the engine: it runs the build in Redpiler through a test's cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`stack/`). `ingest/` runs these once a build is stored, and each result is kept with its file's hash.
+4. **Search, leaderboards, and similarity.** `search.rs` parses queries like `register vertical -torchless`, `leaderboard.rs` ranks builds and finds records, and `compare/` scores how alike two builds are by the share of their redstone components that line up.
 
-The first five modules below `bin/` are layers, each using only those above it in the list; `tests/layers.rs` holds them to it.
+Every module but `web/` and the binaries is a layer, in the order below, each using only those above it in the list; `tests/layers.rs` holds them to it.
 
 ```text
 src/
-  main.rs        the web server
-  bin/rsdb/      the command-line tool
   schem/         reading, writing, and editing .schem files; the bottom layer
   interface/     a build's inputs and outputs, and the rules for them
   stack/         joining copies of a build as //rstack does
   simulate/      the engine: cases, timing, throughput, and stacking in Redpiler
   category/      the standard categories, each with its facts and its test
+  standard/      laying a file the standard way, in the blocks the site keeps
   recognize/     what a build is: the roles of its lines, by probing
-  ingest/        laying an upload the standard way and shaping it to keep
+  works_from.rs  the oldest release a file's blocks work in
+  compare/       how alike two files are: versions, diffs, and similar builds
+  thumbnail.rs   a build drawn small, for cards and link previews
   build/         what a stored build is: its specs, credits, status, and name
-  store/         every query, one module per table or group of tables
-  models/        keeping builds' results and comparisons up to date
-  web/           routes, handlers, and each page's markup
+  account.rs     who is signed in, and what they may do
+  search.rs      finding builds by words
+  leaderboard.rs ranking builds, and the records they hold
   external/      Discord, Mojang, player heads, and Schemati
+  store/         every query, one module per table or group of tables
+  players.rs     who the players behind names are, asking Mojang once
+  ingest/        the path from a file to a stored build with its results
+  web/           routes, handlers, and each page's markup
+  main.rs        the web server
+  bin/rsdb/      the command-line tool
 static/          fixi, page scripts, and the built app.css
 migrations/      the schema, applied in order at startup
 tests/           integration tests, with .schem fixtures

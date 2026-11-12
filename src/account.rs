@@ -169,3 +169,11 @@ impl User {
         })
     }
 }
+
+/// Whether listings show build `s` to `viewer`: a public build to anyone,
+/// and a private one to its uploader and admins. Anyone with its link may
+/// open it either way.
+pub fn lists(viewer: Option<&User>, s: &Build) -> bool {
+    s.entry.public
+        || viewer.is_some_and(|user| user.is_admin() || user.uploaded(s))
+}
