@@ -4,6 +4,8 @@
 //! make, or a HEAD request.
 
 pub(crate) mod actions_view;
+pub(crate) mod checks;
+pub(crate) mod checks_test_view;
 pub(crate) mod checks_view;
 pub(crate) mod detail;
 pub(crate) mod detail_view;

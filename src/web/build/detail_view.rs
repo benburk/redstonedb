@@ -15,7 +15,8 @@ use crate::{
         back,
         build::{
             actions_view::{actions_menu, download_dialog, favorite_button},
-            checks_view::{Known, Subject, checks_section},
+            checks::{Known, Subject},
+            checks_view::checks_section,
             download::Colours,
             info_view::build_info,
             simulation_view::cases_pending,

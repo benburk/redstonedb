@@ -28,7 +28,8 @@ use crate::{
     web::{
         app_state::AppState,
         build::{
-            checks_view::{self, Known, Subject},
+            checks::{Known, Subject},
+            checks_view,
             detail_view::FileRead,
             simulation_view,
         },
