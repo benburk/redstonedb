@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT id FROM schematic WHERE id GLOB ? || '*' LIMIT 2",
+  "query": "SELECT id FROM schematic\n         WHERE id GLOB ? || '*' AND deleted_at IS NULL LIMIT 2",
   "describe": {
     "columns": [
       {
@@ -16,5 +16,5 @@
       false
     ]
   },
-  "hash": "19cf572ed7dac00a32708e5ae40a040f23db2054d8f0c3ca72406c9dc39f4820"
+  "hash": "734a8acb5c2a915bae2b338c294b01dce3dfe1d3b98e4ab2e3dd285cdc439277"
 }

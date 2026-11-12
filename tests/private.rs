@@ -1,5 +1,5 @@
-//! Private builds, seen only by their uploader and admins, and each
-//! account's favourites.
+//! Private builds, listed only for their uploader and admins but open to
+//! anyone with the link, and each account's favourites.
 
 mod common;
 
@@ -24,41 +24,42 @@ async fn store(db: &SqlitePool, name: &str, by: &User) -> String {
 }
 
 #[tokio::test]
-async fn a_private_build_shows_only_to_its_uploader_and_admins() {
+async fn a_private_build_is_listed_only_for_its_uploader_and_admins() {
     let db = common::database().await;
     let owner = common::sign_in(&db, "1", "steve").await;
     let other = common::sign_in(&db, "2", "alex").await;
     let admin = common::sign_in(&db, "3", "boss").await;
+    let moderator = common::sign_in(&db, "4", "mod").await;
     User::set_role(&db, admin.id, Role::Admin).await.unwrap();
+    User::set_role(&db, moderator.id, Role::Mod).await.unwrap();
     let admin = User::get_by_username(&db, "boss").await.unwrap().unwrap();
+    let moderator = User::get_by_username(&db, "mod").await.unwrap().unwrap();
 
     let id = store(&db, "alpha-rca", &owner).await;
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
     assert!(s.public, "a build is public unless made private");
-    assert!(s.visible_to(None));
+    assert!(s.listed_to(None));
 
     schematic::set_public(&db, &id, false).await.unwrap();
-    let seen = |viewer: Option<&User>| {
+    let listed = |viewer: Option<&User>| {
         let db = db.clone();
         let id = id.clone();
         let viewer = viewer.cloned();
         async move {
-            let listed =
-                schematic::visible(&db, viewer.as_ref()).await.unwrap();
-            let got = schematic::get_visible(&db, &id, viewer.as_ref())
-                .await
-                .unwrap();
-            assert_eq!(listed.iter().any(|s| s.id == id), got.is_some());
-            got.is_some()
+            let all = schematic::visible(&db, viewer.as_ref()).await.unwrap();
+            all.iter().any(|s| s.id == id)
         }
     };
-    assert!(!seen(None).await);
-    assert!(!seen(Some(&other)).await);
-    assert!(seen(Some(&owner)).await);
-    assert!(seen(Some(&admin)).await);
+    assert!(!listed(None).await);
+    assert!(!listed(Some(&other)).await);
+    assert!(!listed(Some(&moderator)).await);
+    assert!(listed(Some(&owner)).await);
+    assert!(listed(Some(&admin)).await);
+    // Its link still opens it, for anyone.
+    assert!(schematic::get(&db, &id).await.unwrap().is_some());
 
     schematic::set_public(&db, &id, true).await.unwrap();
-    assert!(seen(None).await);
+    assert!(listed(None).await);
 }
 
 #[tokio::test]
@@ -97,10 +98,16 @@ async fn favourites_are_each_accounts_own() {
         .unwrap();
     assert!(schematic::favorites(&db, alex.id).await.unwrap().is_empty());
 
-    // Deleting the build takes it out of everyone's favourites.
+    // Deleting the build takes it out of everyone's favourites, and
+    // restoring it puts it back.
     schematic::set_favorite(&db, alex.id, &id, true)
         .await
         .unwrap();
-    schematic::delete(&db, &id).await.unwrap();
+    assert!(schematic::delete(&db, &id, steve.id).await.unwrap());
     assert!(schematic::favorites(&db, alex.id).await.unwrap().is_empty());
+    assert!(schematic::undelete(&db, &id, steve.id).await.unwrap());
+    assert_eq!(
+        schematic::favorites(&db, alex.id).await.unwrap(),
+        std::slice::from_ref(&id)
+    );
 }

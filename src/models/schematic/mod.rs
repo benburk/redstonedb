@@ -10,15 +10,15 @@ use super::tag::{self, Tag};
 use crate::category::{self, Flag, Measure};
 
 pub use load::{
-    all, all_people, get, get_many, get_visible, ids_with_prefix,
+    all, all_people, get, get_many, get_many_with_deleted, ids_with_prefix,
     valid_player_name, visible,
 };
 pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
 pub use write::{
     DownloadKind, Measured, New, Restorable, count_download, delete,
-    favorite_count, favorited, favorites, insert, log_download, restore,
+    favorite_count, favorited, favorites, insert, log_download, purge, restore,
     set_details, set_favorite, set_flags, set_import_details, set_measured,
-    set_public, set_stacking, set_widened,
+    set_public, set_stacking, set_widened, undelete,
 };
 
 named_values! {
@@ -157,9 +157,12 @@ pub struct Schematic {
     pub downloads: i64,
     /// How many people have favourited it.
     pub favorites: i64,
-    /// Whether anyone may see it; a private build only its uploader and
-    /// admins see.
+    /// Whether it is listed for everyone; a private build is listed only
+    /// for its uploader and admins, though anyone with its link sees it.
     pub public: bool,
+    /// Whether it was deleted, kept for an admin to restore; only the
+    /// moderation log loads one.
+    pub deleted: bool,
     /// Why a build of a category the site recognizes builds of is not
     /// recognized as one, as `details::unrecognized` says; `None` for one
     /// that is, or any other build. Such a build is kept as built.
@@ -716,9 +719,10 @@ impl Schematic {
 }
 
 impl Schematic {
-    /// Whether `viewer` may see it: anyone a public build, and its uploader
-    /// and admins a private one.
-    pub fn visible_to(
+    /// Whether listings show it to `viewer`: a public build to anyone, and
+    /// a private one to its uploader and admins. Anyone with its link may
+    /// open it either way.
+    pub fn listed_to(
         &self,
         viewer: Option<&crate::models::user::User>,
     ) -> bool {
@@ -776,6 +780,7 @@ mod tests {
             downloads: 0,
             favorites: 0,
             public: true,
+            deleted: false,
             unverified: None,
             status: Status::default(),
             operands: Operands::Split,

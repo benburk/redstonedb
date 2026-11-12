@@ -1,7 +1,7 @@
 //! The moderation log: accounts made, builds and versions uploaded,
-//! details edited, and files downloaded, newest first. Each is read from
-//! where the site keeps it already, but edits, which `edit` keeps for the
-//! log alone.
+//! details edited, files downloaded, and builds deleted and restored,
+//! newest first. Each is read from where the site keeps it already, but
+//! edits and deletes, which `edit` and `deletion` keep for the log alone.
 
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
@@ -24,6 +24,10 @@ pub enum Kind {
     Edit,
     /// A build's file, or part of it, was downloaded.
     Download,
+    /// A build was deleted.
+    Delete,
+    /// A deleted build was restored.
+    Restore,
 }
 
 impl Kind {
@@ -34,6 +38,8 @@ impl Kind {
             "version" => Self::Version,
             "edit" => Self::Edit,
             "download" => Self::Download,
+            "delete" => Self::Delete,
+            "restore" => Self::Restore,
             _ => return None,
         })
     }
@@ -48,15 +54,18 @@ pub enum Filter {
     Uploads,
     Edits,
     Downloads,
+    /// Deletes and restores.
+    Deletions,
 }
 
 impl Filter {
-    pub const ALL: [Filter; 5] = [
+    pub const ALL: [Filter; 6] = [
         Filter::All,
         Filter::SignUps,
         Filter::Uploads,
         Filter::Edits,
         Filter::Downloads,
+        Filter::Deletions,
     ];
 
     /// Its name in the address, such as `signups`; empty for all.
@@ -67,6 +76,7 @@ impl Filter {
             Self::Uploads => "uploads",
             Self::Edits => "edits",
             Self::Downloads => "downloads",
+            Self::Deletions => "deletions",
         }
     }
 
@@ -77,6 +87,7 @@ impl Filter {
             Self::Uploads => "Uploads",
             Self::Edits => "Edits",
             Self::Downloads => "Downloads",
+            Self::Deletions => "Deletions",
         }
     }
 
@@ -96,6 +107,7 @@ impl Filter {
             Self::Uploads => Some("upload"),
             Self::Edits => Some("edit"),
             Self::Downloads => Some("download"),
+            Self::Deletions => Some("delete"),
         }
     }
 }
@@ -163,8 +175,13 @@ pub async fn page(
             SELECT 'download', at, user_id, schematic_id, version, kind, NULL,
                 NULL
             FROM download
+            UNION ALL
+            SELECT iif(restored, 'restore', 'delete'), at, user_id,
+                schematic_id, NULL, NULL, NULL, NULL
+            FROM deletion
          )
-         WHERE (?2 IS NULL OR kind = ?2 OR (?2 = 'upload' AND kind = 'version'))
+         WHERE (?2 IS NULL OR kind = ?2 OR (?2 = 'upload' AND kind = 'version')
+                OR (?2 = 'delete' AND kind = 'restore'))
             AND (?3 IS NULL OR at <= ?3)
          ORDER BY at DESC
          LIMIT ?4"#,
@@ -370,10 +387,7 @@ pub async fn revert(
             "Only a description, authors, or contributors can be put back.",
         ));
     };
-    let s = schematic::get(db, &row.schematic_id)
-        .await?
-        .filter(|s| s.visible_to(Some(by)));
-    let Some(s) = s else {
+    let Some(s) = schematic::get(db, &row.schematic_id).await? else {
         return Ok(Err("That build is gone."));
     };
     if !revertible(&s, &change) {

@@ -19,9 +19,10 @@ pub const REDSTONEDB: Uuid = Uuid::from_u128(0xdb);
 pub enum Role {
     /// Uploads builds.
     User,
-    /// Also edits any build's details and tags.
+    /// Also edits, merges, and deletes any build, and makes new tags.
     Mod,
-    /// Also deletes builds and sets roles.
+    /// Also sets roles, lists private builds, and keeps the moderation
+    /// log, where deleted builds are restored.
     Admin,
 }
 
@@ -149,6 +150,18 @@ impl User {
     /// Whether the account may delete any build: a mod's or admin's.
     pub fn can_delete(&self) -> bool {
         self.role >= Role::Mod
+    }
+
+    /// Whether the account may make a tag not yet on the list: a mod's or
+    /// admin's.
+    pub fn can_create_tags(&self) -> bool {
+        self.role >= Role::Mod
+    }
+
+    /// Whether the account may delete this build: its uploader, or a mod
+    /// or admin.
+    pub fn may_delete(&self, s: &Schematic) -> bool {
+        self.uploaded(s) || self.can_delete()
     }
 
     pub fn is_admin(&self) -> bool {

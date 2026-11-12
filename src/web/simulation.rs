@@ -39,9 +39,8 @@ use super::{
 pub async fn poll(
     Path(id): Path<String>,
     State(state): State<AppState>,
-    viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    schematic::get_visible(&state.db, &id, viewer.as_ref())
+    schematic::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     if simulation::completing(&id) {
@@ -209,7 +208,7 @@ async fn stored_file(
     user: Option<&User>,
     id: &str,
 ) -> Result<(schematic::Schematic, Vec<u8>), AppError> {
-    let s = schematic::get_visible(&state.db, id, user)
+    let s = schematic::get(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
     if !user.is_some_and(|user| user.may_edit(&s)) {

@@ -1,5 +1,5 @@
 //! The moderation log, for admins, where an edit's description
-//! or credits can be put back.
+//! or credits can be put back, and a deleted build restored.
 
 use std::collections::HashMap;
 
@@ -84,6 +84,23 @@ pub async fn revert(
     }
 }
 
+/// Restores deleted build `id`, then returns to the log page it was sent
+/// from.
+pub async fn restore(
+    Path(id): Path<String>,
+    State(state): State<AppState>,
+    Admin(viewer): Admin,
+    Form(shown): Form<Shown>,
+) -> Result<Response, AppError> {
+    if !schematic::undelete(&state.db, &id, viewer.id).await? {
+        let message = "That build is not deleted.";
+        return render(&state, &viewer, &shown, message).await;
+    }
+    tracing::info!(id, by = viewer.username, "restored a build");
+    let back = pages::activity_href(Filter::named(&shown.show), shown.before());
+    Ok(Redirect::to(&back).into_response())
+}
+
 /// The log page `shown` names, saying `message` if it isn't empty.
 async fn render(
     state: &AppState,
@@ -114,7 +131,7 @@ async fn render(
         .collect();
     ids.sort_unstable();
     ids.dedup();
-    let builds = schematic::get_many(db, &ids)
+    let builds = schematic::get_many_with_deleted(db, &ids)
         .await?
         .into_iter()
         .map(|s| (s.id.clone(), s))

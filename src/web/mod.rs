@@ -362,6 +362,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/players/{name}/head.png", get(players::head))
         .route("/log", get(activity::show))
         .route("/log/edits/{id}/revert", post(activity::revert))
+        .route("/log/deletions/{id}/restore", post(activity::restore))
         .route("/users", get(users::list))
         .route("/users/{username}", get(profile))
         .route("/users/{username}/role", post(users::set_role))

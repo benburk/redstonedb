@@ -156,15 +156,8 @@ pub async fn download(
         None => None,
     };
     let palette = asked.palette(fields, theme)?;
-    let (filename, data) = export(
-        &state.db,
-        &id,
-        viewer.as_ref(),
-        &asked,
-        counted,
-        palette.as_ref(),
-    )
-    .await?;
+    let (filename, data) =
+        export(&state.db, &id, &asked, counted, palette.as_ref()).await?;
     if let (true, Some(user)) = (counted, &viewer) {
         let kind = if asked.part.is_some() {
             DownloadKind::Part
@@ -185,18 +178,15 @@ pub async fn download(
 
 /// Build `id`'s file as `asked`, with its name, counted as a download if
 /// `counted`, in `palette` unless another is asked for, without the roles
-/// it carries; a 404 if `viewer` may not see it.
+/// it carries; a 404 for no build, or a deleted one.
 pub(in crate::web) async fn export(
     db: &SqlitePool,
     id: &str,
-    viewer: Option<&User>,
     asked: &Download,
     counted: bool,
     palette: Option<&Palette>,
 ) -> Result<(String, Vec<u8>), AppError> {
-    let s = schematic::get_visible(db, id, viewer)
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;

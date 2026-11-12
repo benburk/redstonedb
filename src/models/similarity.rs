@@ -25,7 +25,8 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
         r#"SELECT schematic.id as "id!", category,
             category || '/' || file.sha256 as "now!: String", compared_as
          FROM schematic
-         JOIN current_file AS file ON file.schematic_id = schematic.id"#
+         JOIN current_file AS file ON file.schematic_id = schematic.id
+         WHERE deleted_at IS NULL"#
     )
     .fetch_all(db)
     .await?;
@@ -48,7 +49,8 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
         r#"SELECT schematic.id as "id!", category, file.data as "data!"
          FROM schematic
          JOIN current_file AS file ON file.schematic_id = schematic.id
-         WHERE category IN (SELECT value FROM json_each(?))"#,
+         WHERE category IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL"#,
         categories
     )
     .fetch_all(db)
@@ -216,7 +218,8 @@ pub async fn closest(
          FROM schematic
          JOIN current_file AS file ON file.schematic_id = schematic.id
          WHERE size_x * size_y * size_z * 3 >= ? * 2
-            AND size_x * size_y * size_z * 2 <= ? * 3"#,
+            AND size_x * size_y * size_z * 2 <= ? * 3
+            AND deleted_at IS NULL"#,
         volume,
         volume
     )

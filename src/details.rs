@@ -141,7 +141,7 @@ pub struct Ready {
 
 /// Holds `details` of `build` to every rule, and returns them ready to
 /// store, or a sentence for the person saying what to change. Only when
-/// `may_create_tags`, as for an admin, may a tag not yet on the list be
+/// `may_create_tags`, as for a mod or admin, may a tag not yet on the list be
 /// named, to be made under `other`.
 ///
 /// A category off the list, such as a piston door, has no width, encoding,

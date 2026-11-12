@@ -68,7 +68,7 @@ pub fn activity(log: &ActivityLog) -> Markup {
         &html! {
             h1 class={ (PAGE_TITLE) " mb-2" } { "Moderation log" }
             p class="mb-6 max-w-prose text-muted" {
-                "Accounts made, builds uploaded, details edited, and files downloaded, newest first. Times are UTC."
+                "Accounts made, builds uploaded, details edited, files downloaded, and builds deleted, newest first. Times are UTC."
             }
             @if !log.message.is_empty() {
                 p role="alert" class="mb-6 text-danger" { (log.message) }
@@ -114,6 +114,8 @@ fn mark(kind: Kind) -> (&'static str, &'static str) {
         }
         Kind::Edit => (icons::PENCIL, "bg-restriction text-on-restriction"),
         Kind::Download => (icons::DOWNLOAD, "bg-other text-on-other"),
+        Kind::Delete => (icons::TRASH, "bg-danger/10 text-danger"),
+        Kind::Restore => (icons::UNDO, "bg-success/10 text-success"),
     }
 }
 
@@ -152,6 +154,11 @@ fn row(log: &ActivityLog, event: &Event) -> Markup {
                         }
                         Kind::Edit => { (account(who)) " edited " (build.unwrap_or_default()) }
                         Kind::Download => { (account(who)) " downloaded " (build.unwrap_or_default()) }
+                        Kind::Delete => {
+                            (account(who)) " deleted " (build.unwrap_or_default())
+                            (restore_button(log, event))
+                        }
+                        Kind::Restore => { (account(who)) " restored " (build.unwrap_or_default()) }
                     }
                 }
                 @if let Some(note) = note(event, version) {
@@ -174,7 +181,11 @@ fn row(log: &ActivityLog, event: &Event) -> Markup {
 /// or what a download took.
 fn note(event: &Event, version: i64) -> Option<String> {
     match event.kind {
-        Kind::SignUp | Kind::Upload | Kind::Edit => None,
+        Kind::SignUp
+        | Kind::Upload
+        | Kind::Edit
+        | Kind::Delete
+        | Kind::Restore => None,
         Kind::Version => event.detail.clone(),
         Kind::Download => Some(match event.detail.as_deref() {
             Some("part") => format!("A stacking part, version {version}"),
@@ -208,7 +219,7 @@ fn revert_button(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
     let (Some(edit), Some(s)) = (event.edit, build) else {
         return html! {};
     };
-    if !s.visible_to(Some(log.viewer)) || !activity::revertible(s, change) {
+    if s.deleted || !activity::revertible(s, change) {
         return html! {};
     }
     let action = format!("/log/edits/{edit}/revert");
@@ -222,6 +233,28 @@ fn revert_button(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
             button type="submit" class="ml-1 rounded-control px-1.5 text-brand hover:bg-selection"
                 title="Put this back as it was before this edit" {
                 "Revert"
+            }
+        }
+    }
+}
+
+/// A button restoring the build deleted in `event`, while it is still
+/// deleted; nothing otherwise.
+fn restore_button(log: &ActivityLog, event: &Event) -> Markup {
+    let build = event.schematic.as_ref().and_then(|id| log.builds.get(id));
+    let Some(s) = build.filter(|s| s.deleted) else {
+        return html! {};
+    };
+    let action = format!("/log/deletions/{}/restore", s.id);
+    html! {
+        form action=(action) method="post" class="inline" {
+            input type="hidden" name="show" value=(log.filter.name());
+            @if let Some(before) = log.before {
+                input type="hidden" name="before" value=(before);
+            }
+            button type="submit" class="ml-1 rounded-control px-1.5 text-brand hover:bg-selection"
+                title="Put this build back on the site" {
+                "Restore"
             }
         }
     }
@@ -274,14 +307,16 @@ fn account(user: Option<&User>) -> Markup {
     }
 }
 
-/// Build `id`, by its title and linking to its page, when the viewer may
-/// see it.
+/// Build `id`, by its title and linking to its page; a deleted one by its
+/// title alone, and one removed for good as such.
 fn build_link(log: &ActivityLog, id: &str) -> Markup {
     match log.builds.get(id) {
-        Some(s) if s.visible_to(Some(log.viewer)) => html! {
+        Some(s) if s.deleted => html! {
+            span class="text-muted" { (s.title()) " (deleted)" }
+        },
+        Some(s) => html! {
             a href={ "/schematics/" (s.id) } { (s.title()) }
         },
-        Some(_) => html! { span class="text-muted" { "a private build" } },
-        None => html! { span class="text-muted" { "a deleted build" } },
+        None => html! { span class="text-muted" { "a removed build" } },
     }
 }

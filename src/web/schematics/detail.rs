@@ -41,7 +41,7 @@ pub async fn thumbnail(
     State(state): State<AppState>,
     viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    let s = schematic::get_visible(&state.db, &id, viewer.as_ref())
+    let s = schematic::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     let data = version::current_file(&state.db, &id)
@@ -175,9 +175,7 @@ pub async fn detail(
 ) -> Result<Response, AppError> {
     let db = &state.db;
     let from = crate::web::back::came_from(&headers, from.as_deref());
-    let s = schematic::get_visible(db, &id, user_opt.as_ref())
-        .await?
-        .ok_or(AppError::NotFound)?;
+    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let simulation = simulation::current(db, &s).await?;
     let report = simulation.as_ref();
     let simulating = simulation::completing(&id);
@@ -306,7 +304,7 @@ pub async fn favorite(
     Fixi(fixi): Fixi,
     axum::Form(Favorite { on, card }): axum::Form<Favorite>,
 ) -> Result<Response, AppError> {
-    schematic::get_visible(&state.db, &id, Some(&user))
+    schematic::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
     schematic::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
