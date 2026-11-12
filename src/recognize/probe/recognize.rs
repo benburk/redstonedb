@@ -67,6 +67,25 @@ pub fn recognize_as(
     recognize_watched(data, meant, &mut |_, _| {})
 }
 
+/// The file in `data`, a stored build of the category named `category`,
+/// carrying the roles probing it again finds, and whether it was found as
+/// it: those of the reading found, or, found as none, of the nearest
+/// reading whose test ran and got cases wrong, so its fault is told on the
+/// lines it has, as an upload's is. `None` when no reading's test ran, its
+/// roles best kept as they are.
+pub fn reprobe(
+    data: &[u8],
+    category: &str,
+) -> anyhow::Result<Option<(Vec<u8>, bool)>> {
+    let recognition = recognize_as(data, Some(category))?;
+    let found = recognition.found.is_some();
+    // Found as none, its file is the nearest reading's, or else `data`.
+    Ok(
+        (found || recognition.file != data)
+            .then_some((recognition.file, found)),
+    )
+}
+
 /// As [`recognize_as`], telling `trying` each kind as it is probed, with
 /// how many of the kinds probing tries came before it; see
 /// [`Kind::probed`].
