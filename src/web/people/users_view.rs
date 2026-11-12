@@ -1,20 +1,16 @@
-//! Accounts: logging in, the admin's list of users, and an account's
-//! profile.
+//! Accounts: logging in, and the admin's list of users.
 
 use maud::{Markup, html};
 
 use crate::{
     account::{Role, User},
-    build::Build,
     web::{
         href,
         ui::{
-            PAGE_TITLE, Segment, TABLE_HEAD, Tone,
-            cards::{Viewing, cards},
-            editable,
+            PAGE_TITLE, TABLE_HEAD, Tone, editable,
             icons::{self, icon},
             layout::base,
-            page_header, person, segmented, text,
+            page_header, person, text,
         },
     },
 };
@@ -205,103 +201,11 @@ fn account_link(user: &User) -> Markup {
         div class="flex items-center gap-2.5" {
             @if let Some(picture) = person::picture(user, 28) { (picture) }
             div class="flex min-w-0 flex-col" {
-                a href=(href::user(&user.username)) class="truncate" { (user.name()) }
+                a href=(href::account(user)) class="truncate" { (user.name()) }
                 @if user.name() != user.username {
                     span class="truncate text-meta text-muted" { "@" (user.username) }
                 }
             }
         }
     }
-}
-
-/// An account's page: who they are and what they uploaded.
-/// The builds a profile lists.
-pub struct ProfileBuilds {
-    /// Each list the profile can filter to, in order.
-    pub lists: Vec<ProfileList>,
-    /// Which of `lists` is shown.
-    pub shown: usize,
-    pub viewing: Viewing,
-}
-
-/// One list of builds a profile can filter to: its name in the address,
-/// its label, and its builds.
-pub struct ProfileList {
-    pub name: &'static str,
-    pub label: &'static str,
-    pub builds: Vec<Build>,
-}
-
-/// An account's page: the builds it built, helped with, and uploaded. Its
-/// owner can set their Minecraft name here; `message` says why a name was
-/// refused.
-pub fn profile(
-    viewer: Option<&User>,
-    account: &User,
-    builds: &ProfileBuilds,
-) -> Markup {
-    let path = href::user(&account.username);
-    let own = viewer.is_some_and(|viewer| viewer.id == account.id);
-    let lists: Vec<Segment> = builds
-        .lists
-        .iter()
-        .enumerate()
-        .map(|(i, list)| Segment {
-            label: list.label,
-            href: if i == 0 {
-                path.clone()
-            } else {
-                format!("{path}?show={}", list.name)
-            },
-            chosen: i == builds.shown,
-            count: Some(list.builds.len()),
-        })
-        .collect();
-    base(
-        viewer,
-        account.name(),
-        &path,
-        &html! {
-            div class="mb-8 flex items-center gap-4" {
-                @if let Some(picture) = person::picture(account, 64) { (picture) }
-                div class="min-w-0 flex-1" {
-                    h1 class=(PAGE_TITLE) { (account.name()) }
-                    p class="flex items-center gap-2 text-muted" {
-                        "@" (account.username) (role_badge(account.role))
-                    }
-                    @if let Some(name) = &account.minecraft_name {
-                        p {
-                            "Minecraft: "
-                            a href=(href::player(name)) { (name) }
-                            @if !account.minecraft_verified {
-                                span class="text-meta text-muted" { " · not yet confirmed" }
-                            }
-                        }
-                    }
-                }
-                @if own {
-                    a href="/settings" class="btn btn-quiet shrink-0 gap-2 self-start hover:no-underline" {
-                        (icons::icon(icons::SETTINGS, "size-4"))
-                        "Settings"
-                    }
-                }
-            }
-            @let shown = &builds.lists[builds.shown];
-            nav aria-label="Builds" class="mb-5" { (segmented(&lists)) }
-            @if shown.builds.is_empty() {
-                p class="text-muted" {
-                    @match (shown.name, &account.minecraft_name) {
-                        ("all" | "built" | "contributed", None) if own => {
-                            "Give your Minecraft name in " a href="/settings" { "Settings" } " to list the builds credited to it."
-                        }
-                        ("built" | "contributed", None) => { "No Minecraft name given, so their builds can't be listed." }
-                        ("favourites", _) => { "Star a build on its page to keep it here." }
-                        _ => { "None yet." }
-                    }
-                }
-            } @else {
-                (cards(&shown.builds, &[], &builds.viewing))
-            }
-        },
-    )
 }

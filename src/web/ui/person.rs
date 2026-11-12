@@ -9,7 +9,18 @@ use crate::{account::User, web::href};
 /// pixelated, when Mojang knows the player, else the Discord avatar,
 /// round, if it has one.
 pub(crate) fn picture(user: &User, size: u32) -> Option<Markup> {
-    let (src, shape) = match (&user.minecraft_uuid, user.avatar_url()) {
+    face(user.minecraft_uuid.as_deref(), user.avatar_url(), size)
+}
+
+/// A person's picture at `size` pixels square: the head of the player
+/// `uuid` names, drawn pixelated, else the picture at `avatar`, round;
+/// `None` with neither.
+pub(crate) fn face(
+    uuid: Option<&str>,
+    avatar: Option<String>,
+    size: u32,
+) -> Option<Markup> {
+    let (src, shape) = match (uuid, avatar) {
         (Some(uuid), _) => (
             format!("/heads/{uuid}"),
             "rounded-[2px] [image-rendering:pixelated]",

@@ -316,7 +316,7 @@ fn change_row(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
 fn account(user: Option<&User>) -> Markup {
     html! {
         @if let Some(user) = user {
-            a href=(href::user(&user.username)) class="font-medium" { (user.name()) }
+            a href=(href::account(user)) class="font-medium" { (user.name()) }
         } @else {
             span class="text-muted" { "A deleted account" }
         }

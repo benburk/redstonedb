@@ -14,8 +14,11 @@ use crate::{
     web::{
         href,
         ui::{
-            PAGE_TITLE, SECTION_TITLE, SWITCHES, layout::base, locked_download,
-            text::plural, viewer::viewer_3d_sides,
+            PAGE_TITLE, SECTION_TITLE, SWITCHES,
+            layout::base,
+            locked_download,
+            text::{dimensions, plural},
+            viewer::viewer_3d_sides,
         },
     },
 };
@@ -165,7 +168,7 @@ pub fn measured(
         ticks(before.throughput),
         ticks(after.throughput),
     );
-    let size = |[x, y, z]: [i64; 3]| format!("{x}×{y}×{z}");
+    let size = |[x, y, z]: [i64; 3]| dimensions((x, y, z));
     line("Size", size(before.size), size(after.size));
     let pitch = |p: Option<i64>| {
         p.map_or("doesn't stack".to_owned(), |p| {

@@ -7,7 +7,11 @@ use crate::{
     build::{Build, tag::Tag},
     web::{
         href,
-        ui::{icons, person::name_links, text::ticks},
+        ui::{
+            icons,
+            person::name_links,
+            text::{self, ticks},
+        },
     },
 };
 
@@ -44,8 +48,7 @@ pub(crate) fn volume(s: &Build) -> String {
 
 /// Height × width × depth, as the build looks from the south.
 pub(crate) fn size(s: &Build) -> String {
-    let (x, y, z) = s.file.size;
-    format!("{y}×{x}×{z}")
+    text::dimensions(s.file.size)
 }
 
 /// A tag of build `s`, linking to the builds of its category that carry
