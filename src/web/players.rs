@@ -7,6 +7,7 @@ use axum::{
 };
 
 use crate::{
+    leaderboard,
     models::{
         schematic::{self, Schematic},
         user::User,
@@ -17,8 +18,8 @@ use crate::{
 use super::pages;
 
 /// The page of the player `name`, whatever its capitals: what they built,
-/// helped with, and are named in with `@name`, and their account if they
-/// have signed up. The address takes the spelling the
+/// helped with, are named in with `@name`, and hold records for, and their
+/// account if they have signed up. The address takes the spelling the
 /// site credits, or else the first a description writes, or else Mojang's;
 /// a 404 for a name no player has.
 pub async fn show(
@@ -73,6 +74,15 @@ pub async fn show(
     }
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    // Private builds compete with no one.
+    let public: Vec<&Schematic> = all.iter().filter(|s| s.public).collect();
+    let stacks = leaderboard::stacked(public.iter().copied());
+    let builds: Vec<&Schematic> = public.into_iter().chain(&stacks).collect();
+    let records = leaderboard::records(&builds);
+    let held: Vec<&leaderboard::Record> = records
+        .iter()
+        .filter(|r| r.holders.iter().any(|s| s.authors.iter().any(same)))
+        .collect();
     let pick = |names: fn(&Schematic) -> &Vec<String>| -> Vec<Schematic> {
         all.iter()
             .filter(|s| names(s).iter().any(same))
@@ -102,6 +112,7 @@ pub async fn show(
                 })
                 .cloned()
                 .collect::<Vec<_>>(),
+            records: &held,
             viewing: &super::viewing(&state.db, user_opt.as_ref()).await?,
         },
     )
