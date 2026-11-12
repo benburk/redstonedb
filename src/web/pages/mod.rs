@@ -85,7 +85,7 @@ pub use users::{ProfileBuilds, ProfileList, login, profile, user_row, users};
 /// 3762 blocks · embizone`.
 fn facts(s: &Build) -> Markup {
     let measures: Vec<String> =
-        [s.latency.map(ticks), Some(size(s)), Some(volume(s))]
+        [s.specs.latency.map(ticks), Some(size(s)), Some(volume(s))]
             .into_iter()
             .flatten()
             .collect();
@@ -299,7 +299,7 @@ fn field(name: &str, value: impl maud::Render) -> Markup {
 }
 
 fn latency(s: &Build) -> String {
-    s.latency.map(ticks).unwrap_or_default()
+    s.specs.latency.map(ticks).unwrap_or_default()
 }
 
 /// `n` game ticks, such as `1 tick` or `3 ticks`.

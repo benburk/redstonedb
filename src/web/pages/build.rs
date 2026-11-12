@@ -335,11 +335,11 @@ impl Sources {
         Sources {
             category: category_source,
             width: checked(
-                derived.width == s.width && s.width.is_some(),
+                derived.width == s.specs.width && s.specs.width.is_some(),
                 passed,
             ),
             orientation: checked(
-                derived.orientation == Some(s.orientation),
+                derived.orientation == Some(s.specs.orientation),
                 false,
             ),
             timing: checked(
@@ -526,7 +526,7 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
                         sourced(search_link(&measure.words(n), &measure.term(n)), source, sources)
                     })))
                 }
-                (fact("Latency", s.latency.map_or_else(unknown, |t| {
+                (fact("Latency", s.specs.latency.map_or_else(unknown, |t| {
                     sourced(super::ticks(t), sources.timing, sources)
                 })))
                 @match s.per_copy() {
@@ -583,7 +583,8 @@ fn short_stacking(s: &Build, direction: &StackDirection) -> String {
     let step = match (steps.as_slice(), direction.pitch) {
         ([(n, way)], Some(pitch)) => format!("{n} {way}, pitch {pitch}"),
         ([(n, way)], None)
-            if stacking_found(s) && !direction.adds_bits(s.orientation) =>
+            if stacking_found(s)
+                && !direction.adds_bits(s.specs.orientation) =>
         {
             format!("{n} {way} as words")
         }
@@ -635,10 +636,10 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
                     (field("Groups", html! { (group) " bits" }))
                 }
                 // A serial build's throughput is among its measures.
-                @if !s.has(Measure::Throughput) && let Some(t) = s.throughput {
+                @if !s.has(Measure::Throughput) && let Some(t) = s.specs.throughput {
                     (field("Throughput", sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
                 }
-                @if let Some(synced) = s.synchronized {
+                @if let Some(synced) = s.specs.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { tag::SYNCED } else { tag::UNSYNCED })), sources.timing, sources)))
                 }
                 @if let Some(logic) = s.logic() {
@@ -1127,7 +1128,7 @@ fn preview(s: &Build) -> super::Preview {
         s.volume()
     );
     let mut facts = vec![s.category_label()];
-    if let Some(t) = s.latency {
+    if let Some(t) = s.specs.latency {
         facts.push(format!("{t} {}", if t == 1 { "tick" } else { "ticks" }));
     }
     if let Some(pitch) = s.stacking.iter().filter_map(|d| d.pitch).min() {

@@ -104,7 +104,7 @@ pub fn carries_roles(data: &[u8]) -> bool {
 }
 
 fn buses(s: &Build) -> stack::Buses {
-    stack::Buses::of(s.kind(), s.orientation)
+    stack::Buses::of(s.kind(), s.specs.orientation)
 }
 
 /// Moves build `id`'s stored result to its file `data`, whose hash is
@@ -170,7 +170,7 @@ pub fn stands_in(s: &Build) -> Option<&str> {
 pub fn test_for(s: &Build) -> Option<Test> {
     match stands_in(s) {
         Some(meant) => category::behaviour(meant).test,
-        None => Test::of(&s.category, s.width),
+        None => Test::of(&s.category, s.specs.width),
     }
 }
 
@@ -225,7 +225,7 @@ pub async fn refresh(
     if s.conventional {
         derived.read(&s.category, &Blocks::read(&data)?);
     }
-    let test = Test::of(&s.category, derived.measured.width);
+    let test = Test::of(&s.category, derived.specs.width);
     let mut ran = None;
     let report = match test {
         Some(test) => {
@@ -260,7 +260,7 @@ pub async fn refresh(
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(s.kind(), derived.measured.orientation),
+                stack::Buses::of(s.kind(), derived.specs.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -403,7 +403,8 @@ async fn refresh_off_list(
     let report = match standard {
         Ok(standard) => {
             // Its author's width, when its file shows none.
-            let width = derived_width(meant, true, &standard.data)?.or(s.width);
+            let width =
+                derived_width(meant, true, &standard.data)?.or(s.specs.width);
             match Test::of(meant, width) {
                 Some(test) => run(test, standard.data).await?,
                 None => Report::Skipped {
@@ -480,12 +481,12 @@ async fn refresh_evaluated(
     };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, s).await?;
-    match (Test::of(&s.category, derived.measured.width), &report) {
+    match (Test::of(&s.category, derived.specs.width), &report) {
         (Some(test), Some(report)) => {
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(s.kind(), derived.measured.orientation),
+                stack::Buses::of(s.kind(), derived.specs.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -508,8 +509,8 @@ impl Derived {
         if *self == stored {
             return Ok(());
         }
-        if self.measured != stored.measured {
-            schematic::set_measured(&mut *tx, &s.id, &self.measured).await?;
+        if self.specs != stored.specs {
+            schematic::set_specs(&mut *tx, &s.id, &self.specs).await?;
         }
         if self.flags != stored.flags {
             schematic::set_flags(tx, &s.id, &self.flags).await?;
@@ -555,8 +556,8 @@ async fn keep_measures(
     };
     let measures = version::Measures {
         verdict: verdict.to_owned(),
-        latency: s.latency,
-        throughput: s.throughput,
+        latency: s.specs.latency,
+        throughput: s.specs.throughput,
         size: [s.size.0, s.size.1, s.size.2],
         pitch: s.stacking.iter().filter_map(|d| d.pitch).min(),
     };

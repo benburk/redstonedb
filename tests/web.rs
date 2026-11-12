@@ -10,7 +10,7 @@ use std::sync::Arc;
 use app::{
     details::Details,
     models::{
-        schematic::{self, Orientation},
+        schematic,
         session::{Session, now_micros},
         user::{Role, User},
     },
@@ -100,7 +100,6 @@ impl Site {
     async fn adder(&self, by: &User) -> String {
         let given = Details {
             category: "adder".to_owned(),
-            orientation: Orientation::Horizontal,
             ..Details::default()
         };
         common::store(&self.db, "alpha-rca", given, Some(by)).await
@@ -523,7 +522,6 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
     // The same build, a block changed, uploaded on its own.
     let given = Details {
         category: "adder".to_owned(),
-        orientation: Orientation::Horizontal,
         ..Details::default()
     };
     let from = common::store(&site.db, "alpha-cla", given, Some(&owner)).await;

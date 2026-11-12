@@ -10,7 +10,7 @@ use crate::{
     details::Details,
     import::{self, Analysis, FileFacts},
     models::{
-        schematic::{self, Build, Orientation, StackDirection},
+        schematic::{self, Build, Orientation, Specs, StackDirection},
         tag,
         user::User,
     },
@@ -223,17 +223,17 @@ impl Form {
         let name = |name: Option<&str>| name.unwrap_or_default().to_owned();
         Form {
             category: s.category.clone(),
-            orientation: s.orientation.name().to_owned(),
-            width: number(s.width),
-            latency: number(s.latency),
-            synchronized: s.synchronized,
+            orientation: s.specs.orientation.name().to_owned(),
+            width: number(s.specs.width),
+            latency: number(s.specs.latency),
+            synchronized: s.specs.synchronized,
             built_on: text(&s.built_on),
             description: text(&s.description),
-            logic: name(s.own_logic.map(schematic::Logic::name)),
+            logic: name(s.specs.logic.map(schematic::Logic::name)),
             stackable: !s.stacking.is_empty(),
             // A build that does not stack yet starts with a likely direction.
             stack_rows: if s.stacking.is_empty() {
-                vec![StackRow::suggested(s.orientation, s.size)]
+                vec![StackRow::suggested(s.specs.orientation, s.size)]
             } else {
                 s.stacking.iter().map(StackRow::of).collect()
             },
@@ -346,13 +346,16 @@ impl Form {
         let text = |value: &str| Some(value.to_owned());
         Ok(Details {
             category: self.category.clone(),
-            orientation: self.orientation.parse()?,
-            width,
-            latency,
-            synchronized: self.synchronized,
+            specs: Specs {
+                orientation: self.orientation.parse()?,
+                width,
+                latency,
+                synchronized: self.synchronized,
+                logic: chosen(&self.logic)?,
+                ..Specs::default()
+            },
             built_on: text(&self.built_on),
             description: text(&self.description),
-            logic: chosen(&self.logic)?,
             authors: self.authors.clone(),
             contributors: self.contributors.clone(),
             stacking: self.stacking()?,

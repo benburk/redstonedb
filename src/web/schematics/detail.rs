@@ -199,7 +199,7 @@ pub async fn detail(
                     stack::review(
                         &data,
                         direction,
-                        stack::Buses::of(s.kind(), s.orientation),
+                        stack::Buses::of(s.kind(), s.specs.orientation),
                     )
                     .ok()
                 })

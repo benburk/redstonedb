@@ -6,7 +6,7 @@ mod common;
 use app::{
     details::Details,
     models::{
-        schematic::{self, Orientation},
+        schematic,
         user::{Role, User},
     },
 };
@@ -17,7 +17,6 @@ use sqlx::SqlitePool;
 async fn store(db: &SqlitePool, name: &str, by: &User) -> String {
     let given = Details {
         category: "adder".to_owned(),
-        orientation: Orientation::Horizontal,
         ..Details::default()
     };
     common::store(db, name, given, Some(by)).await

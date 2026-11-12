@@ -7,7 +7,7 @@ mod common;
 use app::{
     details::{self, Candidate, Details},
     import,
-    models::{schematic::Orientation, version},
+    models::version,
     recognize::{
         interface::{self, Kept},
         palette::{self, Palette},
@@ -99,7 +99,6 @@ async fn a_versions_roles_are_kept_with_it() {
     let first = common::conventional("alpha-rca");
     let given = Details {
         category: "adder".to_owned(),
-        orientation: Orientation::Horizontal,
         ..Details::default()
     };
     let ready = details::check(&db, given, Candidate::of(&first), false)

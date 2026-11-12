@@ -7,10 +7,7 @@ mod common;
 use app::{
     details::{self, Candidate, Details},
     import,
-    models::{
-        schematic::Orientation,
-        version::{self, Replacing},
-    },
+    models::version::{self, Replacing},
     recognize::colouring,
 };
 
@@ -20,7 +17,6 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
     let first = common::conventional("alpha-rca");
     let given = Details {
         category: "adder".to_owned(),
-        orientation: Orientation::Horizontal,
         ..Details::default()
     };
     let ready = details::check(&db, given, Candidate::of(&first), false)
@@ -85,7 +81,6 @@ async fn a_turned_new_version_is_compared_turned_back() {
     let first = common::conventional("alpha-rca");
     let given = Details {
         category: "adder".to_owned(),
-        orientation: Orientation::Horizontal,
         ..Details::default()
     };
     let ready = details::check(&db, given, Candidate::of(&first), false)

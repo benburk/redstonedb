@@ -167,7 +167,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         details.category = category;
     }
     if let Some(orientation) = orientation {
-        details.orientation = orientation;
+        details.specs.orientation = orientation;
     }
     overlay(&mut details, &given, &unset);
     for name in &tags {
@@ -303,12 +303,12 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
     let unsets = |name: &str| unset.iter().any(|field| field == name);
     let number = |n: Option<u32>| n.map(i64::from);
     put(
-        &mut details.latency,
+        &mut details.specs.latency,
         number(given.latency),
         unsets("latency"),
     );
     put(
-        &mut details.synchronized,
+        &mut details.specs.synchronized,
         given.synchronized,
         unsets("synchronized"),
     );
@@ -322,7 +322,7 @@ fn overlay(details: &mut Details, given: &DetailArgs, unset: &[String]) {
         given.description.clone(),
         unsets("description"),
     );
-    put(&mut details.logic, given.logic, unsets("logic"));
+    put(&mut details.specs.logic, given.logic, unsets("logic"));
     // A list given replaces the stored one whole.
     let lists = [
         (&mut details.authors, &given.authors, "authors"),
@@ -362,7 +362,7 @@ pub(super) async fn export(
         Some(copies) => {
             let wanted = copy_counts(&s.stacking, copies)?;
             let plan = stack::plan(&s.stacking, &wanted)?;
-            let buses = stack::Buses::of(s.kind(), s.orientation);
+            let buses = stack::Buses::of(s.kind(), s.specs.orientation);
             let (data, size) = stack::stack(&data, &plan, buses)?;
             (data, s.stacked(&plan, size))
         }
@@ -446,26 +446,26 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     println!("filename     {}", s.filename());
     println!("category     {}", s.category);
     println!("width        {}", unknown(s.width_label()));
-    println!("orientation  {}", s.orientation.label());
+    println!("orientation  {}", s.specs.orientation.label());
     println!(
         "encoding     {}",
-        s.encoding.map_or("none", Encoding::label)
+        s.specs.encoding.map_or("none", Encoding::label)
     );
     println!(
         "latency      {}",
-        unknown(s.latency.map(|t| format!("{t} ticks")))
+        unknown(s.specs.latency.map(|t| format!("{t} ticks")))
     );
     println!(
         "throughput   {}",
-        unknown(s.throughput.map(|t| format!("{t} ticks")))
+        unknown(s.specs.throughput.map(|t| format!("{t} ticks")))
     );
-    if let Some(bytes) = s.bytes {
+    if let Some(bytes) = s.specs.bytes {
         println!("capacity     {bytes} bytes");
     }
-    if let Some(k) = s.at_least {
+    if let Some(k) = s.specs.at_least {
         println!("at least     {k} on");
     }
-    if let Some(p) = s.pulse {
+    if let Some(p) = s.specs.pulse {
         println!("pulse        {p} ticks");
     }
     println!("synchronized {}", s.synchronized_label());
@@ -478,6 +478,7 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     let by = s.works_from_by.as_deref().map(|by| format!(" ({by})"));
     println!("works from   {from}{}", by.unwrap_or_default());
     let design = s
+        .specs
         .design
         .as_deref()
         .map_or("none".to_owned(), category::words);
