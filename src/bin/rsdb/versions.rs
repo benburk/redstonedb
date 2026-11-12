@@ -57,7 +57,7 @@ pub(super) async fn reread(db: &SqlitePool, id: &str) -> Result<()> {
 /// compared.
 async fn refile(
     db: &SqlitePool,
-    s: &schematic::Schematic,
+    s: &schematic::Build,
     file: &[u8],
     standardize: bool,
 ) -> Result<()> {
@@ -175,7 +175,7 @@ pub(super) async fn merge(
 /// is recognized as one, as on the site.
 async fn next_version(
     db: &SqlitePool,
-    s: &schematic::Schematic,
+    s: &schematic::Build,
     raw: &[u8],
     file: &Path,
     note: Option<&str>,
@@ -244,7 +244,9 @@ async fn next_version(
             unverified: None,
             ..Details::of(s)
         };
-        match details::check(db, given, details::Build::of(file), true).await? {
+        match details::check(db, given, details::Candidate::of(file), true)
+            .await?
+        {
             Ok(ready) => {
                 schematic::set_details(db, id, &ready).await?;
                 println!("{name}: moved up as {}", to.name);

@@ -4,7 +4,7 @@ use maud::{Markup, html};
 
 use crate::{
     leaderboard::Record,
-    models::{schematic::Schematic, user::User},
+    models::{schematic::Build, user::User},
 };
 
 use super::{
@@ -21,11 +21,11 @@ pub struct PlayerPage<'a> {
     /// The account whose confirmed Minecraft name this is, if they have
     /// signed up.
     pub account: Option<&'a User>,
-    pub built: &'a [Schematic],
-    pub contributed: &'a [Schematic],
+    pub built: &'a [Build],
+    pub contributed: &'a [Build],
     /// The builds whose descriptions name them with `@name`, but don't
     /// credit them.
-    pub mentioned: &'a [Schematic],
+    pub mentioned: &'a [Build],
     /// The records builds crediting them hold.
     pub records: &'a [&'a Record<'a>],
     pub viewing: &'a Viewing,
@@ -97,8 +97,8 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
 /// under their headings, as the viewer sees them; `unbuilt`
 /// stands for the first when it is empty.
 pub(super) fn credits(
-    built: &[Schematic],
-    contributed: &[Schematic],
+    built: &[Build],
+    contributed: &[Build],
     unbuilt: &Markup,
     viewing: &Viewing,
 ) -> Markup {

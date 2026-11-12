@@ -9,7 +9,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::schematic::{Schematic, StackDirection, classes},
+    models::schematic::{Build, StackDirection, classes},
     schem::stack::{FirstCopy, Review},
 };
 
@@ -22,7 +22,7 @@ const LISTED: usize = 8;
 /// not stack. `decided` when the simulation found the stacking, so it
 /// needs no warnings. Its files download only when `signed_in`.
 pub fn stacking_section(
-    s: &Schematic,
+    s: &Build,
     reviews: &[Review],
     decided: bool,
     signed_in: bool,
@@ -55,7 +55,7 @@ pub fn stacking_section(
 /// for copies that add bits, their pitch class, the blocks a bit apart,
 /// and each looser class it counts in; for a register's copies across its
 /// bits, more words on its shared bus. `None` for any other.
-fn class(s: &Schematic, direction: StackDirection) -> Option<String> {
+fn class(s: &Build, direction: StackDirection) -> Option<String> {
     let (step, way) = direction.parts().next()?;
     let limit = direction
         .max_copies
@@ -118,7 +118,7 @@ fn rstack(direction: StackDirection, copies: i64) -> String {
 
 /// The steps to stack it one way, with the files they paste, downloadable
 /// when `signed_in`.
-fn steps(s: &Schematic, review: &Review, signed_in: bool) -> Markup {
+fn steps(s: &Build, review: &Review, signed_in: bool) -> Markup {
     let direction = review.direction;
     let copies = direction.max_copies.unwrap_or(8);
     let command = rstack(direction, copies);

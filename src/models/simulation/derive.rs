@@ -4,7 +4,7 @@
 
 use crate::{
     category, import,
-    models::schematic::{Measured, Schematic, StackDirection, Widened},
+    models::schematic::{Build, Measured, StackDirection, Widened},
     recognize::{evaluate::Evaluation, interface},
     schem::Blocks,
     simulate::{Edge, Report, Stacking, Test},
@@ -33,7 +33,7 @@ pub(super) struct Derived {
 
 impl Derived {
     /// Build `s`'s, as stored.
-    pub(super) fn of(s: &Schematic) -> Self {
+    pub(super) fn of(s: &Build) -> Self {
         Derived {
             measured: Measured::of(s),
             flags: s.flags.iter().map(|flag| flag.name.to_owned()).collect(),
@@ -48,7 +48,7 @@ impl Derived {
     /// and flags, whatever the test made of it, and, once the test
     /// recognizes it as the category, what the simulation measured. What
     /// could not be worked out is unknown, not what was typed.
-    pub(super) fn evaluated(s: &Schematic, e: &Evaluation) -> Self {
+    pub(super) fn evaluated(s: &Build, e: &Evaluation) -> Self {
         let stored = Derived::of(s);
         let mut derived = Derived {
             measured: Measured {
@@ -124,7 +124,7 @@ impl Derived {
     /// others, which the search does not try; it keeps its author's
     /// stacking when none was found. A result that did not stack copies,
     /// such as one with wrong cases, leaves the stacking as it was.
-    pub(super) fn decide(&mut self, s: &Schematic, report: &Report) {
+    pub(super) fn decide(&mut self, s: &Build, report: &Report) {
         if let Some(timing) = report.timing()
             && let Some(latency) = timing.latency()
         {
@@ -256,7 +256,7 @@ mod tests {
         })
     }
 
-    fn decided(s: &Schematic, flags: &[&str], report: &Report) -> Derived {
+    fn decided(s: &Build, flags: &[&str], report: &Report) -> Derived {
         let mut derived = Derived {
             flags: flags.iter().map(|&flag| flag.to_owned()).collect(),
             ..Derived::of(s)

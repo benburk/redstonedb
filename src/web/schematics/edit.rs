@@ -15,7 +15,7 @@ use crate::{
     import::{self, Prepared},
     models::{
         activity,
-        schematic::{self, Schematic},
+        schematic::{self, Build},
         similarity, simulation,
         user::User,
         version::{self, Replacing},
@@ -54,7 +54,7 @@ pub(in crate::web) async fn editable(
     db: &SqlitePool,
     user: &User,
     id: &str,
-) -> Result<Schematic, AppError> {
+) -> Result<Build, AppError> {
     let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
     if user.may_edit(&s) {
         Ok(s)
@@ -177,7 +177,7 @@ pub async fn save(
 /// version, or why it could not be read.
 async fn chosen_version(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     file: &[u8],
 ) -> Result<Checked, String> {
     // A listed build that follows the conventions is kept standardized;
@@ -280,7 +280,7 @@ pub async fn check_progress(
 /// read, for the page to ask for it again.
 async fn attached(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     data: &str,
 ) -> Result<Option<Checked>, String> {
     if data.is_empty() {
@@ -334,7 +334,7 @@ pub async fn delete(
 async fn save_details(
     db: &SqlitePool,
     user: &User,
-    s: &Schematic,
+    s: &Build,
     form: &Form,
     checked: Option<&Checked>,
 ) -> Result<(Option<Prepared>, Option<String>), AppError> {
@@ -375,7 +375,7 @@ async fn save_details(
 /// Only a build whose category, as `category` gives it, is unchanged
 /// moves up.
 async fn version_kept(
-    s: &Schematic,
+    s: &Build,
     category: &str,
     prepared: &Prepared,
 ) -> anyhow::Result<Option<(Prepared, Option<String>)>> {
@@ -403,7 +403,7 @@ async fn version_kept(
 async fn saved(
     db: &SqlitePool,
     user: &User,
-    s: &Schematic,
+    s: &Build,
     form: &Form,
     new: Option<&Prepared>,
 ) -> Result<Result<(), String>, AppError> {
@@ -420,12 +420,12 @@ async fn saved(
     }
     let stored;
     let build = if let Some(new) = new {
-        details::Build::of(new)
+        details::Candidate::of(new)
     } else {
         stored = version::current_file(db, &s.id).await?.unwrap_or_default();
         // Its file, kept under its category, passed its test already,
         // which a save of its details needn't run again.
-        details::Build {
+        details::Candidate {
             data: &stored,
             conventional: s.conventional,
             passes: same
@@ -461,7 +461,7 @@ pub(in crate::web) struct EditView<'a> {
 pub(in crate::web) async fn show_edit(
     db: &SqlitePool,
     user: &User,
-    s: &Schematic,
+    s: &Build,
     view: EditView<'_>,
 ) -> Result<Response, AppError> {
     let EditView {

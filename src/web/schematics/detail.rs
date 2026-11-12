@@ -15,7 +15,7 @@ use sqlx::SqlitePool;
 use crate::{
     import::{self, Analysis},
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, Build},
         similarity, simulation,
         user::User,
         version,
@@ -125,7 +125,7 @@ async fn similar_to(
     db: &SqlitePool,
     id: &str,
     viewer: Option<&User>,
-) -> anyhow::Result<Vec<(Schematic, u32)>> {
+) -> anyhow::Result<Vec<(Build, u32)>> {
     let similar = similarity::similar(db, id).await?;
     Ok(super::super::similar::builds(db, &similar, viewer).await?)
 }
@@ -145,7 +145,7 @@ pub struct Asked {
 /// category reads it, or for one unverified or off the list while it is
 /// not recognized as the category it stands in for, standardized and read
 /// as that category, as recognizing it would.
-fn read_for_page(s: &Schematic, data: &[u8], blocks: &Blocks) -> Analysis {
+fn read_for_page(s: &Build, data: &[u8], blocks: &Blocks) -> Analysis {
     if let Some(meant) = simulation::stands_in(s)
         && let Ok(standard) = import::prepare_for(
             data,
@@ -263,7 +263,7 @@ pub async fn detail(
 /// register, what keeps it from being recognized as one by the check by
 /// function on its file `data`: one line for each fault. Empty for any
 /// other build.
-async fn why_not_recognized(s: &Schematic, data: &[u8]) -> Vec<String> {
+async fn why_not_recognized(s: &Build, data: &[u8]) -> Vec<String> {
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
     let Some(meant) = crate::models::simulation::stands_in(s)

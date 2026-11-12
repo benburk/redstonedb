@@ -13,7 +13,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     models::{
-        schematic::{self, DownloadKind, Schematic},
+        schematic::{self, Build, DownloadKind},
         user::User,
         version,
     },
@@ -230,7 +230,7 @@ pub(in crate::web) async fn export(
 async fn shaped(
     db: &SqlitePool,
     id: &str,
-    s: Schematic,
+    s: Build,
     data: Vec<u8>,
     asked: &Download,
     counted: bool,

@@ -6,7 +6,7 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
-use super::schematic::Schematic;
+use super::schematic::Build;
 
 /// The account of `RedstoneDB` itself, the author of the versions the site
 /// makes, as when it takes out a build's unused blocks. No one signs in as
@@ -123,24 +123,24 @@ impl User {
     /// Whether the account may edit this build: a mod or admin may edit
     /// any, an author the ones crediting their confirmed Minecraft name,
     /// and an uploader the ones they uploaded.
-    pub fn may_edit(&self, s: &Schematic) -> bool {
+    pub fn may_edit(&self, s: &Build) -> bool {
         self.can_edit() || self.built(s) || self.uploaded(s)
     }
 
     /// Whether the account may restore an earlier version of the build:
     /// its uploader, or a mod or admin.
-    pub fn may_restore(&self, s: &Schematic) -> bool {
+    pub fn may_restore(&self, s: &Build) -> bool {
         self.uploaded(s) || self.can_edit()
     }
 
     /// Whether the account uploaded the build through the site.
-    pub fn uploaded(&self, s: &Schematic) -> bool {
+    pub fn uploaded(&self, s: &Build) -> bool {
         s.uploader.as_deref() == Some(self.username.as_str())
     }
 
     /// Whether the build credits the account's confirmed Minecraft name as
     /// an author.
-    pub fn built(&self, s: &Schematic) -> bool {
+    pub fn built(&self, s: &Build) -> bool {
         self.minecraft_verified
             && self.minecraft_name.as_deref().is_some_and(|own| {
                 s.authors.iter().any(|name| name.eq_ignore_ascii_case(own))
@@ -160,7 +160,7 @@ impl User {
 
     /// Whether the account may delete this build: its uploader, or a mod
     /// or admin.
-    pub fn may_delete(&self, s: &Schematic) -> bool {
+    pub fn may_delete(&self, s: &Build) -> bool {
         self.uploaded(s) || self.can_delete()
     }
 

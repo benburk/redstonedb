@@ -4,7 +4,7 @@
 mod common;
 
 use app::{
-    details::{self, Build, Details, Ready},
+    details::{self, Candidate, Details, Ready},
     import::{self, Purpose},
     models::schematic::{Encoding, Orientation, StackDirection},
     schem::{Blocks, standardize},
@@ -56,7 +56,7 @@ async fn check_file(
     data: &[u8],
     conventional: bool,
 ) -> Result<Ready, String> {
-    let build = Build {
+    let build = Candidate {
         data,
         conventional,
         passes: false,
@@ -121,7 +121,7 @@ async fn only_a_mod_or_admin_may_name_a_new_tag_with_the_details() {
     let refused = check(&db, tagged.clone()).await.err().unwrap();
     assert!(refused.contains("only a mod or admin"), "{refused}");
     let data = adder();
-    let build = Build {
+    let build = Candidate {
         data: &data,
         conventional: true,
         passes: false,
@@ -207,7 +207,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
 async fn a_build_that_passed_is_not_tested_again() {
     let db = common::database().await;
     let data = prepared("cca-8-dust-out", false);
-    let tested = |passes| Build {
+    let tested = |passes| Candidate {
         data: &data,
         conventional: true,
         passes,

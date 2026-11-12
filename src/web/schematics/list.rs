@@ -16,7 +16,7 @@ use crate::{
     category::Category,
     leaderboard,
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, Build},
         tag,
         user::User,
     },
@@ -96,7 +96,7 @@ async fn index(
     // A category's tile counts its verified builds, unaligned too, as its
     // listing shows them, and pictures the first on its board, where none
     // unaligned rank.
-    let verified: Vec<Schematic> =
+    let verified: Vec<Build> =
         all.iter().filter(|s| s.verified()).cloned().collect();
     let index = pages::Index {
         tiles: &tiles(&categories, &verified),
@@ -116,9 +116,9 @@ async fn index(
 /// common width, or by its newest build when none is timed.
 fn tiles<'a>(
     categories: &[Category],
-    all: &'a [Schematic],
+    all: &'a [Build],
 ) -> Vec<pages::Tile<'a>> {
-    let newest = |builds: &[&'a Schematic]| {
+    let newest = |builds: &[&'a Build]| {
         builds
             .iter()
             .copied()
@@ -127,7 +127,7 @@ fn tiles<'a>(
     let mut tiles: Vec<pages::Tile> = categories
         .iter()
         .filter_map(|category| {
-            let builds: Vec<&Schematic> =
+            let builds: Vec<&Build> =
                 all.iter().filter(|s| s.category == category.name).collect();
             let newest = newest(&builds)?;
             let board = leaderboard::board(
@@ -148,7 +148,7 @@ fn tiles<'a>(
         })
         .collect();
     tiles.sort_by(|a, b| b.count.cmp(&a.count).then(a.label.cmp(&b.label)));
-    let other: Vec<&Schematic> =
+    let other: Vec<&Build> =
         all.iter().filter(|s| in_category(s, OTHER)).collect();
     if let Some(newest) = newest(&other) {
         tiles.push(pages::Tile {
@@ -164,12 +164,12 @@ fn tiles<'a>(
 
 /// The builds added last, newest first, one of each name so an import of
 /// many alike takes one place, each with how many builds share its name.
-fn recent(all: &[Schematic]) -> Vec<(&Schematic, usize)> {
+fn recent(all: &[Build]) -> Vec<(&Build, usize)> {
     let mut named: HashMap<String, usize> = HashMap::new();
     for s in all {
         *named.entry(s.name()).or_default() += 1;
     }
-    let mut newest: Vec<&Schematic> = all.iter().collect();
+    let mut newest: Vec<&Build> = all.iter().collect();
     newest.sort_by(|a, b| b.added_at.cmp(&a.added_at));
     let mut seen = HashSet::new();
     newest
@@ -193,7 +193,7 @@ async fn listing(
     let all = schematic::visible(&state.db, viewer).await?;
     let categories = Category::all();
     let total = all.len();
-    let mut found: Vec<Schematic> = search::matching(&terms, all)
+    let mut found: Vec<Build> = search::matching(&terms, all)
         .into_iter()
         .filter(|s| has_tags(s, &query.tags))
         .collect();
@@ -220,13 +220,13 @@ async fn listing(
         })
         .count();
     if !query.unverified {
-        found.retain(Schematic::verified);
+        found.retain(Build::verified);
     }
     if query.hide_unaligned {
         found.retain(|s| !s.unaligned);
     }
     let facets = facets(&categories, &found, &query.category);
-    let mut shown: Vec<Schematic> = if query.category.is_empty() {
+    let mut shown: Vec<Build> = if query.category.is_empty() {
         found
     } else {
         found
@@ -261,7 +261,7 @@ async fn listing(
 /// Whether `s` carries a tag from every group, a group being one `tag`
 /// value with its alternatives separated by commas, its design and flags
 /// among its tags. A tag matches by name or token.
-fn has_tags(s: &Schematic, groups: &[String]) -> bool {
+fn has_tags(s: &Build, groups: &[String]) -> bool {
     let tags = s.every_tag();
     groups.iter().all(|group| {
         group
@@ -273,7 +273,7 @@ fn has_tags(s: &Schematic, groups: &[String]) -> bool {
 
 /// Orders builds by `sort`. An unknown latency goes last either way. Ties,
 /// and an empty sort, fall back to newest first.
-fn order(shown: &mut [Schematic], sort: &Sort) {
+fn order(shown: &mut [Build], sort: &Sort) {
     shown.sort_by(|a, b| {
         for &(field, descending) in &sort.0 {
             let ordering = match field {
@@ -305,7 +305,7 @@ const OTHER: &str = "other";
 
 /// Whether `s` belongs under the menu's `category`: its own category, or
 /// `other` for any category off the standard list. Commas give several.
-fn in_category(s: &Schematic, category: &str) -> bool {
+fn in_category(s: &Build, category: &str) -> bool {
     category.split(',').any(|category| {
         if category == OTHER {
             s.category_label.is_none()
@@ -320,7 +320,7 @@ fn in_category(s: &Schematic, category: &str) -> bool {
 /// Other.
 fn facets(
     categories: &[Category],
-    found: &[Schematic],
+    found: &[Build],
     chosen: &str,
 ) -> Vec<pages::Facet> {
     let count =
@@ -351,8 +351,8 @@ mod tests {
     use super::*;
     use crate::models::schematic::Orientation;
 
-    fn build(category: &str, unaligned: bool) -> Schematic {
-        Schematic {
+    fn build(category: &str, unaligned: bool) -> Build {
+        Build {
             unaligned,
             ..crate::search::tests::schematic(
                 category,

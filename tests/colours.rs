@@ -5,7 +5,7 @@
 mod common;
 
 use app::{
-    details::{self, Build, Details},
+    details::{self, Candidate, Details},
     import,
     models::{
         schematic::Orientation,
@@ -23,7 +23,7 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         orientation: Orientation::Horizontal,
         ..Details::default()
     };
-    let ready = details::check(&db, given, Build::of(&first), false)
+    let ready = details::check(&db, given, Candidate::of(&first), false)
         .await
         .unwrap()
         .unwrap();
@@ -88,7 +88,7 @@ async fn a_turned_new_version_is_compared_turned_back() {
         orientation: Orientation::Horizontal,
         ..Details::default()
     };
-    let ready = details::check(&db, given, Build::of(&first), false)
+    let ready = details::check(&db, given, Candidate::of(&first), false)
         .await
         .unwrap()
         .unwrap();

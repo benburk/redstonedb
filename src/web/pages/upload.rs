@@ -6,7 +6,7 @@ use maud::{Markup, html};
 
 use crate::{
     models::{
-        schematic::Schematic,
+        schematic::Build,
         user::{SchematiLink, User},
     },
     web::analysis::{self, Step},
@@ -134,7 +134,7 @@ pub fn analyzing(user: &User, id: &str, step: &Step) -> Markup {
 
 /// The page for checking a file as build `s`'s next version, check
 /// `id`, how far it has got, until it is done and the edit page shows it.
-pub fn checking_version(user: &User, s: &Schematic, id: &str) -> Markup {
+pub fn checking_version(user: &User, s: &Build, id: &str) -> Markup {
     base(
         Some(user),
         &format!("Edit {}", s.name()),

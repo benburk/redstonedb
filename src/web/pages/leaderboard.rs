@@ -9,7 +9,7 @@ use crate::{
         Standing, Wanted, in_sentence,
     },
     models::{
-        schematic::Schematic,
+        schematic::Build,
         tag::{self, Kind},
         user::User,
     },
@@ -469,12 +469,12 @@ fn rankings(category: &Category, board: &Board) -> Markup {
     let smallest = leaderboard::smallest(builds, ruler);
     let tradeoffs = leaderboard::tradeoffs(builds, ruler);
     let shared = board.group == Group::SharedLines;
-    let by_speed = |s: &Schematic| {
+    let by_speed = |s: &Build| {
         let mut values = vec![ticks(s), blocks(s, ruler)];
         values.extend(shared.then(|| copies(s, ruler)));
         values
     };
-    let by_size = |s: &Schematic| {
+    let by_size = |s: &Build| {
         let mut values = vec![blocks(s, ruler), ticks(s)];
         values.extend(shared.then(|| copies(s, ruler)));
         values
@@ -582,13 +582,13 @@ fn board_name(category: &Category, board: &Board) -> String {
         .join(" ")
 }
 
-fn ticks(s: &Schematic) -> String {
+fn ticks(s: &Build) -> String {
     s.latency.map(|t| format!("{t} ticks")).unwrap_or_default()
 }
 
 /// Its size as `ruler` measures it: its volume, or a cell's blocks, those
 /// of each copy where its copies stack, or a bit where it holds more.
-fn blocks(s: &Schematic, ruler: Ruler) -> String {
+fn blocks(s: &Build, ruler: Ruler) -> String {
     if ruler == Ruler::Whole {
         return super::volume(s);
     }
@@ -610,7 +610,7 @@ fn blocks(s: &Schematic, ruler: Ruler) -> String {
 /// How many copies of `s` still work stacked the ways its board, as
 /// `ruler` measures it, counts, the most of them: any number, up to a
 /// limit, or a dash for a build whose copies add no bits.
-fn copies(s: &Schematic, ruler: Ruler) -> String {
+fn copies(s: &Build, ruler: Ruler) -> String {
     let (west, up) = match ruler {
         Ruler::Cell { west, up } if west || up => (west, up),
         _ => (true, true),
@@ -637,7 +637,7 @@ fn copies(s: &Schematic, ruler: Ruler) -> String {
 fn ranking(
     placed: &[Placed],
     headings: &[&str],
-    values: impl Fn(&Schematic) -> Vec<String>,
+    values: impl Fn(&Build) -> Vec<String>,
 ) -> Markup {
     let numbered = placed.iter().any(|(place, _)| *place > 0);
     html! {

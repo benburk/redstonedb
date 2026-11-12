@@ -9,7 +9,7 @@ use axum::{
 use crate::{
     leaderboard,
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, Build},
         user::User,
     },
     web::{app_state::AppState, error::AppError},
@@ -44,7 +44,7 @@ pub async fn show(
             .find(|n| same(n))
             .cloned()
     });
-    let named = |s: &Schematic| {
+    let named = |s: &Build| {
         s.description
             .as_deref()
             .map(pages::mentions)
@@ -75,15 +75,15 @@ pub async fn show(
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
     // Private builds compete with no one.
-    let public: Vec<&Schematic> = all.iter().filter(|s| s.public).collect();
+    let public: Vec<&Build> = all.iter().filter(|s| s.public).collect();
     let stacks = leaderboard::stacked(public.iter().copied());
-    let builds: Vec<&Schematic> = public.into_iter().chain(&stacks).collect();
+    let builds: Vec<&Build> = public.into_iter().chain(&stacks).collect();
     let records = leaderboard::records(&builds);
     let held: Vec<&leaderboard::Record> = records
         .iter()
         .filter(|r| r.holders.iter().any(|s| s.authors.iter().any(same)))
         .collect();
-    let pick = |names: fn(&Schematic) -> &Vec<String>| -> Vec<Schematic> {
+    let pick = |names: fn(&Build) -> &Vec<String>| -> Vec<Build> {
         all.iter()
             .filter(|s| names(s).iter().any(same))
             .cloned()

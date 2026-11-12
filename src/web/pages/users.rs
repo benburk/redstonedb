@@ -4,7 +4,7 @@
 use maud::{Markup, html};
 
 use crate::models::{
-    schematic::Schematic,
+    schematic::Build,
     user::{Role, User},
 };
 
@@ -232,7 +232,7 @@ pub struct ProfileBuilds {
 pub struct ProfileList {
     pub name: &'static str,
     pub label: &'static str,
-    pub builds: Vec<Schematic>,
+    pub builds: Vec<Build>,
 }
 
 /// An account's page: the builds it built, helped with, and uploaded. Its

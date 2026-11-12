@@ -7,7 +7,7 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
 use super::{
-    schematic::{self, Restorable, Schematic, StackDirection},
+    schematic::{self, Build, Restorable, StackDirection},
     user::{REDSTONEDB, User},
 };
 
@@ -260,7 +260,7 @@ pub struct Change {
 
 /// Build `s`'s details an edit can change, each as the log names it and
 /// as text; a new file is a version of its own, which this leaves out.
-fn details(s: &Schematic) -> Vec<(&'static str, Option<String>)> {
+fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
     let list =
         |items: Vec<String>| Some(items.join(", ")).filter(|l| !l.is_empty());
     let number = |n: Option<i64>| n.map(|n| n.to_string());
@@ -313,7 +313,7 @@ fn details(s: &Schematic) -> Vec<(&'static str, Option<String>)> {
 
 /// What an edit changed of build `before`, which is `after` now: each
 /// detail whose text differs, with its text before and after.
-pub fn changed(before: &Schematic, after: &Schematic) -> Vec<Change> {
+pub fn changed(before: &Build, after: &Build) -> Vec<Change> {
     details(before)
         .into_iter()
         .zip(details(after))
@@ -352,7 +352,7 @@ pub async fn log_edit<'e, E: SqliteExecutor<'e>>(
 
 /// Whether `change`, an edit of build `s`, can be put back: a description
 /// or credits, still as the edit left them.
-pub fn revertible(s: &Schematic, change: &Change) -> bool {
+pub fn revertible(s: &Build, change: &Change) -> bool {
     Restorable::named(&change.detail).is_some()
         && details(s)
             .into_iter()

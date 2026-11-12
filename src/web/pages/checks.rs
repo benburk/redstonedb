@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use maud::{Markup, html};
 
 use crate::{
-    models::schematic::{Schematic, StackDirection},
+    models::schematic::{Build, StackDirection},
     recognize::fault,
     simulate::{BitCount, Report, Run, Stacking},
 };
@@ -87,7 +87,7 @@ pub struct Subject<'a> {
 
 impl<'a> Subject<'a> {
     /// Stored build `s`.
-    pub fn of(s: &'a Schematic) -> Subject<'a> {
+    pub fn of(s: &'a Build) -> Subject<'a> {
         Subject {
             size: s.size,
             category: &s.category,

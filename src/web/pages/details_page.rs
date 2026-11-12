@@ -9,7 +9,7 @@ use maud::{Markup, html};
 
 use crate::{
     import::Analysis,
-    models::{schematic::Schematic, user::User},
+    models::{schematic::Build, user::User},
     recognize::fault::wrong_outputs,
     simulate::Report,
     version::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
@@ -52,7 +52,7 @@ pub enum File<'a> {
         duplicate: Option<Duplicate<'a>>,
         /// The stored build most like it, with how alike, if any is
         /// similar.
-        similar: Option<(&'a Schematic, u32)>,
+        similar: Option<(&'a Build, u32)>,
         /// Whether the blocks read for it break the conventions, so are
         /// not read by them.
         unconventional: bool,
@@ -67,13 +67,13 @@ pub enum File<'a> {
     },
     /// A stored build's, as it is, with its stored simulation result.
     Stored {
-        s: &'a Schematic,
+        s: &'a Build,
         simulation: Option<&'a Report>,
     },
     /// A stored build's next version, carried in the form until it is
     /// saved.
     Version {
-        s: &'a Schematic,
+        s: &'a Build,
         data: &'a str,
         comparison: Comparison,
         /// Why it cannot replace the build; empty when it can.

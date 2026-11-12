@@ -5,7 +5,7 @@
 mod common;
 
 use app::{
-    details::{self, Build, Details},
+    details::{self, Candidate, Details},
     import,
     models::{
         schematic::{self, Encoding, Orientation},
@@ -115,7 +115,7 @@ async fn an_adder_failing_its_test_goes_up_unverified() {
         category: "adder".to_owned(),
         ..Details::default()
     };
-    let ready = details::check(&db, as_adder, Build::of(&prepared), false)
+    let ready = details::check(&db, as_adder, Candidate::of(&prepared), false)
         .await
         .unwrap()
         .unwrap();
@@ -126,7 +126,7 @@ async fn an_adder_failing_its_test_goes_up_unverified() {
         category: "8-bit adder".to_owned(),
         ..Details::default()
     };
-    let other = details::check(&db, as_other, Build::of(&prepared), false)
+    let other = details::check(&db, as_other, Candidate::of(&prepared), false)
         .await
         .unwrap();
     assert!(other.is_ok(), "{:?}", other.err());
@@ -274,7 +274,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
         .await
         .unwrap()
         .unwrap();
-    let build = Build {
+    let build = Candidate {
         data: &data,
         conventional: true,
         passes: false,
@@ -292,7 +292,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
         matches!(s.authors.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
     );
     assert_eq!(s.description.as_deref(), Some("A slice."));
-    let fields = |s: &schematic::Schematic| {
+    let fields = |s: &schematic::Build| {
         (
             s.width,
             s.orientation,

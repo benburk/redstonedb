@@ -10,7 +10,7 @@ use crate::{
     details::Details,
     import::{self, Analysis, FileFacts},
     models::{
-        schematic::{self, Orientation, Schematic, StackDirection},
+        schematic::{self, Build, Orientation, StackDirection},
         tag,
         user::User,
     },
@@ -216,7 +216,7 @@ impl Form {
     }
 
     /// Stored build `s`'s details, for its edit page.
-    pub fn of(s: &Schematic) -> Self {
+    pub fn of(s: &Build) -> Self {
         let number =
             |n: Option<i64>| n.map(|n| n.to_string()).unwrap_or_default();
         let text = |t: &Option<String>| t.clone().unwrap_or_default();

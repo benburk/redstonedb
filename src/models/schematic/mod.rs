@@ -63,7 +63,7 @@ named_values! {
     clippy::struct_excessive_bools,
     reason = "a row of facts, each yes or no on its own"
 )]
-pub struct Schematic {
+pub struct Build {
     pub id: String,
     pub category: String,
     /// The standard category's label, such as `RAM`; `None` for a category
@@ -111,7 +111,7 @@ pub struct Schematic {
     /// reach; see `Widened`.
     pub widened: Vec<Widened>,
     /// For a leaderboard's entry of copies of a build stacked to a wider
-    /// width, the build's own width; see `Schematic::widened_to`.
+    /// width, the build's own width; see `Build::widened_to`.
     pub stacked_from: Option<i64>,
     /// Whether the build follows the building conventions, so the
     /// interface reader applies to it.
@@ -277,7 +277,7 @@ pub fn file_stem(name: &str) -> String {
     stem.trim_end_matches('_').to_owned()
 }
 
-impl Schematic {
+impl Build {
     /// Whether it works as far as anyone can tell: passing its category's
     /// test, or of a category with none. Only such a build lists unless
     /// the rest are asked for.
@@ -288,7 +288,7 @@ impl Schematic {
 
     /// Whether it ranks on its category's boards: working, kept to the
     /// conventions, and with nothing stored against it; see
-    /// [`Schematic::unranked`].
+    /// [`Build::unranked`].
     pub fn ranks(&self) -> bool {
         self.verified() && self.unranked().is_none()
     }
@@ -635,7 +635,7 @@ impl Schematic {
         &self,
         copies: &[(StackDirection, usize)],
         size: [i32; 3],
-    ) -> Schematic {
+    ) -> Build {
         let count = |n: &usize| i64::try_from(*n).unwrap_or(i64::MAX);
         let factor: i64 = copies
             .iter()
@@ -643,7 +643,7 @@ impl Schematic {
             .map(|(_, n)| count(n))
             .product();
         let all: i64 = copies.iter().map(|(_, n)| count(n)).product();
-        Schematic {
+        Build {
             width: self.width.map(|w| w * factor),
             bytes: self.bytes.map(|b| b.saturating_mul(all)),
             latency: None,
@@ -662,7 +662,7 @@ impl Schematic {
     /// along counting once a copy. `None` for a build with no way of
     /// stacking that adds bits.
     #[must_use]
-    pub fn widened_to(&self, w: &Widened) -> Option<Schematic> {
+    pub fn widened_to(&self, w: &Widened) -> Option<Build> {
         let along = *self
             .stacking
             .iter()
@@ -686,7 +686,7 @@ impl Schematic {
                 }
             })
             .collect();
-        Some(Schematic {
+        Some(Build {
             width: Some(w.width),
             latency: w.latency,
             synchronized: w.synchronized,
@@ -718,7 +718,7 @@ impl Schematic {
     }
 }
 
-impl Schematic {
+impl Build {
     /// Whether listings show it to `viewer`: a public build to anyone, and
     /// a private one to its uploader and admins. Anyone with its link may
     /// open it either way.
@@ -735,8 +735,8 @@ impl Schematic {
 mod tests {
     use super::*;
 
-    fn cla() -> Schematic {
-        Schematic {
+    fn cla() -> Build {
+        Build {
             id: String::new(),
             category: "adder".to_owned(),
             category_label: Some("Adder".to_owned()),
@@ -975,7 +975,7 @@ mod tests {
     #[test]
     fn a_multiplier_is_named_by_its_operands_and_product() {
         let flag = |name: &'static str| Flag { name, label: "" };
-        let mut multiplier = Schematic {
+        let mut multiplier = Build {
             category: "multiplier".to_owned(),
             category_label: Some("Multiplier".to_owned()),
             design: None,
@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn a_memory_names_its_capacity_and_stacks_multiply_it() {
-        let ram = Schematic {
+        let ram = Build {
             category: "ram".to_owned(),
             category_label: Some("RAM".to_owned()),
             design: None,
@@ -1016,7 +1016,7 @@ mod tests {
 
     #[test]
     fn a_category_label_keeps_its_symbols_out_of_the_filename() {
-        let s = Schematic {
+        let s = Build {
             category: "inc_dec".to_owned(),
             category_label: Some("Inc/Dec".to_owned()),
             design: None,
@@ -1029,7 +1029,7 @@ mod tests {
 
     #[test]
     fn a_design_keeps_its_label() {
-        let s = Schematic {
+        let s = Build {
             category: "rng".to_owned(),
             category_label: Some("RNG".to_owned()),
             design: Some("lfsr".to_owned()),
@@ -1042,7 +1042,7 @@ mod tests {
 
     #[test]
     fn a_threshold_names_its_k_after_its_width() {
-        let s = Schematic {
+        let s = Build {
             category: "threshold".to_owned(),
             category_label: Some("Threshold".to_owned()),
             design: None,
@@ -1057,7 +1057,7 @@ mod tests {
 
     #[test]
     fn a_serial_build_leads_with_its_throughput_and_others_do_not() {
-        let serial = Schematic {
+        let serial = Build {
             category: "serial_adder".to_owned(),
             category_label: Some("Serial Adder".to_owned()),
             design: None,
@@ -1068,7 +1068,7 @@ mod tests {
             ..cla()
         };
         assert_eq!(serial.name(), "2-tick Serial Adder");
-        let adder = Schematic {
+        let adder = Build {
             throughput: Some(3),
             ..cla()
         };
@@ -1077,23 +1077,23 @@ mod tests {
 
     #[test]
     fn a_synchronized_stateless_build_faster_than_its_latency_is_pipelined() {
-        let piped = Schematic {
+        let piped = Build {
             synchronized: Some(true),
             throughput: Some(3),
             ..cla()
         };
         assert!(piped.pipelined());
-        let unsynced = Schematic {
+        let unsynced = Build {
             synchronized: Some(false),
             ..piped.clone()
         };
         assert!(!unsynced.pipelined(), "pipelining needs synced outputs");
-        let stateful = Schematic {
+        let stateful = Build {
             logic: Some(Logic::Stateful),
             ..piped.clone()
         };
         assert!(!stateful.pipelined());
-        let as_slow = Schematic {
+        let as_slow = Build {
             throughput: Some(8),
             ..piped
         };
@@ -1110,19 +1110,19 @@ mod tests {
             pitch: None,
         };
         // Copies 2 up a box 6 high overlap by 4, so each adds 2 high.
-        let vertical = Schematic {
+        let vertical = Build {
             size: (5, 6, 6),
             stacking: vec![way(0, 2, 0)],
             ..cla()
         };
         assert_eq!(vertical.per_copy(), Some((5, 2, 6)));
-        let horizontal = Schematic {
+        let horizontal = Build {
             size: (7, 2, 6),
             stacking: vec![way(5, 0, 0)],
             ..cla()
         };
         assert_eq!(horizontal.per_copy(), Some((5, 2, 6)));
-        let diagonal = Schematic {
+        let diagonal = Build {
             stacking: vec![way(1, 1, 0)],
             ..cla()
         };
@@ -1135,7 +1135,7 @@ mod tests {
 
     #[test]
     fn a_category_keeps_its_label() {
-        let s = Schematic {
+        let s = Build {
             category: "ram".to_owned(),
             category_label: Some("RAM".to_owned()),
             design: None,
@@ -1146,7 +1146,7 @@ mod tests {
 
     #[test]
     fn a_category_off_the_list_is_capitalized() {
-        let s = Schematic {
+        let s = Build {
             category: "maze_screen".to_owned(),
             category_label: None,
             width: None,
@@ -1158,7 +1158,7 @@ mod tests {
 
     #[test]
     fn unknown_parts_are_left_out() {
-        let s = Schematic {
+        let s = Build {
             width: None,
             design: None,
             latency: None,

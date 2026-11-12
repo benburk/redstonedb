@@ -6,8 +6,7 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::{
-    Encoding, Logic, Orientation, Schematic, StackDirection, Widened,
-    load::Credit,
+    Build, Encoding, Logic, Orientation, StackDirection, Widened, load::Credit,
 };
 use crate::{
     details::Ready,
@@ -475,7 +474,7 @@ pub struct Measured {
 
 impl Measured {
     /// Build `s`'s, as stored.
-    pub fn of(s: &Schematic) -> Self {
+    pub fn of(s: &Build) -> Self {
         Measured {
             width: s.width,
             orientation: s.orientation,

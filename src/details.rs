@@ -11,7 +11,7 @@ use crate::{
     models::{
         player,
         schematic::{
-            self, Encoding, Logic, Orientation, Schematic, StackDirection,
+            self, Build, Encoding, Logic, Orientation, StackDirection,
         },
         simulation, tag,
     },
@@ -67,7 +67,7 @@ pub struct Details {
 
 impl Details {
     /// Build `s`'s details as stored, to change some and check them again.
-    pub fn of(s: &Schematic) -> Self {
+    pub fn of(s: &Build) -> Self {
         Details {
             category: s.category.clone(),
             width: s.width,
@@ -101,7 +101,7 @@ impl Details {
 
 /// The file the details describe, as far as the rules ask about it.
 #[derive(Clone, Copy)]
-pub struct Build<'a> {
+pub struct Candidate<'a> {
     /// What the stacking must fit.
     pub data: &'a [u8],
     /// Whether it follows the conventions, which lets the simulation
@@ -112,10 +112,10 @@ pub struct Build<'a> {
     pub passes: bool,
 }
 
-impl<'a> Build<'a> {
+impl<'a> Candidate<'a> {
     /// A file as `import::prepare_for` made it.
     pub fn of(prepared: &'a Prepared) -> Self {
-        Build {
+        Candidate {
             data: &prepared.data,
             conventional: prepared.conventional,
             passes: false,
@@ -150,7 +150,7 @@ pub struct Ready {
 pub async fn check(
     db: &SqlitePool,
     details: Details,
-    build: Build<'_>,
+    build: Candidate<'_>,
     may_create_tags: bool,
 ) -> Result<Result<Ready, String>, sqlx::Error> {
     match ready(db, details, build, may_create_tags).await {
@@ -183,7 +183,7 @@ impl From<sqlx::Error> for Stop {
 async fn ready(
     db: &SqlitePool,
     mut details: Details,
-    build: Build<'_>,
+    build: Candidate<'_>,
     may_create_tags: bool,
 ) -> Result<Ready, Stop> {
     for text in [
@@ -320,7 +320,7 @@ fn unnamed(unknown: &[String]) -> Option<String> {
 async fn evaluated(
     category: &Category,
     details: &mut Details,
-    build: Build<'_>,
+    build: Candidate<'_>,
 ) -> Result<(), Stop> {
     if details.unverified.is_none()
         && !build.passes
@@ -413,7 +413,7 @@ pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
 /// it could not be simulated at all.
 pub async fn unrecognized(
     category: &Category,
-    build: Build<'_>,
+    build: Candidate<'_>,
 ) -> Result<Option<Unrecognized>, String> {
     let Some(kind) = Kind::named(&category.name).filter(|k| k.blessed()) else {
         return Ok(None);

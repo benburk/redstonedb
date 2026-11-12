@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::models::{
     activity::{self, Change, Event, Filter, Kind, Page},
-    schematic::Schematic,
+    schematic::Build,
     user::User,
 };
 
@@ -30,7 +30,7 @@ pub struct ActivityLog<'a> {
     /// The accounts its events name, by id.
     pub users: &'a HashMap<Uuid, User>,
     /// The builds its events name, by id.
-    pub builds: &'a HashMap<String, Schematic>,
+    pub builds: &'a HashMap<String, Build>,
 }
 
 /// The log's address for `filter`, from time `before` if given.

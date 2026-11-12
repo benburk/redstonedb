@@ -20,7 +20,7 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use crate::{
     category, import,
     models::{
-        schematic::{self, Schematic, StackDirection},
+        schematic::{self, Build, StackDirection},
         version,
     },
     recognize::{evaluate::evaluate, interface, roles},
@@ -103,7 +103,7 @@ pub fn carries_roles(data: &[u8]) -> bool {
     })
 }
 
-fn buses(s: &Schematic) -> stack::Buses {
+fn buses(s: &Build) -> stack::Buses {
     stack::Buses::of(s.kind(), s.orientation)
 }
 
@@ -158,7 +158,7 @@ pub fn meant_by(category: &str) -> Option<&str> {
 /// from being recognized as one: its own, when it is unverified as one, or
 /// the one an off-list name stands in for, as [`meant_by`] reads it.
 /// `None` for any other build, held to its category's test as it is.
-pub fn stands_in(s: &Schematic) -> Option<&str> {
+pub fn stands_in(s: &Build) -> Option<&str> {
     // An off-list name stands in for its category whether it works or not.
     meant_by(&s.category)
         .or_else(|| (!s.verified()).then_some(s.category.as_str()))
@@ -167,7 +167,7 @@ pub fn stands_in(s: &Schematic) -> Option<&str> {
 /// The test build `s` is held to: its category's at its width, or for one
 /// it [`stands_in`] for, that category's test, to say what keeps it from
 /// being recognized as one.
-pub fn test_for(s: &Schematic) -> Option<Test> {
+pub fn test_for(s: &Build) -> Option<Test> {
     match stands_in(s) {
         Some(meant) => category::behaviour(meant).test,
         None => Test::of(&s.category, s.width),
@@ -177,7 +177,7 @@ pub fn test_for(s: &Schematic) -> Option<Test> {
 /// Build `s`'s stored result, when it is for its file and the test its
 /// category and width call for now, as storing it found, see
 /// [`complete`]; nothing is run to find out.
-pub async fn current(db: &SqlitePool, s: &Schematic) -> Result<Option<Report>> {
+pub async fn current(db: &SqlitePool, s: &Build) -> Result<Option<Report>> {
     match test_for(s) {
         Some(test) => stored(db, &s.id, &s.sha256, test).await,
         None => Ok(None),
@@ -277,7 +277,7 @@ pub async fn refresh(
 /// build's before the site kept them, those [`import::with_roles`] finds
 /// by probing it as its category, then kept with the version, so every
 /// reading of its lines takes them and none reads its colours.
-pub async fn current_file(db: &SqlitePool, s: &Schematic) -> Result<Vec<u8>> {
+pub async fn current_file(db: &SqlitePool, s: &Build) -> Result<Vec<u8>> {
     let data = version::current_file(db, &s.id)
         .await?
         .context("schematic vanished")?;
@@ -302,7 +302,7 @@ pub async fn current_file(db: &SqlitePool, s: &Schematic) -> Result<Vec<u8>> {
 /// then stand.
 async fn at_zero(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     data: Vec<u8>,
     report: &Report,
 ) -> Result<(Vec<u8>, String)> {
@@ -364,7 +364,7 @@ async fn at_zero(
 /// it.
 async fn reused_at_zero(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     data: Vec<u8>,
     report: &Report,
 ) -> Result<(Vec<u8>, String)> {
@@ -383,7 +383,7 @@ async fn reused_at_zero(
 /// the result, its details being its author's.
 async fn refresh_off_list(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     data: &[u8],
     meant: &str,
     again: bool,
@@ -426,7 +426,7 @@ async fn refresh_off_list(
 /// recognize as the category keeps its category's test's result instead.
 async fn refresh_evaluated(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     data: Vec<u8>,
     again: bool,
 ) -> Result<Option<Report>> {
@@ -502,7 +502,7 @@ impl Derived {
     async fn save(
         &self,
         tx: &mut sqlx::SqliteConnection,
-        s: &Schematic,
+        s: &Build,
     ) -> Result<()> {
         let stored = Derived::of(s);
         if *self == stored {

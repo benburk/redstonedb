@@ -6,7 +6,7 @@ use maud::{Markup, PreEscaped, html};
 
 use crate::{
     category::{Category, Section},
-    models::{schematic::Schematic, tag::Tag},
+    models::{schematic::Build, tag::Tag},
 };
 
 const PAGE_TITLE: &str = "text-page font-bold";
@@ -83,7 +83,7 @@ pub use upload::{
 pub use users::{ProfileBuilds, ProfileList, login, profile, user_row, users};
 /// The few facts a card has room for, such as `8 ticks · 11×19×18 ·
 /// 3762 blocks · embizone`.
-fn facts(s: &Schematic) -> Markup {
+fn facts(s: &Build) -> Markup {
     let measures: Vec<String> =
         [s.latency.map(ticks), Some(size(s)), Some(volume(s))]
             .into_iter()
@@ -228,7 +228,7 @@ fn plural(singular: &str, names: &[String]) -> String {
 /// A tag of build `s`, linking to the builds of its category that carry
 /// it, as flags of one name differ between categories; a build off the
 /// list, to those under Other.
-fn badge(tag: &Tag, s: &Schematic) -> Markup {
+fn badge(tag: &Tag, s: &Build) -> Markup {
     let category = if s.category_label.is_some() {
         s.category.as_str()
     } else {
@@ -298,7 +298,7 @@ fn field(name: &str, value: impl maud::Render) -> Markup {
     }
 }
 
-fn latency(s: &Schematic) -> String {
+fn latency(s: &Build) -> String {
     s.latency.map(ticks).unwrap_or_default()
 }
 
@@ -313,7 +313,7 @@ fn ticks(n: i64) -> String {
 
 /// The blocks a build takes as it is compared, said per copy for a
 /// stackable build, such as `48 blocks per copy`.
-fn volume(s: &Schematic) -> String {
+fn volume(s: &Build) -> String {
     let per = if s.per_copy().is_some() {
         " per copy"
     } else {
@@ -323,7 +323,7 @@ fn volume(s: &Schematic) -> String {
 }
 
 /// Height × width × depth, as the build looks from the south.
-fn size(s: &Schematic) -> String {
+fn size(s: &Build) -> String {
     let (x, y, z) = s.size;
     format!("{y}×{x}×{z}")
 }

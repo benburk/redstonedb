@@ -87,10 +87,10 @@ async fn show_profile(
             names.iter().any(|name| name.eq_ignore_ascii_case(own))
         })
     };
-    let pick = |keep: &dyn Fn(&schematic::Schematic) -> bool| -> Vec<_> {
+    let pick = |keep: &dyn Fn(&schematic::Build) -> bool| -> Vec<_> {
         all.iter().filter(|s| keep(s)).cloned().collect()
     };
-    let uploaded = |s: &schematic::Schematic| account.uploaded(s);
+    let uploaded = |s: &schematic::Build| account.uploaded(s);
     let mut lists = vec![
         pages::ProfileList {
             name: "all",

@@ -25,7 +25,7 @@ use std::collections::HashSet;
 
 use crate::{
     category::{Flag, Measure, NO_DESIGN},
-    models::schematic::{Logic, Schematic},
+    models::schematic::{Build, Logic},
     recognize::colour,
 };
 
@@ -126,7 +126,7 @@ fn split(query: &str) -> Vec<String> {
 }
 
 /// The schematics every term matches, in their order.
-pub fn matching(terms: &[Term], schematics: Vec<Schematic>) -> Vec<Schematic> {
+pub fn matching(terms: &[Term], schematics: Vec<Build>) -> Vec<Build> {
     let known: HashSet<String> = schematics.iter().flat_map(facts).collect();
     // Each term as a fact any schematic has, itself or in the singular, or
     // else as text to find.
@@ -179,7 +179,7 @@ const ID_PART: usize = 6;
 
 /// Whether `text` is part of build `s`'s id, as the start of one the site
 /// gives, such as `3234d4a4`.
-fn in_id(text: &str, s: &Schematic) -> bool {
+fn in_id(text: &str, s: &Build) -> bool {
     text.len() >= ID_PART
         && text.chars().all(|c| c.is_ascii_hexdigit())
         && s.id.contains(text)
@@ -187,7 +187,7 @@ fn in_id(text: &str, s: &Schematic) -> bool {
 
 /// What a term that is no fact is looked for in: the title, description,
 /// and credited names, lowercase, names with spaces for underscores.
-fn text(s: &Schematic) -> String {
+fn text(s: &Build) -> String {
     let names = s
         .authors
         .iter()
@@ -210,7 +210,7 @@ const WIDEST: i64 = 64;
 /// The widths build `s` comes in, each with the copies that make it: its
 /// own, one copy, then each a stack of its copies reaches where they add
 /// bits, as a 1-bit adder slice's do, up to the most copies that work.
-pub fn widths(s: &Schematic) -> Vec<(i64, i64)> {
+pub fn widths(s: &Build) -> Vec<(i64, i64)> {
     let Some(w) = s.width.filter(|&w| w > 0) else {
         return Vec::new();
     };
@@ -233,7 +233,7 @@ pub fn widths(s: &Schematic) -> Vec<(i64, i64)> {
 
 /// The width `terms` ask for that build `s` reaches only by stacking, and
 /// the copies it takes, such as 16 bits as 16 copies of a 1-bit slice.
-pub fn stacked_width(terms: &[Term], s: &Schematic) -> Option<(i64, i64)> {
+pub fn stacked_width(terms: &[Term], s: &Build) -> Option<(i64, i64)> {
     let asked = terms.iter().filter(|term| !term.negated).find_map(|term| {
         let number = ["-bit", " bits", " bit", "b"]
             .iter()
@@ -246,7 +246,7 @@ pub fn stacked_width(terms: &[Term], s: &Schematic) -> Option<(i64, i64)> {
 }
 
 /// Every word a term can name a schematic by.
-fn facts(s: &Schematic) -> Vec<String> {
+fn facts(s: &Build) -> Vec<String> {
     let mut facts = vec![s.category.replace('_', " ")];
     facts.extend(s.aliases.iter().cloned());
     // Its tags as its page shows them, its design, orientation, flags, and
@@ -365,7 +365,7 @@ fn ticks(n: i64) -> [String; 4] {
 
 /// The words for whether a build is synchronized, stateless or stateful,
 /// as combinational and sequential still find them, and pipelined.
-fn timing(s: &Schematic) -> Vec<&'static str> {
+fn timing(s: &Build) -> Vec<&'static str> {
     let mut words = match s.synchronized {
         Some(true) => vec!["sync", "synced", "synchronized"],
         Some(false) => vec!["unsync", "unsynced", "unsynchronized"],
@@ -387,7 +387,7 @@ fn timing(s: &Schematic) -> Vec<&'static str> {
 }
 
 /// The releases a build works in, as `version:1.12` names them.
-fn versions(s: &Schematic) -> Vec<String> {
+fn versions(s: &Build) -> Vec<String> {
     let Some(from) = &s.works_from else {
         return Vec::new();
     };
@@ -412,8 +412,8 @@ pub(crate) mod tests {
         category: &str,
         orientation: Orientation,
         tags: &[&str],
-    ) -> Schematic {
-        Schematic {
+    ) -> Build {
+        Build {
             id: String::new(),
             category: category.to_owned(),
             category_label: None,
@@ -473,7 +473,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn find(query: &str, s: &Schematic) -> bool {
+    fn find(query: &str, s: &Build) -> bool {
         !matching(&parse(query), vec![s.clone()]).is_empty()
     }
 
@@ -525,7 +525,7 @@ pub(crate) mod tests {
 
     #[test]
     fn part_of_a_credited_name_finds_their_builds() {
-        let s = Schematic {
+        let s = Build {
             authors: vec!["Don_Manuel_1229".to_owned()],
             contributors: vec!["Owenage_".to_owned()],
             ..schematic("adder", Orientation::Horizontal, &[])
@@ -546,7 +546,7 @@ pub(crate) mod tests {
 
     #[test]
     fn latency_and_a_number_before_its_unit() {
-        let s = Schematic {
+        let s = Build {
             latency: Some(3),
             ..schematic("adder", Orientation::Horizontal, &[])
         };
@@ -605,7 +605,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_capacity_matches_in_bytes_not_bits() {
-        let ram = Schematic {
+        let ram = Build {
             bytes: Some(32),
             ..schematic("ram", Orientation::Horizontal, &[])
         };
@@ -615,7 +615,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_serial_throughput_matches_in_ticks() {
-        let serial = Schematic {
+        let serial = Build {
             throughput: Some(2),
             measures: vec![Measure::Throughput],
             ..schematic("serial_adder", Orientation::Horizontal, &[])
@@ -628,7 +628,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_category_is_found_by_its_aliases_and_a_threshold_by_its_k() {
-        let threshold = Schematic {
+        let threshold = Build {
             at_least: Some(3),
             aliases: vec!["majority".to_owned()],
             ..schematic("threshold", Orientation::Horizontal, &[])
@@ -641,7 +641,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_build_is_found_in_every_release_it_works_in() {
-        let s = Schematic {
+        let s = Build {
             works_from: Some("1.5".to_owned()),
             ..schematic("adder", Orientation::Horizontal, &[])
         };
@@ -653,7 +653,7 @@ pub(crate) mod tests {
 
     #[test]
     fn another_throughput_is_not_its_latency() {
-        let adder = Schematic {
+        let adder = Build {
             throughput: Some(3),
             latency: Some(8),
             ..schematic("adder", Orientation::Horizontal, &[])
@@ -664,7 +664,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_monostable_is_found_by_its_pulse() {
-        let monostable = Schematic {
+        let monostable = Build {
             pulse: Some(3),
             latency: Some(1),
             ..schematic("monostable", Orientation::Horizontal, &[])
@@ -677,7 +677,7 @@ pub(crate) mod tests {
 
     #[test]
     fn state_and_pipelining_are_words() {
-        let piped = Schematic {
+        let piped = Build {
             throughput: Some(3),
             latency: Some(8),
             synchronized: Some(true),
@@ -686,7 +686,7 @@ pub(crate) mod tests {
         assert!(find("comb pipelined", &piped));
         assert!(find("stateless pipelined", &piped));
         assert!(!find("seq", &piped));
-        let sequential = Schematic {
+        let sequential = Build {
             logic: Some(Logic::Stateful),
             ..piped
         };
@@ -697,7 +697,7 @@ pub(crate) mod tests {
 
     #[test]
     fn an_author_matches_whatever_its_case_and_underscores() {
-        let s = Schematic {
+        let s = Build {
             authors: vec!["FEARLESS_Z_".to_owned()],
             ..schematic("adder", Orientation::Horizontal, &[])
         };
@@ -707,11 +707,11 @@ pub(crate) mod tests {
 
     #[test]
     fn a_role_ties_a_name_to_it() {
-        let built = Schematic {
+        let built = Build {
             authors: vec!["Alex_you".to_owned()],
             ..schematic("adder", Orientation::Horizontal, &[])
         };
-        let helped = Schematic {
+        let helped = Build {
             contributors: vec!["alex_you".to_owned()],
             ..schematic("register", Orientation::Horizontal, &[])
         };
@@ -728,7 +728,7 @@ pub(crate) mod tests {
 
     #[test]
     fn part_of_an_id_finds_its_build() {
-        let s = Schematic {
+        let s = Build {
             id: "3234d4a46edc0fffa584336cb45bf12e".to_owned(),
             ..schematic("adder", Orientation::Horizontal, &[])
         };
