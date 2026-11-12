@@ -466,12 +466,6 @@ impl Test {
         Report::of(self.check(blocks, false))
     }
 
-    /// Runs the test's cases on `blocks` through `interface`, as
-    /// [`Test::check_with`] does, as a report.
-    pub fn run_with(self, blocks: &Blocks, interface: Interface) -> Report {
-        Report::of(self.check_with(blocks, interface, false))
-    }
-
     /// A few telling cases of the test run on `blocks`, as its colours mark
     /// its lines: enough to tell one reading of a build from another.
     pub fn quick(self, blocks: &Blocks) -> Result<Run> {

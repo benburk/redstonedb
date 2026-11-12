@@ -375,38 +375,6 @@ fn unaligned(
 /// roles found, and what it is, in words.
 pub type Found = (Vec<Pos>, Vec<u8>, String);
 
-/// The file in `data`, with `blocks` and `report`, probed as `kind`, or as
-/// the kind it is probed as, such as an adder for a subtractor: its data
-/// inputs, the file carrying the roles found, and what it was found to
-/// be, such as `an adder: all 131072 cases right, A + B + carry in`; or why
-/// it isn't one.
-pub fn probe_as(
-    kind: Kind,
-    data: &[u8],
-    blocks: &Blocks,
-    report: &inspect::Report,
-) -> anyhow::Result<Result<Found, Fault>> {
-    let kind = match kind.facts().probe {
-        Probing::As(other) => other,
-        _ => kind,
-    };
-    let probed = Kind::probed();
-    let Some(&(kind, how, test)) = probed.iter().find(|(k, ..)| *k == kind)
-    else {
-        return Ok(Err(Fault::Unfit(format!("{} isn't probed", kind.a()))));
-    };
-    probe_by(
-        kind,
-        how,
-        test,
-        data,
-        blocks,
-        report,
-        false,
-        Order::default(),
-    )
-}
-
 /// The roles of the lines of the build in `data`, kept as built and meant
 /// as a `kind`, as probing as that kind finds them: its inputs and outputs
 /// read whatever faults the conventions find in them, and its lines laid

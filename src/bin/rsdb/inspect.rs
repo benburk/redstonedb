@@ -1,27 +1,27 @@
 //! Checking a file or stored build by function: its levers, buttons, and
 //! comparators with air behind in, and its repeaters and comparators
-//! facing air out, what probing finds with them, and how its copies stack.
-//! Nothing here writes to the database.
+//! facing air out, and what the site recognizes it as with them. Nothing
+//! here writes to the database.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use app::{
     models::{schematic, version},
-    recognize::inspect,
+    recognize::{
+        inspect::{self, Run},
+        probe,
+        repeater_outputs::{self, Output},
+    },
+    schem::{self, Blocks, Pos},
 };
 use clap::Args;
 use sqlx::SqlitePool;
 
-use super::{
-    load,
-    outputs::{print_lines, source},
-    resolve,
-    stack_check::{StackCheck, stack_check_command},
-};
+use super::{load, resolve};
 
 #[derive(Args)]
 pub(super) struct Inspect {
@@ -36,56 +36,21 @@ pub(super) struct Inspect {
     /// nothing
     #[arg(long)]
     no_probe: bool,
-    /// Stack copies of the build as the site's stacking test does, the
-    /// first whole and the rest its box, each way given, of west, east, and
-    /// up, settle them, read them by the rule for outputs, and test them
-    /// as the site tests its kind's copies; with no ways given, a stored
-    /// build's own and their opposites, else all three
-    #[arg(long, value_delimiter = ',', num_args = 0..)]
-    stack: Option<Vec<String>>,
-    /// Copies stacked in all, the original among them
-    #[arg(long, default_value_t = 3, requires = "stack")]
-    copies: usize,
-    /// Blocks between stacked copies; a stored build's own along that axis
-    /// by default, else each of 1 to 4
-    #[arg(long, requires = "stack")]
-    spacing: Option<i64>,
-    /// A stored build whose category and stacking to stack a file as, for
-    /// a file made from it
-    #[arg(long, requires = "stack")]
-    like: Option<String>,
-    /// Stack the one way and spacing given here, in this process, exiting
-    /// 0 when it passes and 3 when not, as each stack is run apart
-    #[arg(long, hide = true, requires = "stack")]
-    one: bool,
 }
 
 /// Prints what `inspect` finds of one file or build: its problems, its
-/// inputs and outputs, and what probing finds with them, or how its copies
-/// stack; or of every build on the list, with a count of each problem and
-/// of the builds it stops.
+/// inputs and outputs, and what the site recognizes it as with them; or of
+/// every build on the list, with a count of each problem and of the builds
+/// it stops.
 pub(super) async fn inspect_command(
     db: &SqlitePool,
     args: &Inspect,
 ) -> Result<()> {
     let (file_or_id, category) =
         (args.file_or_id.as_deref(), args.category.as_deref());
-    if let Some(dirs) = &args.stack {
-        let Some(file_or_id) = file_or_id else {
-            bail!("name the build or file to stack");
-        };
-        let check = StackCheck {
-            file_or_id,
-            copies: args.copies,
-            dirs,
-            spacing: args.spacing,
-            category,
-            like: args.like.as_deref(),
-            one: args.one,
-        };
-        return stack_check_command(db, &check).await;
-    }
     let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    // A stored build named alone is probed as its own category.
+    let mut stored = None;
     match file_or_id {
         Some(path) if fs::exists(path)? => {
             files.push((path.to_owned(), fs::read(path)?));
@@ -97,6 +62,7 @@ pub(super) async fn inspect_command(
                 .await?
                 .context("schematic vanished")?;
             files.push((format!("{}  {}", &id[..8], s.filename()), data));
+            stored = Some(s.category);
         }
         None => {
             for s in schematic::all(db).await? {
@@ -117,8 +83,7 @@ pub(super) async fn inspect_command(
     let mut stopped: BTreeMap<&str, usize> = BTreeMap::new();
     let mut clean = 0;
     for (name, data) in &files {
-        let adder = category == Some("adder");
-        let report = inspect::inspect_file(data, adder)?;
+        let report = inspect::inspect_file(data)?;
         let buses = |runs: &[inspect::Run]| {
             runs.iter()
                 .map(|run| run.bits.len().to_string())
@@ -161,8 +126,116 @@ pub(super) async fn inspect_command(
         }
         return Ok(());
     }
-    if let Some(file_or_id) = file_or_id {
-        print_lines(&source(db, file_or_id).await?, category, args.no_probe)?;
+    if let [(_, data)] = files.as_slice() {
+        print_lines(data, category.or(stored.as_deref()), args.no_probe)?;
     }
     Ok(())
+}
+/// An output in words, such as `repeater at (1, 2, 3) facing west, giving
+/// out east, on yellow concrete`.
+fn describe(blocks: &Blocks, output: Output) -> String {
+    let under = schem::short(blocks.get(output.block())).replace('_', " ");
+    format!(
+        "{} at {} facing {}, giving out {}, on {under}",
+        output.kind(),
+        inspect::place(output.at),
+        output.facing,
+        output.points()
+    )
+}
+
+/// A run's bits in words: its length and step, or the lone line.
+fn run_words(run: &Run) -> String {
+    if run.bits.len() == 1 {
+        "line".to_owned()
+    } else {
+        format!(
+            "bus of {}, step {}",
+            run.bits.len(),
+            inspect::place(run.step).replace(['(', ')'], "")
+        )
+    }
+}
+
+/// Prints the inputs and outputs of the file in `data` as the rules for
+/// them read them, and unless `no_probe` what the site recognizes it as,
+/// probing it as `category`, or with none as each in turn.
+fn print_lines(
+    data: &[u8],
+    category: Option<&str>,
+    no_probe: bool,
+) -> Result<()> {
+    let blocks = Blocks::read(data)?;
+    let report = inspect::inspect(&blocks);
+    println!("inputs: {}", report.inputs.len());
+    let switches: BTreeMap<Pos, schem::Switch> = blocks
+        .switches()
+        .into_iter()
+        .map(|switch| (switch.block, switch))
+        .collect();
+    for run in &report.inputs {
+        let bits: Vec<String> = run
+            .bits
+            .iter()
+            .map(|block| {
+                let switch = &switches[block];
+                format!(
+                    "{} on {} {}",
+                    schem::short(blocks.get(switch.pos)).replace('_', " "),
+                    schem::short(blocks.get(*block)).replace('_', " "),
+                    inspect::place(*block)
+                )
+            })
+            .collect();
+        println!("  {}: {}", run_words(run), bits.join("; "));
+    }
+    print_strength_inputs(&blocks);
+    let found = repeater_outputs::find(&blocks);
+    let by_at: BTreeMap<Pos, Output> =
+        found.iter().map(|&o| (o.at, o)).collect();
+    println!("outputs: {}", found.len());
+    for run in repeater_outputs::lines(&found) {
+        println!("  {}:", run_words(&run));
+        for at in &run.bits {
+            println!("    {}", describe(&blocks, by_at[at]));
+        }
+    }
+    if no_probe {
+        return Ok(());
+    }
+    let recognition = probe::recognize_as(data, category)?;
+    match &recognition.found {
+        Some(found) => println!("recognized: {found}"),
+        None => println!("recognized: nothing holds"),
+    }
+    for problem in &recognition.problems {
+        println!("  {problem}");
+    }
+    Ok(())
+}
+
+/// Prints the signal-strength inputs the rule for them finds in `blocks`,
+/// comparators with air behind, in buses.
+fn print_strength_inputs(blocks: &Blocks) {
+    let found = repeater_outputs::strength_inputs(blocks);
+    println!("signal-strength inputs: {}", found.len());
+    let by_at: BTreeMap<Pos, repeater_outputs::StrengthInput> =
+        found.iter().map(|&i| (i.at, i)).collect();
+    for run in repeater_outputs::strength_lines(&found) {
+        let bits: Vec<String> = run
+            .bits
+            .iter()
+            .map(|at| {
+                let input = by_at[at];
+                format!(
+                    "{} facing {} into {} {}",
+                    inspect::place(input.at),
+                    input.facing,
+                    schem::short(blocks.get(input.front())).replace('_', " "),
+                    inspect::place(input.front())
+                )
+            })
+            .collect();
+        println!("  {}: {}", run_words(&run), bits.join("; "));
+    }
 }
