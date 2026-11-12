@@ -5,7 +5,7 @@
 use maud::{Markup, html};
 
 use crate::models::{
-    schematic::Schematic,
+    schematic::Build,
     user::{SchematiLink, User},
 };
 
@@ -15,7 +15,7 @@ use super::{Offered, PAGE_TITLE, SECTION_TITLE, facts, schemati};
 /// how alike, the most alike first.
 pub struct Found<'a> {
     pub file: &'a str,
-    pub builds: &'a [(Schematic, u32)],
+    pub builds: &'a [(Build, u32)],
 }
 
 /// The dialog to choose a file in, opening as it arrives, with the

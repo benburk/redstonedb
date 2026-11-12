@@ -5,7 +5,7 @@
 
 use super::Kind;
 use crate::models::{
-    schematic::{Logic, Schematic},
+    schematic::{Build, Logic},
     tag,
 };
 
@@ -44,7 +44,7 @@ named_values! {
 
 impl Measure {
     /// The build's value of it.
-    pub fn of(self, s: &Schematic) -> Option<i64> {
+    pub fn of(self, s: &Build) -> Option<i64> {
         match self {
             Measure::Width => s.width,
             Measure::Bytes => s.bytes,

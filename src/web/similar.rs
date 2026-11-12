@@ -55,7 +55,7 @@ async fn shown(
     state: &AppState,
     viewer: Option<&User>,
     found: &str,
-) -> Result<Vec<(schematic::Schematic, u32)>, sqlx::Error> {
+) -> Result<Vec<(schematic::Build, u32)>, sqlx::Error> {
     let ranked: Vec<(String, u32)> = found
         .split(',')
         .take(LISTED)
@@ -76,7 +76,7 @@ pub(super) async fn builds(
     db: &sqlx::SqlitePool,
     ranked: &[(String, u32)],
     viewer: Option<&User>,
-) -> Result<Vec<(schematic::Schematic, u32)>, sqlx::Error> {
+) -> Result<Vec<(schematic::Build, u32)>, sqlx::Error> {
     let ids: Vec<&str> = ranked.iter().map(|(id, _)| id.as_str()).collect();
     let builds = schematic::get_many(db, &ids).await?;
     Ok(builds

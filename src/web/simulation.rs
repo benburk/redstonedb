@@ -115,11 +115,11 @@ async fn readied(
     };
     // Read as built, it can only say it breaks the conventions.
     let (data, unrecognized) = if let Ok(standard) = upload.standard {
-        let build = details::Build::of(&standard);
+        let build = details::Candidate::of(&standard);
         let found = details::unrecognized(meant, build).await;
         (standard.data, found)
     } else {
-        let build = details::Build {
+        let build = details::Candidate {
             data: &upload.original.data,
             conventional: false,
             passes: false,
@@ -207,7 +207,7 @@ async fn stored_file(
     state: &AppState,
     user: Option<&User>,
     id: &str,
-) -> Result<(schematic::Schematic, Vec<u8>), AppError> {
+) -> Result<(schematic::Build, Vec<u8>), AppError> {
     let s = schematic::get(&state.db, id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -242,7 +242,7 @@ fn test(
 /// The stored result of build `s`, when it is for `test` and its file.
 async fn stored_result(
     state: &AppState,
-    s: Option<&schematic::Schematic>,
+    s: Option<&schematic::Build>,
     test: Test,
 ) -> Result<Option<Report>, AppError> {
     let Some(s) = s else { return Ok(None) };
@@ -256,7 +256,7 @@ async fn cases(
     state: &AppState,
     pairs: &[(String, String)],
     data: Vec<u8>,
-    s: Option<&schematic::Schematic>,
+    s: Option<&schematic::Build>,
     filing: Option<Filing>,
 ) -> Result<Response, AppError> {
     let simulate = match s {
@@ -503,7 +503,7 @@ async fn timing(
     state: &AppState,
     pairs: &[(String, String)],
     data: Vec<u8>,
-    s: Option<&schematic::Schematic>,
+    s: Option<&schematic::Build>,
 ) -> Result<Response, AppError> {
     // Timed on the lines recognition finds, as its cases were.
     let category = meant_category(pairs);

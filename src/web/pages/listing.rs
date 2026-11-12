@@ -14,7 +14,7 @@ use crate::{
     APP_NAME,
     category::{Flag, Section},
     models::{
-        schematic::{Encoding, Schematic},
+        schematic::{Build, Encoding},
         tag::{self, Tag},
         user::User,
     },
@@ -113,7 +113,7 @@ const SORTS: [(&str, &str); 4] = [
 /// The home page's schematics and how they were asked for.
 pub struct Listing<'a> {
     /// The schematics matching the search and the chosen category.
-    pub shown: &'a [Schematic],
+    pub shown: &'a [Build],
     /// How many schematics there are in all.
     pub total: usize,
     /// What its address asked for.
@@ -156,7 +156,7 @@ pub struct Tile<'a> {
     /// Such as `Adders`.
     pub label: String,
     pub count: usize,
-    pub best: &'a Schematic,
+    pub best: &'a Build,
     /// Its sidebar section; `None` for Other.
     pub section: Option<Section>,
 }
@@ -165,7 +165,7 @@ pub struct Tile<'a> {
 pub struct Index<'a> {
     pub tiles: &'a [Tile<'a>],
     /// The builds added last, each with how many share its name.
-    pub recent: &'a [(&'a Schematic, usize)],
+    pub recent: &'a [(&'a Build, usize)],
     /// How many builds there are in all.
     pub total: usize,
     pub viewing: &'a Viewing,
@@ -692,7 +692,7 @@ fn without(terms: &[Term], index: usize) -> String {
 /// any its name says, such as its design, its orientation, and its
 /// carry in and out, which its picture shows. `fails simulation` comes
 /// first, so a failing build stands out to be fixed or removed.
-fn badges(s: &Schematic, class: &str) -> Markup {
+fn badges(s: &Build, class: &str) -> Markup {
     let tags = on_card(s);
     html! {
         @if !tags.is_empty() || !s.public {
@@ -711,7 +711,7 @@ fn badges(s: &Schematic, class: &str) -> Markup {
 /// The tags of build `s` its card shows: not its design or orientation,
 /// nor a flag in [`SEEN`], nor any its name says in words, nor one another
 /// tag implies, see [`tag::implied`].
-fn on_card(s: &Schematic) -> Vec<Tag> {
+fn on_card(s: &Build) -> Vec<Tag> {
     let name = format!(" {} ", s.name().to_lowercase());
     let tags = s.every_tag();
     tags.iter()
@@ -751,7 +751,7 @@ struct Filter {
 /// The tags to narrow a category's builds by: each the builds `shown`
 /// carry that some but not all of them do, and each already chosen, by
 /// kind, found before given, then most carried first.
-fn filters(shown: &[Schematic], chosen: &[String]) -> Vec<Filter> {
+fn filters(shown: &[Build], chosen: &[String]) -> Vec<Filter> {
     let mut filters: Vec<Filter> = Vec::new();
     for s in shown {
         for tag in s.every_tag() {
@@ -845,7 +845,7 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
 
 /// That build `s` makes the width `terms` ask for as a stack of its
 /// copies, if it does only so.
-fn stacked_note(s: &Schematic, terms: &[Term]) -> Markup {
+fn stacked_note(s: &Build, terms: &[Term]) -> Markup {
     html! {
         @if let Some((width, copies)) = crate::search::stacked_width(terms, s) {
             p class="text-meta text-brand" { (width) " bits as " (copies) " stacked copies" }
@@ -856,7 +856,7 @@ fn stacked_note(s: &Schematic, terms: &[Term]) -> Markup {
 /// Builds as cards, each noting the width `terms` ask for when it reaches
 /// it only by stacking, as the viewer sees it.
 pub(super) fn cards(
-    schematics: &[Schematic],
+    schematics: &[Build],
     terms: &[Term],
     viewing: &Viewing,
 ) -> Markup {
@@ -877,7 +877,7 @@ const CARDS: &str = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,calc(50%_
 /// the viewer's `palette`, and as it comes to be drawn in a theme's
 /// building blocks, once recognized, as a build marked as following the
 /// conventions later may be, its file the same.
-pub(super) fn thumbnail_src(s: &Schematic, palette: Option<&str>) -> String {
+pub(super) fn thumbnail_src(s: &Build, palette: Option<&str>) -> String {
     let palette = palette.map_or(String::new(), |key| format!("&p={key}"));
     let themed = if s.evaluated() && s.verified() {
         "-b"
@@ -925,7 +925,7 @@ fn tile_groups<'t>(
 
 /// Build `s` as a card, with `note` under its tags, pictured in the
 /// viewer's palette, with a star when they have favourited it.
-fn card(s: &Schematic, note: &Markup, viewing: &Viewing) -> Markup {
+fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
     html! {
                 // The title's link covers the whole card; the tag and name
                 // links sit above it.
@@ -1010,7 +1010,7 @@ pub fn card_star(id: &str, favorited: bool) -> Markup {
 }
 
 /// Builds as table rows, for the home page's List layout.
-fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
+fn table(schematics: &[Build], terms: &[Term]) -> Markup {
     // Columns a phone has no room for; the name and its tags come first.
     let secondary = "hidden desktop:table-cell";
     html! {
@@ -1085,7 +1085,7 @@ mod tests {
         design: Option<&str>,
         flags: &[&'static str],
         tags: &[&str],
-    ) -> Schematic {
+    ) -> Build {
         let mut s = crate::search::tests::schematic(
             "adder",
             Orientation::Horizontal,
@@ -1117,7 +1117,7 @@ mod tests {
             faces: None,
             pitch: Some(2),
         }];
-        let names = |s: &Schematic| -> Vec<String> {
+        let names = |s: &Build| -> Vec<String> {
             on_card(s).into_iter().map(|tag| tag.name).collect()
         };
         // How far apart its copies stack says it stacks.

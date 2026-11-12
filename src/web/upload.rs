@@ -23,7 +23,7 @@ use crate::{
     external::schemati,
     import::{self, Kept, Upload},
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, Build},
         similarity, simulation,
         user::User,
         version,
@@ -292,7 +292,7 @@ async fn closest(
     user: &User,
     blocks: &Blocks,
     size: (i64, i64, i64),
-) -> anyhow::Result<Option<(Schematic, u32)>> {
+) -> anyhow::Result<Option<(Build, u32)>> {
     let Some((id, permille)) = similarity::closest(db, blocks, size).await?
     else {
         return Ok(None);
@@ -542,7 +542,7 @@ async fn publish_checked(
             &upload.original
         }
     };
-    let build = details::Build::of(prepared);
+    let build = details::Candidate::of(prepared);
     let ready =
         match details::check(db, given, build, user.can_create_tags()).await? {
             Ok(ready) => ready,

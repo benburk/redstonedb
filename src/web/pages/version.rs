@@ -3,7 +3,7 @@
 
 use maud::{Markup, html};
 
-use crate::models::{schematic::Schematic, user::User, version::Version};
+use crate::models::{schematic::Build, user::User, version::Version};
 
 use super::{SECTION_TITLE, diff};
 
@@ -12,7 +12,7 @@ use super::{SECTION_TITLE, diff};
 /// for someone signed in, and restorable by `viewer` if `may_restore`.
 /// Shown once it has more than one.
 pub fn versions_section(
-    s: &Schematic,
+    s: &Build,
     versions: &[Version],
     viewer: Option<&User>,
     may_restore: bool,

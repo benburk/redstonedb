@@ -8,7 +8,7 @@ use crate::{
     category::Category,
     leaderboard::{self, Wanted},
     models::{
-        schematic::{self, Schematic},
+        schematic::{self, Build},
         user::User,
     },
     web::{app_state::AppState, error::AppError},
@@ -54,11 +54,11 @@ pub async fn show(
     };
     let facets = facets(&categories, &all, &category);
     let wanted = Wanted::parse(raw.as_deref().unwrap_or_default());
-    let own: Vec<&Schematic> =
+    let own: Vec<&Build> =
         all.iter().filter(|s| s.category == category).collect();
     // Copies of a narrower build stacked to a board's width compete on it.
     let stacks = leaderboard::stacked(own.iter().copied());
-    let builds: Vec<&Schematic> = own.into_iter().chain(&stacks).collect();
+    let builds: Vec<&Build> = own.into_iter().chain(&stacks).collect();
     let board = leaderboard::board(&builds, &wanted, &chosen.measures);
     Ok(pages::leaderboard(
         user_opt.as_ref(),
@@ -86,7 +86,7 @@ pub async fn people(
     let all = schematic::visible(&state.db, None).await?;
     let categories = Category::all();
     let stacks = leaderboard::stacked(&all);
-    let builds: Vec<&Schematic> = all.iter().chain(&stacks).collect();
+    let builds: Vec<&Build> = all.iter().chain(&stacks).collect();
     let records = leaderboard::records(&builds);
     Ok(pages::people(
         user_opt.as_ref(),
@@ -105,7 +105,7 @@ pub async fn people(
 /// `current`, the one shown, whatever it has.
 fn facets(
     categories: &[Category],
-    all: &[Schematic],
+    all: &[Build],
     current: &str,
 ) -> Vec<pages::Facet> {
     // A build missing a measure of its category competes on no board, nor
@@ -137,8 +137,8 @@ mod tests {
     use super::*;
     use crate::models::schematic::Orientation;
 
-    fn build(category: &str, unaligned: bool) -> Schematic {
-        Schematic {
+    fn build(category: &str, unaligned: bool) -> Build {
+        Build {
             unaligned,
             ..crate::search::tests::schematic(
                 category,

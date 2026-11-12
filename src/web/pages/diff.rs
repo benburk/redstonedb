@@ -9,7 +9,7 @@ use maud::{Markup, html};
 use crate::{
     diff::Counts,
     models::{
-        schematic::Schematic,
+        schematic::Build,
         user::User,
         version::{Measures, Version},
     },
@@ -27,7 +27,7 @@ const SIDE: &str = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg
 /// `versions`, newest first, which changed as `counts` says.
 pub fn diff_page(
     viewer: Option<&User>,
-    s: &Schematic,
+    s: &Build,
     versions: &[Version],
     (from, to): (i64, i64),
     counts: Counts,

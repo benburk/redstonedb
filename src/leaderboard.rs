@@ -14,7 +14,7 @@ use std::{
 use crate::{
     category::{self, Flag, Group, Measure, NO_DESIGN},
     models::{
-        schematic::{Logic, Orientation, PITCHES, Schematic},
+        schematic::{Build, Logic, Orientation, PITCHES},
         tag::{self, Kind, Tag},
     },
 };
@@ -31,7 +31,7 @@ pub enum State {
 }
 
 impl State {
-    fn of(s: &Schematic) -> Self {
+    fn of(s: &Build) -> Self {
         s.logic.map_or(State::Unknown, State::Known)
     }
 
@@ -99,7 +99,7 @@ impl Inputs {
     }
 
     /// Whether a board of these inputs takes `s`.
-    pub fn takes(self, s: &Schematic) -> bool {
+    pub fn takes(self, s: &Build) -> bool {
         match self {
             Inputs::Split => !s.interleaved_inputs(),
             Inputs::Interleaved => s.interleaved_inputs(),
@@ -145,7 +145,7 @@ pub fn split_by(measures: &[Measure], group: Group) -> Vec<Measure> {
 /// The value of each measure a board of `s`'s category splits by, in its
 /// order; `None` where one is unknown, a cell's width among them, as its
 /// blocks are counted a bit, or where its category has no measures.
-fn ranked_values(s: &Schematic) -> Option<Vec<(Measure, i64)>> {
+fn ranked_values(s: &Build) -> Option<Vec<(Measure, i64)>> {
     let group = group_of(&s.category);
     let unknown_width = as_cells(group)
         && s.measures.contains(&Measure::Width)
@@ -202,7 +202,7 @@ impl Eq for Size {}
 /// How a board measures its builds' size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ruler {
-    /// A build's blocks as [`Schematic::volume`] counts them: what each
+    /// A build's blocks as [`Build::volume`] counts them: what each
     /// copy adds for a stackable build, its box for any other, and a
     /// narrower build's stack, the whole stack.
     Whole,
@@ -239,7 +239,7 @@ impl Ruler {
     }
 
     /// The size of `s` as it measures it.
-    pub fn size(self, s: &Schematic) -> Size {
+    pub fn size(self, s: &Build) -> Size {
         let Ruler::Cell { west, up } = self else {
             return Size {
                 blocks: s.volume(),
@@ -263,7 +263,7 @@ impl Ruler {
 
 /// The bits a build holds, as its cells count: a memory's bytes' bits,
 /// else its width, else one.
-fn bits(s: &Schematic) -> i64 {
+fn bits(s: &Build) -> i64 {
     s.bytes
         .map(|bytes| bytes * 8)
         .or(s.width)
@@ -444,7 +444,7 @@ pub struct Board<'a> {
     pub tag_choices: Vec<Choice<String>>,
     /// The tags each build has.
     pub tags: Vec<String>,
-    pub builds: Vec<&'a Schematic>,
+    pub builds: Vec<&'a Build>,
 }
 
 /// The board of `category`, whose measures are `measures`, that `wanted`
@@ -457,7 +457,7 @@ pub struct Board<'a> {
 /// asked for, unless every build is. Builds that rank as cells split by no
 /// width, and by how closely their copies stack, any way by default.
 pub fn board<'a>(
-    category: &[&'a Schematic],
+    category: &[&'a Build],
     wanted: &Wanted,
     measures: &[Measure],
 ) -> Board<'a> {
@@ -552,13 +552,13 @@ pub fn board<'a>(
 /// `group`, narrowed by each measure a board of theirs splits by, as
 /// [`board`] does, with each measure's split.
 fn split<'a>(
-    category: &[&'a Schematic],
+    category: &[&'a Build],
     wanted: &Wanted,
     measures: &[Measure],
     group: Group,
-) -> (Vec<Split>, Vec<&'a Schematic>) {
+) -> (Vec<Split>, Vec<&'a Build>) {
     let cells = as_cells(group);
-    let mut ranked: Vec<&Schematic> = category
+    let mut ranked: Vec<&Build> = category
         .iter()
         .copied()
         .filter(|s| s.ranks())
@@ -589,9 +589,9 @@ fn split<'a>(
 /// none where no build is interleaved, the kind chosen, and the builds
 /// left.
 fn by_inputs(
-    mut ranked: Vec<&Schematic>,
+    mut ranked: Vec<&Build>,
     wanted: Option<Inputs>,
-) -> (Vec<Choice<Inputs>>, Inputs, Vec<&Schematic>) {
+) -> (Vec<Choice<Inputs>>, Inputs, Vec<&Build>) {
     let options = choices(&ranked, |s| {
         let inputs = if s.interleaved_inputs() {
             Inputs::Interleaved
@@ -620,10 +620,10 @@ fn by_inputs(
 /// builds rank as cells, each class's choice, then how the board measures
 /// its builds, and the builds left.
 fn by_stacking<'a>(
-    mut ranked: Vec<&'a Schematic>,
+    mut ranked: Vec<&'a Build>,
     class: Option<&str>,
     group: Group,
-) -> (Vec<Choice<String>>, Ruler, Vec<&'a Schematic>) {
+) -> (Vec<Choice<String>>, Ruler, Vec<&'a Build>) {
     let options = if as_cells(group) {
         stackings(&ranked)
     } else {
@@ -640,7 +640,7 @@ fn by_stacking<'a>(
 
 /// The pitch classes `ranked` stack in, as `2-wide`, each with how many
 /// builds do: west first, then up, each tightest first.
-fn stackings(ranked: &[&Schematic]) -> Vec<Choice<String>> {
+fn stackings(ranked: &[&Build]) -> Vec<Choice<String>> {
     let mut counts: BTreeMap<(bool, i64), usize> = BTreeMap::new();
     for s in ranked {
         for tag in ranked_tags(s) {
@@ -666,7 +666,7 @@ fn stackings(ranked: &[&Schematic]) -> Vec<Choice<String>> {
 /// The tags `ranked` have, with how many builds have each, by label, but
 /// those chosen apart: a design, an orientation, interleaved inputs, and,
 /// where builds rank as `cells`, a pitch class.
-fn tag_choices(ranked: &[&Schematic], cells: bool) -> Vec<Choice<String>> {
+fn tag_choices(ranked: &[&Build], cells: bool) -> Vec<Choice<String>> {
     let chosen_apart = |tag: &Tag| {
         matches!(tag.kind, Kind::Design | Kind::Orientation)
             || tag.name == tag::INTERLEAVED_INPUTS
@@ -696,10 +696,10 @@ fn tag_choices(ranked: &[&Schematic], cells: bool) -> Vec<Choice<String>> {
 /// `wanted` value, else the most common. Returns every value's choice, the
 /// value chosen, and the builds left.
 fn narrow<V: Ord + Clone>(
-    ranked: Vec<&Schematic>,
+    ranked: Vec<&Build>,
     wanted: Option<V>,
-    key: impl Fn(&Schematic) -> (V, String),
-) -> (Vec<Choice<V>>, Option<V>, Vec<&Schematic>) {
+    key: impl Fn(&Build) -> (V, String),
+) -> (Vec<Choice<V>>, Option<V>, Vec<&Build>) {
     let options = choices(&ranked, &key);
     let chosen = wanted.or_else(|| most_common(&options).cloned());
     let ranked = ranked
@@ -712,8 +712,8 @@ fn narrow<V: Ord + Clone>(
 /// Each distinct `(value, label)` of `builds`, in value order, with its
 /// count.
 fn choices<V: Ord>(
-    builds: &[&Schematic],
-    key: impl Fn(&Schematic) -> (V, String),
+    builds: &[&Build],
+    key: impl Fn(&Build) -> (V, String),
 ) -> Vec<Choice<V>> {
     let mut counts: BTreeMap<V, (String, usize)> = BTreeMap::new();
     for s in builds {
@@ -740,11 +740,9 @@ fn most_common<V>(choices: &[Choice<V>]) -> Option<&V> {
 }
 
 /// Copies of each of `builds` stacked into each wider build they make, as
-/// they compete at its width; see `Schematic::widened_to`. A cell's copies
+/// they compete at its width; see `Build::widened_to`. A cell's copies
 /// make none, as cells compete by no width.
-pub fn stacked<'a>(
-    builds: impl IntoIterator<Item = &'a Schematic>,
-) -> Vec<Schematic> {
+pub fn stacked<'a>(builds: impl IntoIterator<Item = &'a Build>) -> Vec<Build> {
     builds
         .into_iter()
         .filter(|s| !as_cells(group_of(&s.category)))
@@ -754,26 +752,26 @@ pub fn stacked<'a>(
 
 /// A build with its place: one more than the builds ranked strictly ahead
 /// of it, so a tie shares a place.
-pub type Placed<'a> = (usize, &'a Schematic);
+pub type Placed<'a> = (usize, &'a Build);
 
 /// The builds of known latency, quickest first, a tie going to the
 /// smaller, as `ruler` measures them.
-pub fn fastest<'a>(builds: &[&'a Schematic], ruler: Ruler) -> Vec<Placed<'a>> {
-    let mut timed: Vec<&Schematic> = builds
+pub fn fastest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
+    let mut timed: Vec<&Build> = builds
         .iter()
         .copied()
         .filter(|s| s.latency.is_some())
         .collect();
-    let key = |s: &Schematic| (s.latency, ruler.size(s));
+    let key = |s: &Build| (s.latency, ruler.size(s));
     timed.sort_by_key(|s| (key(s), s.added_at.clone()));
     placed(&timed, key)
 }
 
 /// Every build, smallest as `ruler` measures them first, a tie going to
 /// the quicker and then to one of known latency.
-pub fn smallest<'a>(builds: &[&'a Schematic], ruler: Ruler) -> Vec<Placed<'a>> {
+pub fn smallest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
     let mut sorted = builds.to_vec();
-    let key = |s: &Schematic| (ruler.size(s), s.latency.unwrap_or(i64::MAX));
+    let key = |s: &Build| (ruler.size(s), s.latency.unwrap_or(i64::MAX));
     sorted.sort_by_key(|s| (key(s), s.added_at.clone()));
     placed(&sorted, key)
 }
@@ -781,10 +779,7 @@ pub fn smallest<'a>(builds: &[&'a Schematic], ruler: Ruler) -> Vec<Placed<'a>> {
 /// The builds nothing beats on both counts: each is smaller, as `ruler`
 /// measures them, than every build at least as quick, so the list runs
 /// quickest to smallest.
-pub fn tradeoffs<'a>(
-    builds: &[&'a Schematic],
-    ruler: Ruler,
-) -> Vec<&'a Schematic> {
+pub fn tradeoffs<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<&'a Build> {
     let mut best: Option<Size> = None;
     fastest(builds, ruler)
         .into_iter()
@@ -802,8 +797,8 @@ pub fn tradeoffs<'a>(
 
 /// `sorted` with each build's place by `key`.
 fn placed<'a, K: PartialEq>(
-    sorted: &[&'a Schematic],
-    key: impl Fn(&Schematic) -> K,
+    sorted: &[&'a Build],
+    key: impl Fn(&Build) -> K,
 ) -> Vec<Placed<'a>> {
     let mut place = 0;
     sorted
@@ -855,21 +850,19 @@ fn tally(
 }
 
 /// Authors by how many builds credit them.
-pub fn most_built(builds: &[Schematic]) -> Vec<Standing> {
+pub fn most_built(builds: &[Build]) -> Vec<Standing> {
     tally(builds.iter().flat_map(credited))
 }
 
 /// A build's authors, as people to count.
-fn credited(
-    s: &Schematic,
-) -> impl Iterator<Item = (String, Option<String>)> + '_ {
+fn credited(s: &Build) -> impl Iterator<Item = (String, Option<String>)> + '_ {
     s.authors.iter().map(|name| (name.clone(), None))
 }
 
 /// People by how many builds they put on the site: an upload counts for
 /// its account, under its Minecraft name if it has one, and an import for
 /// the in-game name of whoever imported it.
-pub fn most_added(builds: &[Schematic]) -> Vec<Standing> {
+pub fn most_added(builds: &[Build]) -> Vec<Standing> {
     tally(builds.iter().filter_map(|s| {
         match (&s.uploader, &s.uploader_name, &s.imported_by) {
             (Some(account), Some(name), _) => {
@@ -902,7 +895,7 @@ pub fn most_records(records: &[Record]) -> Vec<Standing> {
 /// board, and how far apart a register's copies add words, as
 /// `3-wide_word_stackable`, shown on its page alone. Of a build that ranks
 /// as a cell, `stackable` is left out too, its pitch class saying more.
-pub fn ranked_tags(s: &Schematic) -> Vec<Tag> {
+pub fn ranked_tags(s: &Build) -> Vec<Tag> {
     let cells = as_cells(group_of(&s.category));
     s.every_tag()
         .into_iter()
@@ -964,9 +957,9 @@ pub struct Record<'a> {
     /// How its board measures its builds' size.
     pub ruler: Ruler,
     /// The builds it ranks.
-    pub field: Vec<&'a Schematic>,
+    pub field: Vec<&'a Build>,
     /// The builds in first place, more than one on a tie.
-    pub holders: Vec<&'a Schematic>,
+    pub holders: Vec<&'a Build>,
     /// How many people built the field, whatever the case of their names.
     pub authors: usize,
 }
@@ -1033,9 +1026,9 @@ pub fn in_sentence(name: &str) -> String {
 /// named by the one that says the most of them: a pitch class, then a
 /// design, then a latency, so `Smallest 2-wide stackable 1-bit adder`
 /// over `Smallest 6-tick 1-bit adder`.
-pub fn records<'a>(builds: &[&'a Schematic]) -> Vec<Record<'a>> {
+pub fn records<'a>(builds: &[&'a Build]) -> Vec<Record<'a>> {
     type Base<'a> = (&'a str, Vec<i64>, State);
-    let mut bases: BTreeMap<Base, (Vec<Measure>, Vec<&Schematic>)> =
+    let mut bases: BTreeMap<Base, (Vec<Measure>, Vec<&Build>)> =
         BTreeMap::new();
     for &s in builds
         .iter()
@@ -1093,8 +1086,8 @@ struct Found<'a> {
     tags: Vec<Tag>,
     rank: Rank,
     ruler: Ruler,
-    field: Vec<&'a Schematic>,
-    holders: Vec<&'a Schematic>,
+    field: Vec<&'a Build>,
+    holders: Vec<&'a Build>,
 }
 
 /// Adds to `boards` each set of at most [`MOST_TRAITS`] of `own`, the empty
@@ -1163,7 +1156,7 @@ fn tighter(tight: &str, loose: &str) -> bool {
 
 /// The records of `base`, one category's builds of one value of each of
 /// its measures and one state; see [`records`].
-fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
+fn records_of<'a>(base: &[&'a Build]) -> Vec<Found<'a>> {
     let Some(first) = base.first() else {
         return Vec::new();
     };
@@ -1269,7 +1262,7 @@ fn records_of<'a>(base: &[&'a Schematic]) -> Vec<Found<'a>> {
 /// whose name says the most of them, as [`says`] weighs it, the first of
 /// those that say as much.
 fn named_once(found: Vec<Found>) -> Vec<Found> {
-    let ids = |builds: &[&Schematic]| -> Vec<String> {
+    let ids = |builds: &[&Build]| -> Vec<String> {
         builds.iter().map(|s| s.id.clone()).collect()
     };
     let mut kept: Vec<Found> = Vec::new();
@@ -1366,7 +1359,7 @@ mod tests {
         let mut odd = build("odd", 1, None, Some(3), 10);
         odd.operands = crate::models::schematic::Operands::Interleaved;
         let adders = [odd, build("a", 1, None, Some(4), 20)];
-        let all: Vec<&Schematic> = adders.iter().collect();
+        let all: Vec<&Build> = adders.iter().collect();
         let ids = |inputs: Option<Inputs>| {
             let wanted = Wanted {
                 inputs,
@@ -1395,7 +1388,7 @@ mod tests {
     /// but one of its own among the interleaved.
     #[test]
     fn interleaved_builds_hold_records_apart() {
-        let interleaved = |id: &str, volume: i64| Schematic {
+        let interleaved = |id: &str, volume: i64| Build {
             operands: crate::models::schematic::Operands::Interleaved,
             ..build(id, 1, None, Some(3), volume)
         };
@@ -1405,7 +1398,7 @@ mod tests {
             build("a", 1, None, Some(3), 20),
             build("b", 1, None, Some(3), 30),
         ];
-        let builds: Vec<&Schematic> = adders.iter().collect();
+        let builds: Vec<&Build> = adders.iter().collect();
         let found: Vec<(String, Vec<&str>)> = records(&builds)
             .iter()
             .map(|r| {
@@ -1431,8 +1424,8 @@ mod tests {
         size: (i64, i64, i64),
         latency: i64,
         ways: &[(i64, i64, i64)],
-    ) -> Schematic {
-        Schematic {
+    ) -> Build {
+        Build {
             category: "xor_gate".to_owned(),
             category_label: Some("XOR Gate".to_owned()),
             size,
@@ -1464,7 +1457,7 @@ mod tests {
             gate("pair", 2, (4, 7, 7), 2, &[(4, 0, 2)]),
             gate("alone", 1, (3, 3, 3), 2, &[]),
         ];
-        let all: Vec<&Schematic> = gates.iter().collect();
+        let all: Vec<&Build> = gates.iter().collect();
         assert!(stacked(all.iter().copied()).is_empty());
         let open = board(&all, &Wanted::default(), &[Measure::Width]);
         assert!(open.splits.is_empty());
@@ -1501,7 +1494,7 @@ mod tests {
         );
         // Builds that cross bits keep their width boards.
         let adders = adders();
-        let adders: Vec<&Schematic> = adders.iter().collect();
+        let adders: Vec<&Build> = adders.iter().collect();
         let board = board(&adders, &Wanted::default(), &[Measure::Width]);
         assert_eq!(board.splits.len(), 1);
         assert_eq!(board.ruler, Ruler::Whole);
@@ -1512,7 +1505,7 @@ mod tests {
     /// class's too, is held once, as the tighter class's record.
     #[test]
     fn a_stackable_record_held_by_a_pitch_classs_holder_is_shown_once() {
-        let stacking = |up: i64, pitch: i64, s: Schematic| Schematic {
+        let stacking = |up: i64, pitch: i64, s: Build| Build {
             stacking: vec![StackDirection {
                 west: 0,
                 up,
@@ -1529,7 +1522,7 @@ mod tests {
             stacking(8, 8, build("c", 8, None, Some(5), 300)),
             stacking(2, 2, build("d", 8, None, Some(6), 400)),
         ];
-        let builds: Vec<&Schematic> = adders.iter().collect();
+        let builds: Vec<&Build> = adders.iter().collect();
         let names: Vec<String> =
             records(&builds).iter().map(Record::name).collect();
         assert_eq!(
@@ -1547,7 +1540,7 @@ mod tests {
     #[test]
     fn a_merged_record_is_named_by_its_stacking_then_design_then_ticks() {
         // Copies 2 apart, each as big as its box.
-        let stacking = |s: Schematic| Schematic {
+        let stacking = |s: Build| Build {
             size: (2, 5, s.size.0 / 10),
             stacking: vec![StackDirection {
                 west: 2,
@@ -1558,8 +1551,8 @@ mod tests {
             }],
             ..s
         };
-        let names = |adders: &[Schematic]| -> Vec<String> {
-            let builds: Vec<&Schematic> = adders.iter().collect();
+        let names = |adders: &[Build]| -> Vec<String> {
+            let builds: Vec<&Build> = adders.iter().collect();
             records(&builds).iter().map(Record::name).collect()
         };
         // The 6-tick builds are the 2-wide stackable ones, ripple carry.
@@ -1603,7 +1596,7 @@ mod tests {
     /// and a 1-bit one on one board, each measured a bit.
     #[test]
     fn cells_on_shared_lines_rank_a_bit() {
-        let register = |id: &str, bits: i64, size: (i64, i64, i64)| Schematic {
+        let register = |id: &str, bits: i64, size: (i64, i64, i64)| Build {
             category: "register".to_owned(),
             category_label: Some("Register".to_owned()),
             logic: Some(Logic::Stateful),
@@ -1614,7 +1607,7 @@ mod tests {
             register("one", 1, (3, 12, 4)),
             register("eight", 8, (3, 19, 7)),
         ];
-        let all: Vec<&Schematic> = registers.iter().collect();
+        let all: Vec<&Build> = registers.iter().collect();
         let board = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(board.group, Group::SharedLines);
         assert!(board.splits.is_empty());
@@ -1640,7 +1633,7 @@ mod tests {
             gate("high", 1, (2, 3, 5), 3, &[(0, 4, 4)]),
             gate("tall", 1, (3, 3, 5), 3, &[(0, 4, 4)]),
         ];
-        let builds: Vec<&Schematic> = gates.iter().collect();
+        let builds: Vec<&Build> = gates.iter().collect();
         let found: Vec<(String, Vec<&str>)> = records(&builds)
             .iter()
             .map(|r| {
@@ -1668,7 +1661,7 @@ mod tests {
             gates[0].clone(),
             gates[2].clone(),
         ];
-        let builds: Vec<&Schematic> = gates.iter().collect();
+        let builds: Vec<&Build> = gates.iter().collect();
         let found: Vec<(String, Vec<&str>)> = records(&builds)
             .iter()
             .map(|r| {
@@ -1726,8 +1719,8 @@ mod tests {
         design: Option<&str>,
         latency: Option<i64>,
         volume: i64,
-    ) -> Schematic {
-        Schematic {
+    ) -> Build {
+        Build {
             id: id.to_owned(),
             category: "adder".to_owned(),
             category_label: Some("Adder".to_owned()),
@@ -1780,7 +1773,7 @@ mod tests {
         }
     }
 
-    fn adders() -> Vec<Schematic> {
+    fn adders() -> Vec<Build> {
         vec![
             build("a", 8, Some("carry_cancel"), Some(3), 684),
             build("b", 8, Some("carry_cancel"), Some(3), 2640),
@@ -1804,7 +1797,7 @@ mod tests {
         }
         adders[0].logic = Some(Logic::Stateful);
         let stateful_id = adders[0].id.clone();
-        let all: Vec<&Schematic> = adders.iter().collect();
+        let all: Vec<&Build> = adders.iter().collect();
         let stateless = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(stateless.logic, Some(State::Known(Logic::Stateless)));
         assert!(stateless.builds.iter().all(|s| s.id != stateful_id));
@@ -1825,7 +1818,7 @@ mod tests {
     fn a_board_starts_at_the_most_common_width_with_every_orientation_and_design()
      {
         let adders = adders();
-        let all: Vec<&Schematic> = adders.iter().collect();
+        let all: Vec<&Build> = adders.iter().collect();
         let board = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(board.splits[0].chosen, Some(8));
         assert_eq!(
@@ -1845,7 +1838,7 @@ mod tests {
 
     #[test]
     fn memories_compete_only_at_one_capacity() {
-        let ram = |id: &str, bytes: Option<i64>| Schematic {
+        let ram = |id: &str, bytes: Option<i64>| Build {
             bytes,
             ..build(id, 8, None, Some(4), 100)
         };
@@ -1855,7 +1848,7 @@ mod tests {
             ram("c", Some(256)),
             ram("d", None),
         ];
-        let all: Vec<&Schematic> = rams.iter().collect();
+        let all: Vec<&Build> = rams.iter().collect();
         let board =
             board(&all, &Wanted::default(), &[Measure::Width, Measure::Bytes]);
         assert_eq!(board.splits[1].chosen, Some(32));
@@ -1872,12 +1865,12 @@ mod tests {
 
     #[test]
     fn a_threshold_competes_only_at_one_k() {
-        let threshold = |id: &str, at_least: i64| Schematic {
+        let threshold = |id: &str, at_least: i64| Build {
             at_least: Some(at_least),
             ..build(id, 8, None, Some(4), 100)
         };
         let all = [threshold("a", 3), threshold("b", 5), threshold("c", 5)];
-        let all: Vec<&Schematic> = all.iter().collect();
+        let all: Vec<&Build> = all.iter().collect();
         let measures = [Measure::Width, Measure::AtLeast];
         let wanted = Wanted {
             measures: vec![(Measure::AtLeast, 3)],
@@ -1893,7 +1886,7 @@ mod tests {
     #[test]
     fn rankings_share_a_place_on_a_tie_and_skip_unknown_latency() {
         let adders = adders();
-        let all: Vec<&Schematic> = adders.iter().collect();
+        let all: Vec<&Build> = adders.iter().collect();
         let board = board(&all, &Wanted::default(), &[Measure::Width]);
         assert_eq!(
             ids(&fastest(&board.builds, Ruler::Whole)),
@@ -1908,7 +1901,7 @@ mod tests {
             build("y", 8, None, Some(3), 100),
             build("z", 8, None, Some(2), 100),
         ];
-        let tied: Vec<&Schematic> = tied.iter().collect();
+        let tied: Vec<&Build> = tied.iter().collect();
         assert_eq!(
             ids(&fastest(&tied, Ruler::Whole)),
             [(1, "z"), (2, "x"), (2, "y")]
@@ -1916,8 +1909,8 @@ mod tests {
     }
 
     /// The builds of the tests below, each by one author.
-    fn credited_adders() -> Vec<Schematic> {
-        let by = |name: &str, s: Schematic| Schematic {
+    fn credited_adders() -> Vec<Build> {
+        let by = |name: &str, s: Build| Build {
             authors: vec![name.to_owned()],
             ..s
         };
@@ -1942,7 +1935,7 @@ mod tests {
     #[test]
     fn records_are_first_places_each_trait_changes() {
         let adders = credited_adders();
-        let builds: Vec<&Schematic> = adders.iter().collect();
+        let builds: Vec<&Build> = adders.iter().collect();
         let records = records(&builds);
         let found: Vec<(String, Vec<&str>)> = records
             .iter()
@@ -1975,7 +1968,7 @@ mod tests {
             build("b", 8, None, Some(3), 700),
             build("c", 8, None, Some(5), 400),
         ];
-        let builds: Vec<&Schematic> = adders.iter().collect();
+        let builds: Vec<&Build> = adders.iter().collect();
         let names: Vec<String> =
             records(&builds).iter().map(Record::name).collect();
         assert_eq!(
@@ -1996,16 +1989,16 @@ mod tests {
             })
             .collect();
         let adders = [
-            Schematic {
+            Build {
                 tags: tags.clone(),
                 ..build("a", 8, None, Some(3), 900)
             },
-            Schematic {
+            Build {
                 tags,
                 ..build("b", 8, None, Some(3), 700)
             },
         ];
-        let builds: Vec<&Schematic> = adders.iter().collect();
+        let builds: Vec<&Build> = adders.iter().collect();
         let names: Vec<String> =
             records(&builds).iter().map(Record::name).collect();
         assert_eq!(names, ["Smallest 8-bit adder"]);
@@ -2014,12 +2007,12 @@ mod tests {
     #[test]
     fn people_count_whatever_their_case() {
         let builds = [
-            Schematic {
+            Build {
                 authors: vec!["embizone".to_owned()],
                 imported_by: Some("embizone".to_owned()),
                 ..build("a", 8, None, None, 1)
             },
-            Schematic {
+            Build {
                 authors: vec!["EmbiZone".to_owned(), "alex".to_owned()],
                 uploader: Some("lookaside".to_owned()),
                 uploader_name: Some("EMBIZONE".to_owned()),
@@ -2043,7 +2036,7 @@ mod tests {
     /// take, each adding its step.
     #[test]
     fn copies_of_a_narrower_build_compete_at_the_width_they_make() {
-        let slice = Schematic {
+        let slice = Build {
             stacking: vec![StackDirection {
                 west: 2,
                 up: 0,
@@ -2064,7 +2057,7 @@ mod tests {
         let adders =
             [slice, build("a", 8, Some("ripple_carry"), Some(25), 1000)];
         let stacks = stacked(&adders);
-        let all: Vec<&Schematic> = adders.iter().chain(&stacks).collect();
+        let all: Vec<&Build> = adders.iter().chain(&stacks).collect();
         let wanted = Wanted {
             measures: vec![(Measure::Width, 8)],
             ..Wanted::default()
@@ -2087,7 +2080,7 @@ mod tests {
             build("c", 8, None, Some(5), 400),
             build("d", 8, None, Some(9), 380),
         ];
-        let builds: Vec<&Schematic> = builds.iter().collect();
+        let builds: Vec<&Build> = builds.iter().collect();
         let kept: Vec<&str> = tradeoffs(&builds, Ruler::Whole)
             .iter()
             .map(|s| s.id.as_str())

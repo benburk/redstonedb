@@ -267,6 +267,6 @@ async fn resolve(db: &SqlitePool, prefix: &str) -> Result<String> {
     }
 }
 
-async fn load(db: &SqlitePool, id: &str) -> Result<schematic::Schematic> {
+async fn load(db: &SqlitePool, id: &str) -> Result<schematic::Build> {
     schematic::get(db, id).await?.context("schematic vanished")
 }

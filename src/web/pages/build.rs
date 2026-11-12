@@ -8,7 +8,7 @@ use crate::{
     category::{self, Measure},
     import::{self, Analysis},
     models::{
-        schematic::{Logic, Schematic, StackDirection, Status},
+        schematic::{Build, Logic, StackDirection, Status},
         tag,
         user::User,
         version::Version,
@@ -58,8 +58,8 @@ pub struct FileRead {
 /// What a build's page shows: the build, the builds like it, its file as read,
 /// its simulation, its versions, and whether the viewer has favourited it.
 pub struct BuildPage<'a> {
-    pub s: &'a Schematic,
-    pub similar: &'a [(Schematic, u32)],
+    pub s: &'a Build,
+    pub similar: &'a [(Build, u32)],
     pub file: &'a Result<FileRead, String>,
     pub simulation: &'a Option<Report>,
     /// Whether storing it is still simulating it in the background, so
@@ -167,7 +167,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
 /// just after it is stored, a badge saying so; once it is done, whether it
 /// works is among its tags, see [`verdict_tags`]. A live panel, redrawn
 /// when its simulation comes in.
-pub fn build_banner(s: &Schematic, simulating: bool) -> Markup {
+pub fn build_banner(s: &Build, simulating: bool) -> Markup {
     html! {
         div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw"
             class="flex flex-wrap items-center gap-1.5" {
@@ -188,7 +188,7 @@ type Verdict = (&'static str, &'static str, String);
 /// Whether build `s` works, as the first of its tags: passing, failing,
 /// not tested, or of a category with no test; and when it is unranked
 /// though it works, why. Each links to its checks.
-fn verdicts(s: &Schematic, report: Option<&Report>) -> Vec<Verdict> {
+fn verdicts(s: &Build, report: Option<&Report>) -> Vec<Verdict> {
     const MUTED: &str = "bg-muted/12 text-muted";
     let status = {
         let note = match (s.status, report) {
@@ -236,7 +236,7 @@ fn verdicts(s: &Schematic, report: Option<&Report>) -> Vec<Verdict> {
 
 /// Build `s`'s verdicts as tags, see [`verdicts`], each linking to its
 /// checks.
-fn verdict_tags(s: &Schematic, report: Option<&Report>) -> Markup {
+fn verdict_tags(s: &Build, report: Option<&Report>) -> Markup {
     html! {
         @for (i, (label, tone, note)) in verdicts(s, report).into_iter().enumerate() {
             li {
@@ -287,7 +287,7 @@ impl Sources {
     /// Build `s`'s sources, with its file's `interface` if it could be
     /// read and its simulation's `report` if it has one.
     fn of(
-        s: &Schematic,
+        s: &Build,
         interface: Option<&Interface>,
         report: Option<&Report>,
     ) -> Self {
@@ -419,8 +419,8 @@ fn sourced(
 /// live panel, redrawn when its simulation comes in, since that checks and
 /// measures some of its facts.
 pub fn build_info(
-    s: &Schematic,
-    similar: &[(Schematic, u32)],
+    s: &Build,
+    similar: &[(Build, u32)],
     file: &Result<FileRead, String>,
     report: Option<&Report>,
 ) -> Markup {
@@ -502,7 +502,7 @@ fn block_counts(counts: &[(&str, usize)]) -> Markup {
 
 /// The numbers a build is compared by, large: its measures, such as
 /// width, then latency, volume, size, and the release it works from.
-fn facts(s: &Schematic, sources: &Sources) -> Markup {
+fn facts(s: &Build, sources: &Sources) -> Markup {
     let fact = |label: &str, value: Markup| {
         html! {
             div class="flex flex-col" {
@@ -578,7 +578,7 @@ pub(super) fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
 /// register's copies across its bits, as more words, such as `4 west as
 /// words, up to 3`; and for a stacking its author gave, its step, such
 /// as `2 wide west, up to 7` or `2 west and 2 up, any number`.
-fn short_stacking(s: &Schematic, direction: &StackDirection) -> String {
+fn short_stacking(s: &Build, direction: &StackDirection) -> String {
     let steps: Vec<(i64, &str)> = direction.parts().collect();
     let step = match (steps.as_slice(), direction.pitch) {
         ([(n, way)], Some(pitch)) => format!("{n} {way}, pitch {pitch}"),
@@ -601,7 +601,7 @@ fn short_stacking(s: &Schematic, direction: &StackDirection) -> String {
 }
 
 /// What a build is and how it behaves, beyond its key facts.
-fn specs(s: &Schematic, sources: &Sources, report: Option<&Report>) -> Markup {
+fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
     // An adder's design, among its tags, has groups as its run found.
     let group = match report {
         Some(Report::Ran(run)) => run.design.as_ref().and_then(|d| d.group),
@@ -720,7 +720,7 @@ pub(super) fn long_date(date: &str) -> String {
 }
 
 /// Who built it and when, and its file's history, folded away.
-fn credits(s: &Schematic) -> Markup {
+fn credits(s: &Build) -> Markup {
     html! {
         section aria-labelledby="credits-heading" {
             h2 id="credits-heading" class={ (SECTION_TITLE) " mb-2" } { "Credits" }
@@ -770,7 +770,7 @@ fn credits(s: &Schematic) -> Markup {
 /// Whether the simulation decides how build `s` stacks, rather than its
 /// author giving it: a conventional build of a category whose stacking
 /// it infers.
-fn stacking_found(s: &Schematic) -> bool {
+fn stacking_found(s: &Build) -> bool {
     s.conventional
         && category::behaviour(&s.category).stacking
             == category::Stacking::Inferred
@@ -780,7 +780,7 @@ fn stacking_found(s: &Schematic) -> bool {
 /// after a link back to `from`, the listing the viewer came from, when it
 /// is somewhere else, and a search of every build, so a build found leads
 /// back to the rest.
-fn crumbs(s: &Schematic, from: Option<&str>) -> Markup {
+fn crumbs(s: &Build, from: Option<&str>) -> Markup {
     // A category off the list is among the other builds.
     let (category, plural) = match s.kind() {
         Some(kind) if s.category_label.is_some() => {
@@ -890,7 +890,7 @@ pub fn favorite_button(path: &str, favorited: bool, count: i64) -> Markup {
 /// listing the viewer came from. Nothing for a viewer who may do none of
 /// them.
 fn actions_menu(
-    s: &Schematic,
+    s: &Build,
     viewer: Option<&User>,
     path: &str,
     from: Option<&str>,
@@ -938,7 +938,7 @@ fn actions_menu(
 /// A mod's form for merging a build into another, as a fix uploaded as a
 /// build of its own is: its file becomes that build's next version, if it
 /// may, and it is deleted.
-fn merge_dialog(s: &Schematic) -> Markup {
+fn merge_dialog(s: &Build) -> Markup {
     html! {
         dialog id="merge" aria-labelledby="merge-heading"
             class="dialog w-full max-w-form" {
@@ -964,7 +964,7 @@ fn merge_dialog(s: &Schematic) -> Markup {
 
 /// The confirmation before deleting a build, which then goes back
 /// to `from`, the listing the viewer came from, else home.
-fn delete_dialog(s: &Schematic, from: Option<&str>) -> Markup {
+fn delete_dialog(s: &Build, from: Option<&str>) -> Markup {
     html! {
         dialog id="delete" aria-labelledby="delete-heading"
             class="dialog w-full max-w-form" {
@@ -990,7 +990,7 @@ fn delete_dialog(s: &Schematic, from: Option<&str>) -> Markup {
 /// at two corners of the box `//rstack` stacks, for `WorldEdit` to select
 /// it by; and a button that sends the file so made to the viewer's
 /// Schemati instead. Only someone signed in is shown it.
-fn download_dialog(s: &Schematic, colours: ColoursShown) -> Markup {
+fn download_dialog(s: &Build, colours: ColoursShown) -> Markup {
     let path = format!("/schematics/{}", s.id);
     let filename = s.filename();
     let stem = filename.trim_end_matches(".schem");
@@ -1085,7 +1085,7 @@ fn download_dialog(s: &Schematic, colours: ColoursShown) -> Markup {
 }
 
 /// The builds of its category a build is similar to, the most alike first.
-fn similar_section(similar: &[(Schematic, u32)]) -> Markup {
+fn similar_section(similar: &[(Build, u32)]) -> Markup {
     html! {
         section aria-labelledby="similar-heading" {
             h2 id="similar-heading" class={ (SECTION_TITLE) " mb-1" } { "Similar builds" }
@@ -1114,7 +1114,7 @@ fn similar_section(similar: &[(Schematic, u32)]) -> Markup {
 /// its name, authors, size, and blocks as the title; its latency, how it
 /// stacks, the oldest release it works in, and whether it is verified as
 /// the line under it; and its picture.
-fn preview(s: &Schematic) -> super::Preview {
+fn preview(s: &Build) -> super::Preview {
     let by = if s.authors.is_empty() {
         String::new()
     } else {

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::{
-    Encoding, Logic, Operands, Orientation, Schematic, StackDirection, Status,
+    Build, Encoding, Logic, Operands, Orientation, StackDirection, Status,
     Widened,
 };
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
 
 /// Every schematic but deleted ones, ordered by category, width, then
 /// insertion.
-pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
+pub async fn all(db: &SqlitePool) -> Result<Vec<Build>, sqlx::Error> {
     load(db, None, false).await
 }
 
@@ -27,7 +27,7 @@ pub async fn all(db: &SqlitePool) -> Result<Vec<Schematic>, sqlx::Error> {
 pub async fn visible(
     db: &SqlitePool,
     viewer: Option<&crate::models::user::User>,
-) -> Result<Vec<Schematic>, sqlx::Error> {
+) -> Result<Vec<Build>, sqlx::Error> {
     let mut all = all(db).await?;
     all.retain(|s| s.listed_to(viewer));
     Ok(all)
@@ -38,7 +38,7 @@ pub async fn visible(
 pub async fn get(
     db: &SqlitePool,
     id: &str,
-) -> Result<Option<Schematic>, sqlx::Error> {
+) -> Result<Option<Build>, sqlx::Error> {
     Ok(load(db, Some(ids_json(&[id])), false).await?.pop())
 }
 
@@ -47,7 +47,7 @@ pub async fn get(
 pub async fn get_many(
     db: &SqlitePool,
     ids: &[&str],
-) -> Result<Vec<Schematic>, sqlx::Error> {
+) -> Result<Vec<Build>, sqlx::Error> {
     get_ids(db, ids, false).await
 }
 
@@ -56,7 +56,7 @@ pub async fn get_many(
 pub async fn get_many_with_deleted(
     db: &SqlitePool,
     ids: &[&str],
-) -> Result<Vec<Schematic>, sqlx::Error> {
+) -> Result<Vec<Build>, sqlx::Error> {
     get_ids(db, ids, true).await
 }
 
@@ -64,8 +64,8 @@ async fn get_ids(
     db: &SqlitePool,
     ids: &[&str],
     deleted: bool,
-) -> Result<Vec<Schematic>, sqlx::Error> {
-    let mut found: HashMap<String, Schematic> =
+) -> Result<Vec<Build>, sqlx::Error> {
+    let mut found: HashMap<String, Build> =
         load(db, Some(ids_json(ids)), deleted)
             .await?
             .into_iter()
@@ -88,7 +88,7 @@ async fn load(
     db: &SqlitePool,
     only: Option<String>,
     deleted: bool,
-) -> Result<Vec<Schematic>, sqlx::Error> {
+) -> Result<Vec<Build>, sqlx::Error> {
     let rows = sqlx::query!(
         r#"SELECT schematic.id, schematic.category, width, orientation
             as "orientation: Orientation", encoding as "encoding: Encoding", latency,
@@ -142,7 +142,7 @@ async fn load(
                 row.fails_simulation,
                 row.unverified.as_deref(),
             );
-            Schematic {
+            Build {
                 measures: facts.map_or_else(Vec::new, |f| f.measures.to_vec()),
                 aliases: category::aliases(&row.category),
                 tags: tag::with_derived(

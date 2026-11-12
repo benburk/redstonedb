@@ -19,7 +19,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     import::{self, Prepared},
-    models::{schematic::Schematic, version},
+    models::{schematic::Build, version},
     recognize::inspect,
     schem::{
         self, Blocks, Pos,
@@ -38,7 +38,7 @@ pub const MAX_CHANGED: usize = 10;
 /// how its levers stand and what is powered aside, if one is.
 async fn laid_as(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     blocks: &Blocks,
 ) -> anyhow::Result<Option<i64>> {
     let placed = |blocks: &Blocks| -> (Pos, Vec<(Pos, String)>) {
@@ -190,7 +190,7 @@ pub struct Checked {
 /// checks it against the current one.
 pub async fn check(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     file: &[u8],
     standardize: bool,
 ) -> anyhow::Result<Checked> {
@@ -201,7 +201,7 @@ pub async fn check(
 /// into `s` and so may be on the site already.
 async fn checked(
     db: &SqlitePool,
-    s: &Schematic,
+    s: &Build,
     file: &[u8],
     standardize: bool,
     leaving: Option<&str>,
@@ -300,8 +300,8 @@ async fn checked(
 /// Returns the version's number, or why it can't be one.
 pub async fn merge(
     db: &SqlitePool,
-    from: &Schematic,
-    into: &Schematic,
+    from: &Build,
+    into: &Build,
     by: Option<uuid::Uuid>,
     note: &str,
 ) -> anyhow::Result<Result<i64, Vec<String>>> {

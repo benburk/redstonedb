@@ -196,7 +196,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         && simulation::current(db, &s)
             .await?
             .is_some_and(|report| report.passed());
-    let build = details::Build {
+    let build = details::Candidate {
         data: &data,
         conventional,
         passes,
@@ -264,7 +264,7 @@ pub(super) async fn rejudge(db: &SqlitePool, id: &str) -> Result<()> {
         unverified: None,
         ..Details::of(&s)
     };
-    let build = details::Build {
+    let build = details::Candidate {
         data: &data,
         conventional: s.conventional,
         passes: false,

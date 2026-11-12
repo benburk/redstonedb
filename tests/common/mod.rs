@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 
 use app::{
-    details::{self, Build, Details},
+    details::{self, Candidate, Details},
     import::{self, Prepared, Purpose},
     models::user::{DiscordProfile, User},
 };
@@ -75,7 +75,7 @@ pub async fn store(
     by: Option<&User>,
 ) -> String {
     let prepared = conventional(name);
-    let ready = details::check(db, details, Build::of(&prepared), false)
+    let ready = details::check(db, details, Candidate::of(&prepared), false)
         .await
         .expect("the database answers")
         .expect("the details keep the rules");

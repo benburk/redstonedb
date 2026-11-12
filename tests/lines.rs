@@ -5,7 +5,7 @@
 mod common;
 
 use app::{
-    details::{self, Build, Details},
+    details::{self, Candidate, Details},
     import,
     models::{schematic::Orientation, version},
     recognize::{
@@ -102,7 +102,7 @@ async fn a_versions_roles_are_kept_with_it() {
         orientation: Orientation::Horizontal,
         ..Details::default()
     };
-    let ready = details::check(&db, given, Build::of(&first), false)
+    let ready = details::check(&db, given, Candidate::of(&first), false)
         .await
         .unwrap()
         .unwrap();

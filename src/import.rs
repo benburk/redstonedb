@@ -11,7 +11,7 @@ use crate::{
     category::{self, Category, Kind, Lines},
     details::{self, Ready, Unrecognized},
     models::{
-        schematic::{self, Encoding, New, Orientation, Schematic},
+        schematic::{self, Build, Encoding, New, Orientation},
         version,
     },
     recognize::{
@@ -81,7 +81,7 @@ impl Purpose {
 
     /// A stored build's file as `s` keeps it: held to the conventions and
     /// pasting from where it does, standardized only if `standardize`.
-    pub fn of(s: &Schematic, standardize: bool) -> Purpose {
+    pub fn of(s: &Build, standardize: bool) -> Purpose {
         Purpose::InPlace {
             standardize,
             conventional: s.conventional,
@@ -505,13 +505,13 @@ pub async fn kept(
     }
     let unrecognized = match &upload.standard {
         Ok(standard) => {
-            details::unrecognized(meant, details::Build::of(standard)).await
+            details::unrecognized(meant, details::Candidate::of(standard)).await
         }
         // Read as built, it can only say it breaks the conventions.
         Err(_) => {
             details::unrecognized(
                 meant,
-                details::Build {
+                details::Candidate {
                     data: &upload.original.data,
                     conventional: false,
                     passes: false,
@@ -626,7 +626,7 @@ pub async fn moved_up<'a>(
         return Ok(None);
     };
     let recognized =
-        details::unrecognized(meant, details::Build::of(&candidate))
+        details::unrecognized(meant, details::Candidate::of(&candidate))
             .await
             .is_ok_and(|off| off.is_none());
     if !recognized {
