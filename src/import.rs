@@ -111,6 +111,7 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     };
     let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
     let data = standardize::barrels(data, &[])?;
+    let data = standardize::without_trapdoors(&data)?;
     let data = if standardize {
         standardize::standardize(&data).context("cannot standardize it")?
     } else {

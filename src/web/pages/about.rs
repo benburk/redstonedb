@@ -123,7 +123,9 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                     "colours or signs: once RedstoneDB knows what each line does, it keeps that with the build "
                     "and shows each line in its colour, whatever blocks you built with. It takes your signs out, "
                     "as it names each line itself, but keeps those on control lines that say what a line does: "
-                    "an ALU's operations, a barrel shifter's amounts, and a register's reads and writes."
+                    "an ALU's operations and status lines, a barrel shifter's amounts, and a register's reads and writes. "
+                    "It takes out trapdoors too, which only show an output flipping, and says what it took out "
+                    "when you upload."
                 }
                 h2 class={ (SECTION_TITLE) " mt-8 mb-2" } { "Inputs and outputs" }
                 (rule(

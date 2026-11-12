@@ -1328,7 +1328,11 @@ fn block(state: &str) -> Result<Block> {
     // or stone, does as concrete does.
     // And a slab, stairs, or glowstone, which redstone sees through, as
     // glass does.
-    let id = if !known
+    // A trapdoor, hung on an output to show it flipping, plays no part in
+    // the circuit, so is air.
+    let id = if name.ends_with("_trapdoor") {
+        "minecraft:air"
+    } else if !known
         && !crate::schem::block::is_component(name)
         && crate::schem::block::solid(state)
     {
@@ -1341,7 +1345,9 @@ fn block(state: &str) -> Result<Block> {
     let known = known
         || matches!(
             id,
-            "minecraft:white_concrete" | "minecraft:white_stained_glass"
+            "minecraft:white_concrete"
+                | "minecraft:white_stained_glass"
+                | "minecraft:air"
         );
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
         bail!("Couldn't simulate its {}.", name.replace('_', " "));
@@ -1376,6 +1382,18 @@ mod tests {
         assert_eq!(steps, [(3, 0b11)]);
         assert_eq!(carried.groups(0, 2), [(1, 0b01), (3, 0b10)]);
         assert_eq!(carried.port(0), 3);
+    }
+
+    /// A trapdoor, hung on an output to show it, is air to the circuit,
+    /// open or not.
+    #[test]
+    fn a_trapdoor_is_air() {
+        for state in [
+            "minecraft:iron_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]",
+            "minecraft:oak_trapdoor[facing=north,half=bottom,open=true,powered=true,waterlogged=false]",
+        ] {
+            assert!(matches!(block(state).unwrap(), Block::Air), "{state}");
+        }
     }
 
     #[test]
