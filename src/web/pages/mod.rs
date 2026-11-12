@@ -229,7 +229,7 @@ fn plural(singular: &str, names: &[String]) -> String {
 /// it, as flags of one name differ between categories; a build off the
 /// list, to those under Other.
 fn badge(tag: &Tag, s: &Build) -> Markup {
-    let category = if s.category_label.is_some() {
+    let category = if s.kind().is_some() {
         s.category.as_str()
     } else {
         "other"

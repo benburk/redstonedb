@@ -308,7 +308,7 @@ const OTHER: &str = "other";
 fn in_category(s: &Build, category: &str) -> bool {
     category.split(',').any(|category| {
         if category == OTHER {
-            s.category_label.is_none()
+            s.kind().is_none()
         } else {
             s.category == category
         }

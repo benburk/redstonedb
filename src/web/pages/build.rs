@@ -516,7 +516,7 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
     html! {
         section aria-label="Key facts" {
             dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3" {
-                @for &measure in &s.measures {
+                @for &measure in s.measures() {
                     @let source = match measure {
                         Measure::Width => sources.width,
                         Measure::Pulse => sources.pulse,
@@ -625,7 +625,7 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
             dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
                 // A category off the list has no list of its own to link to.
                 (field("Category", sourced(html! {
-                    @if s.category_label.is_some() {
+                    @if s.kind().is_some() {
                         a href={ "/?category=" (s.category) } { (s.category_label()) }
                     } @else {
                         (s.category_label())
@@ -641,7 +641,7 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
                 @if let Some(synced) = s.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { tag::SYNCED } else { tag::UNSYNCED })), sources.timing, sources)))
                 }
-                @if let Some(logic) = s.logic {
+                @if let Some(logic) = s.logic() {
                     (field("Stateless", sourced(flag(logic == Logic::Stateless, Some(logic.name())), sources.logic, sources)))
                 }
                 @if s.pipelined() {
@@ -783,7 +783,7 @@ fn stacking_found(s: &Build) -> bool {
 fn crumbs(s: &Build, from: Option<&str>) -> Markup {
     // A category off the list is among the other builds.
     let (category, plural) = match s.kind() {
-        Some(kind) if s.category_label.is_some() => {
+        Some(kind) if s.kind().is_some() => {
             (format!("/?category={}", s.category), kind.plural())
         }
         _ => ("/?category=other".to_owned(), "Other builds".to_owned()),

@@ -248,7 +248,7 @@ pub fn stacked_width(terms: &[Term], s: &Build) -> Option<(i64, i64)> {
 /// Every word a term can name a schematic by.
 fn facts(s: &Build) -> Vec<String> {
     let mut facts = vec![s.category.replace('_', " ")];
-    facts.extend(s.aliases.iter().cloned());
+    facts.extend(crate::category::aliases(&s.category));
     // Its tags as its page shows them, its design, orientation, flags, and
     // stacking among them, each by its name, label, and token.
     for tag in s.every_tag() {
@@ -331,7 +331,7 @@ fn facts(s: &Build) -> Vec<String> {
     // Its design by its own label, and no design as `other`, which is no
     // tag.
     facts.push(s.design.as_deref().unwrap_or(NO_DESIGN).replace('_', " "));
-    if let Some(label) = &s.design_given_label {
+    if let Some(label) = s.listed_design().and_then(|listed| listed.label) {
         facts.push(label.to_lowercase());
     }
     for flag in &s.flags {
@@ -371,7 +371,7 @@ fn timing(s: &Build) -> Vec<&'static str> {
         Some(false) => vec!["unsync", "unsynced", "unsynchronized"],
         None => Vec::new(),
     };
-    match s.logic {
+    match s.logic() {
         Some(Logic::Stateless) => {
             words.extend(["stateless", "comb", "combinational"]);
         }
@@ -416,19 +416,15 @@ pub(crate) mod tests {
         Build {
             id: String::new(),
             category: category.to_owned(),
-            category_label: None,
             width: Some(8),
             orientation,
             encoding: Some(Encoding::Binary),
             latency: None,
             synchronized: None,
-            logic: Some(Logic::Stateless),
             own_logic: None,
             throughput: None,
             at_least: None,
             pulse: None,
-            measures: vec![Measure::Width],
-            aliases: Vec::new(),
             torches: None,
             works_from: None,
             works_from_by: None,
@@ -444,8 +440,6 @@ pub(crate) mod tests {
             conventional: true,
             keeps_paste: false,
             design: None,
-            design_abbreviation: None,
-            design_given_label: None,
             flags: Vec::new(),
             description: None,
             given_name: None,
@@ -617,7 +611,6 @@ pub(crate) mod tests {
     fn a_serial_throughput_matches_in_ticks() {
         let serial = Build {
             throughput: Some(2),
-            measures: vec![Measure::Throughput],
             ..schematic("serial_adder", Orientation::Horizontal, &[])
         };
         assert!(find("2t", &serial));
@@ -630,7 +623,6 @@ pub(crate) mod tests {
     fn a_category_is_found_by_its_aliases_and_a_threshold_by_its_k() {
         let threshold = Build {
             at_least: Some(3),
-            aliases: vec!["majority".to_owned()],
             ..schematic("threshold", Orientation::Horizontal, &[])
         };
         assert!(find("majority", &threshold));
@@ -687,7 +679,7 @@ pub(crate) mod tests {
         assert!(find("stateless pipelined", &piped));
         assert!(!find("seq", &piped));
         let sequential = Build {
-            logic: Some(Logic::Stateful),
+            own_logic: Some(Logic::Stateful),
             ..piped
         };
         assert!(find("sequential", &sequential));

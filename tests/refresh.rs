@@ -162,7 +162,7 @@ async fn an_unverified_build_is_tested_as_its_category() {
     let board = app::leaderboard::board(
         &[&s],
         &app::leaderboard::Wanted::default(),
-        &s.measures,
+        s.measures(),
     );
     assert!(board.builds.is_empty(), "an unverified build never ranks");
 }
@@ -300,7 +300,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
             s.synchronized,
             s.throughput,
             s.design.clone(),
-            s.logic,
+            s.logic(),
             s.stacking.clone(),
         )
     };

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    category::{Flag, Measure},
+    category::Flag,
     models::tag::{self, Tag},
 };
 
@@ -8,19 +8,15 @@ fn cla() -> Build {
     Build {
         id: String::new(),
         category: "adder".to_owned(),
-        category_label: Some("Adder".to_owned()),
         width: Some(8),
         orientation: Orientation::Horizontal,
         encoding: Some(Encoding::Binary),
         latency: Some(8),
         synchronized: Some(false),
-        logic: Some(Logic::Stateless),
         own_logic: None,
         throughput: None,
         at_least: None,
         pulse: None,
-        measures: vec![Measure::Width],
-        aliases: Vec::new(),
         torches: None,
         works_from: None,
         works_from_by: None,
@@ -36,8 +32,6 @@ fn cla() -> Build {
         conventional: true,
         keeps_paste: false,
         design: Some("carry_lookahead".to_owned()),
-        design_abbreviation: None,
-        design_given_label: None,
         flags: Vec::new(),
         description: None,
         given_name: None,
@@ -220,20 +214,19 @@ fn an_adder_that_subtracts_is_named_a_subtractor() {
 /// left on a build calls it nothing else.
 #[test]
 fn a_gate_is_named_by_its_category() {
-    let gate = |category: &str, label: &str, flag: Option<&'static str>| {
+    let gate = |category: &str, flag: Option<&'static str>| {
         let mut gate = cla();
         gate.category = category.to_owned();
-        gate.category_label = Some(label.to_owned());
         gate.flags = flag
             .map(|name| Flag { name, label: "" })
             .into_iter()
             .collect();
         gate.what()
     };
-    assert_eq!(gate("xor_gate", "XOR Gate", None), "XOR Gate");
-    assert_eq!(gate("xor_gate", "XOR Gate", Some("xnor")), "XOR Gate");
-    assert_eq!(gate("xnor_gate", "XNOR Gate", None), "XNOR Gate");
-    assert_eq!(gate("nand_gate", "NAND Gate", None), "NAND Gate");
+    assert_eq!(gate("xor_gate", None), "XOR Gate");
+    assert_eq!(gate("xor_gate", Some("xnor")), "XOR Gate");
+    assert_eq!(gate("xnor_gate", None), "XNOR Gate");
+    assert_eq!(gate("nand_gate", None), "NAND Gate");
 }
 
 #[test]
@@ -241,7 +234,6 @@ fn a_multiplier_is_named_by_its_operands_and_product() {
     let flag = |name: &'static str| Flag { name, label: "" };
     let mut multiplier = Build {
         category: "multiplier".to_owned(),
-        category_label: Some("Multiplier".to_owned()),
         design: None,
         tags: Vec::new(),
         ..cla()
@@ -258,10 +250,8 @@ fn a_multiplier_is_named_by_its_operands_and_product() {
 fn a_memory_names_its_capacity_and_stacks_multiply_it() {
     let ram = Build {
         category: "ram".to_owned(),
-        category_label: Some("RAM".to_owned()),
         design: None,
         bytes: Some(32),
-        measures: vec![Measure::Width, Measure::Bytes],
         tags: Vec::new(),
         ..cla()
     };
@@ -282,7 +272,6 @@ fn a_memory_names_its_capacity_and_stacks_multiply_it() {
 fn a_category_label_keeps_its_symbols_out_of_the_filename() {
     let s = Build {
         category: "inc_dec".to_owned(),
-        category_label: Some("Inc/Dec".to_owned()),
         design: None,
         tags: Vec::new(),
         ..cla()
@@ -295,9 +284,7 @@ fn a_category_label_keeps_its_symbols_out_of_the_filename() {
 fn a_design_keeps_its_label() {
     let s = Build {
         category: "rng".to_owned(),
-        category_label: Some("RNG".to_owned()),
         design: Some("lfsr".to_owned()),
-        design_given_label: Some("LFSR".to_owned()),
         tags: Vec::new(),
         ..cla()
     };
@@ -308,10 +295,8 @@ fn a_design_keeps_its_label() {
 fn a_threshold_names_its_k_after_its_width() {
     let s = Build {
         category: "threshold".to_owned(),
-        category_label: Some("Threshold".to_owned()),
         design: None,
         at_least: Some(3),
-        measures: vec![Measure::Width, Measure::AtLeast],
         tags: Vec::new(),
         ..cla()
     };
@@ -323,11 +308,9 @@ fn a_threshold_names_its_k_after_its_width() {
 fn a_serial_build_leads_with_its_throughput_and_others_do_not() {
     let serial = Build {
         category: "serial_adder".to_owned(),
-        category_label: Some("Serial Adder".to_owned()),
         design: None,
         width: None,
         throughput: Some(2),
-        measures: vec![Measure::Throughput],
         tags: Vec::new(),
         ..cla()
     };
@@ -353,7 +336,7 @@ fn a_synchronized_stateless_build_faster_than_its_latency_is_pipelined() {
     };
     assert!(!unsynced.pipelined(), "pipelining needs synced outputs");
     let stateful = Build {
-        logic: Some(Logic::Stateful),
+        own_logic: Some(Logic::Stateful),
         ..piped.clone()
     };
     assert!(!stateful.pipelined());
@@ -401,7 +384,6 @@ fn a_stack_grows_by_its_step_however_much_copies_overlap() {
 fn a_category_keeps_its_label() {
     let s = Build {
         category: "ram".to_owned(),
-        category_label: Some("RAM".to_owned()),
         design: None,
         ..cla()
     };
@@ -412,7 +394,6 @@ fn a_category_keeps_its_label() {
 fn a_category_off_the_list_is_capitalized() {
     let s = Build {
         category: "maze_screen".to_owned(),
-        category_label: None,
         width: None,
         design: None,
         ..cla()
