@@ -1,8 +1,7 @@
 //! The viewer's own Schemati folder, reached with the Schemati session
-//! they give: its files to download, publish, rename, and delete, files to
-//! add, and builds sent from their pages. These are the routes: Schemati is
-//! reached through `external::schemati`, and the page drawn by
-//! `pages::schemati`.
+//! they give: its files to choose one from to publish, and builds sent to
+//! it from their pages. These are the routes: Schemati is reached through
+//! `external::schemati`.
 
 use std::{
     future::Future,
@@ -11,8 +10,7 @@ use std::{
 
 use axum::{
     Form,
-    extract::{FromRequestParts, Multipart, Path, Query, RawForm, State},
-    http::request::Parts,
+    extract::{Path, Query, RawForm, State},
     response::{IntoResponse, Redirect, Response},
 };
 use maud::Markup;
@@ -35,51 +33,6 @@ use super::{
     settings::PaletteFields,
 };
 
-/// The Schemati page.
-pub async fn show(
-    State(state): State<AppState>,
-    SignedIn(user): SignedIn,
-) -> Result<Response, AppError> {
-    page(&state, &user, "", "").await
-}
-
-/// The Schemati page for `user`, its folder as Schemati has it now. `done`
-/// says what was just done; `refused`, why it could not be.
-async fn page(
-    state: &AppState,
-    user: &User,
-    done: &str,
-    refused: &str,
-) -> Result<Response, AppError> {
-    let folder = own_folder(&state.db, user).await?;
-    Ok(
-        pages::schemati(user, &connection(folder.as_ref()), done, refused)
-            .into_response(),
-    )
-}
-
-/// The answer to a change made on the Schemati page: for fixi, the folder
-/// as it is now, with `done` or `refused` in it and announced; for a plain
-/// form, the page again.
-async fn answer(
-    state: &AppState,
-    user: &User,
-    fixi: bool,
-    done: &str,
-    refused: &str,
-) -> Result<Response, AppError> {
-    if !fixi {
-        return Ok(Redirect::to("/schemati").into_response());
-    }
-    let folder = own_folder(&state.db, user).await?;
-    let said = if refused.is_empty() { done } else { refused };
-    Ok((
-        [("FX-Notice", super::notice(said))],
-        pages::schemati_folder(&connection(folder.as_ref()), done, refused),
-    )
-        .into_response())
-}
-
 /// The longest anything asked of Schemati is waited on: longer than the
 /// client's own 20 s, so that is what usually says it took too long.
 const PATIENT: Duration = Duration::from_secs(30);
@@ -88,16 +41,8 @@ const PATIENT: Duration = Duration::from_secs(30);
 const SLOW: Duration = Duration::from_secs(3);
 
 /// `user`'s Schemati folder as Schemati has it now, or why not; `None`
-/// when they have given no session.
-async fn own_folder(
-    db: &SqlitePool,
-    user: &User,
-) -> Result<Option<Result<Folder, Refusal>>, sqlx::Error> {
-    own_folder_by(db, user, schemati::folder).await
-}
-
-/// `own_folder`, `list` asking Schemati for the folder a session opens,
-/// which a test answers in its place.
+/// when they have given no session. `list` asks Schemati for the folder a
+/// session opens, which a test answers in its place.
 async fn own_folder_by(
     db: &SqlitePool,
     user: &User,
@@ -197,7 +142,7 @@ pub struct Picking {
 /// for them, asked for once the page is in, so the page need not wait on
 /// Schemati: the files to choose from, or why there are none, with a
 /// button to ask again when Schemati could not be asked. Without fixi
-/// there is no slot, so it goes to the Schemati page, which lists them.
+/// there is no slot, so it goes to the upload page, which has one.
 pub async fn picker(
     State(state): State<AppState>,
     SignedIn(user): SignedIn,
@@ -205,7 +150,7 @@ pub async fn picker(
     Query(Picking { offered }): Query<Picking>,
 ) -> Result<Response, AppError> {
     if !fixi {
-        return Ok(Redirect::to("/schemati").into_response());
+        return Ok(Redirect::to("/upload").into_response());
     }
     let files = own_files(&state.db, &user, offered, schemati::folder).await?;
     Ok(files.into_response())
@@ -223,11 +168,9 @@ async fn own_files(
     Ok(pages::own_file_field(&connection(folder.as_ref()), offered))
 }
 
-/// The signed-in account and the Schemati session it gave, through which
-/// its folder is asked for and changed. As an extractor, for a change to
-/// its folder, anyone signed out goes to the login page, and anyone who
-/// gave no session to the Schemati page, to give one.
-pub struct Connected {
+/// An account and the Schemati session it gave, through which its folder
+/// is asked for and added to.
+struct Connected {
     db: SqlitePool,
     user: User,
     session: String,
@@ -280,36 +223,6 @@ impl Connected {
         } else {
             format!("Saved {name}; in game, //load {name}.")
         })
-    }
-
-    /// Deletes the file `name` from their folder.
-    async fn delete(&self, name: &str) -> Result<(), Refusal> {
-        self.ask("delete", schemati::delete(&self.session, name))
-            .await
-    }
-
-    /// Renames the file `name` in their folder to `new_name`.
-    async fn rename(&self, name: &str, new_name: &str) -> Result<(), Refusal> {
-        let call = schemati::rename(&self.session, name, new_name);
-        self.ask("rename", call).await
-    }
-}
-
-impl FromRequestParts<AppState> for Connected {
-    type Rejection = Response;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let SignedIn(user) = SignedIn::from_request_parts(parts, state)
-            .await
-            .map_err(IntoResponse::into_response)?;
-        match Connected::of(&state.db, &user).await {
-            Ok(Some(connected)) => Ok(connected),
-            Ok(None) => Err(Redirect::to("/schemati").into_response()),
-            Err(err) => Err(AppError::from(err).into_response()),
-        }
     }
 }
 
@@ -426,156 +339,12 @@ pub(super) async fn own_file(
     connected.file(name).await.map_err(sentence)
 }
 
-/// A file in the viewer's folder, downloaded.
-pub async fn download(
-    Path(name): Path<String>,
-    State(state): State<AppState>,
-    connected: Connected,
-) -> Result<Response, AppError> {
-    if !schemati::valid_name(&name) {
-        return Err(AppError::NotFound);
-    }
-    match connected.file(&name).await {
-        // A valid name needs no quoting.
-        Ok(data) => Ok(super::attachment(&name, data)),
-        Err(refusal) => {
-            page(&state, &connected.user, "", &sentence(refusal)).await
-        }
-    }
-}
-
-/// Deletes a file from the viewer's folder.
-pub async fn delete(
-    Path(name): Path<String>,
-    State(state): State<AppState>,
-    connected: Connected,
-    Fixi(fixi): Fixi,
-) -> Result<Response, AppError> {
-    let user = &connected.user;
-    match connected.delete(&name).await {
-        Ok(()) => {
-            answer(&state, user, fixi, &format!("Deleted {name}."), "").await
-        }
-        Err(refusal) => {
-            answer(&state, user, fixi, "", &sentence(refusal)).await
-        }
-    }
-}
-
-#[derive(Deserialize)]
-pub struct Rename {
-    new_name: String,
-}
-
-/// Renames a file in the viewer's folder, keeping its extension, unless
-/// another file has the name.
-pub async fn rename(
-    Path(name): Path<String>,
-    State(state): State<AppState>,
-    connected: Connected,
-    Fixi(fixi): Fixi,
-    Form(form): Form<Rename>,
-) -> Result<Response, AppError> {
-    let user = &connected.user;
-    let extension = name.rsplit_once('.').map_or("schem", |(_, e)| e);
-    let typed = form.new_name.trim();
-    let new_name = if typed.ends_with(&format!(".{extension}")) {
-        typed.to_owned()
-    } else {
-        format!("{typed}.{extension}")
-    };
-    if new_name == name {
-        return answer(&state, user, fixi, "", "").await;
-    }
-    let renamed = match connected.folder().await {
-        // Schemati would put it in place of the other.
-        Ok(folder) if folder.has(&new_name) => Err(Refusal::Said(format!(
-            "{new_name} is already in your folder. Delete or rename it first."
-        ))),
-        Ok(_) => connected.rename(&name, &new_name).await,
-        Err(refusal) => Err(refusal),
-    };
-    match renamed {
-        Ok(()) => {
-            answer(
-                &state,
-                user,
-                fixi,
-                &format!("Renamed {name} to {new_name}."),
-                "",
-            )
-            .await
-        }
-        Err(refusal) => {
-            answer(&state, user, fixi, "", &sentence(refusal)).await
-        }
-    }
-}
-
-/// Adds the files chosen to the viewer's folder, each named as Schemati
-/// takes it, in place of any file of that name.
-pub async fn add(
-    State(state): State<AppState>,
-    connected: Connected,
-    Fixi(fixi): Fixi,
-    mut multipart: Multipart,
-) -> Result<Response, AppError> {
-    let user = &connected.user;
-    let mut files = Vec::new();
-    loop {
-        match multipart.next_field().await {
-            Ok(Some(field)) if field.name() == Some("file") => {
-                let name =
-                    schemati::file_name(field.file_name().unwrap_or_default());
-                match field.bytes().await {
-                    Ok(data) if !data.is_empty() => {
-                        files.push((name, data.to_vec()));
-                    }
-                    Ok(_) => {}
-                    Err(_) => {
-                        return answer(&state, user, fixi, "", TOO_LARGE).await;
-                    }
-                }
-            }
-            Ok(Some(_)) => {}
-            Ok(None) => break,
-            Err(_) => return answer(&state, user, fixi, "", TOO_LARGE).await,
-        }
-    }
-    if files.is_empty() {
-        return answer(&state, user, fixi, "", "Choose a file to add.").await;
-    }
-    // Schemati keeps whatever it is sent, but a schematic is gzipped NBT.
-    if let Some((name, _)) = files
-        .iter()
-        .find(|(_, data)| !data.starts_with(&[0x1f, 0x8b]))
-    {
-        let refused = format!("{name} is not a schematic file.");
-        return answer(&state, user, fixi, "", &refused).await;
-    }
-    let mut saved = Vec::new();
-    for (name, data) in files {
-        match connected.save(&name, data).await {
-            Ok(said) => saved.push(said),
-            Err(refusal) => {
-                let refused =
-                    format!("Could not add {name}. {}", sentence(refusal));
-                return answer(&state, user, fixi, &saved.join(" "), &refused)
-                    .await;
-            }
-        }
-    }
-    answer(&state, user, fixi, &saved.join(" "), "").await
-}
-
-const TOO_LARGE: &str =
-    "Those files did not arrive whole. Up to 2 MB is accepted at once.";
-
 /// Sends a build's file, as the download dialog's choices make it, to the
 /// viewer's folder, under the name it downloads with. Its button, through
 /// fixi, gets only the sentence saying how it went, to show in the dialog;
-/// the form sent without it goes on to the Schemati page. The form is read
-/// twice, for the download's choices and for its custom colours' fields.
+/// the form sent without it goes back to the build's page. The form is
+/// read twice, for the download's choices and for its custom colours'
+/// fields.
 pub async fn send(
     Path(id): Path<String>,
     State(state): State<AppState>,
@@ -622,7 +391,7 @@ pub async fn send(
     Ok(if fixi {
         pages::schemati_sent(&sent).into_response()
     } else {
-        Redirect::to("/schemati").into_response()
+        Redirect::to(&format!("/schematics/{id}")).into_response()
     })
 }
 

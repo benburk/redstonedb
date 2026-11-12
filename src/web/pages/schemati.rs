@@ -1,16 +1,11 @@
-//! The page for the viewer's own Schemati folder, and the parts of the
-//! settings page that connect it.
+//! The viewer's own Schemati folder where a form offers its files to
+//! choose one from, and how sending a build to it went.
 
 use maud::{Markup, html};
 
 use serde::Deserialize;
 
-use crate::{
-    external::schemati::Folder,
-    models::user::{SchematiLink, User},
-};
-
-use super::{PAGE_TITLE, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, base};
+use crate::{external::schemati::Folder, models::user::SchematiLink};
 
 /// How the viewer's Schemati folder stands.
 pub enum Connection<'a> {
@@ -21,60 +16,6 @@ pub enum Connection<'a> {
     /// Schemati could not be asked; why.
     Unreachable(&'a str),
     Open(&'a Folder),
-}
-
-/// The viewer's Schemati folder, or the form for connecting it. `done`
-/// says what was just done; `refused`, why it could not be.
-pub fn schemati(
-    user: &User,
-    connection: &Connection,
-    done: &str,
-    refused: &str,
-) -> Markup {
-    base(
-        Some(user),
-        "Schemati",
-        "/schemati",
-        &html! {
-            div class="max-w-calm" {
-                h1 class={ (PAGE_TITLE) " mb-2" } { "Your Schemati" }
-                p class="mb-6 max-w-prose text-muted" {
-                    "What you " code { "//save" } " on Open Redstone. Files added here load in game with " code { "//load <file>" } "."
-                }
-                (schemati_folder(connection, done, refused))
-            }
-        },
-    )
-}
-
-/// The part of the Schemati page its forms change, which fixi redraws:
-/// what was just `done` or `refused`, and the folder, or the form for
-/// connecting it.
-pub fn schemati_folder(
-    connection: &Connection,
-    done: &str,
-    refused: &str,
-) -> Markup {
-    html! {
-        div id="schemati-folder" {
-            @if !done.is_empty() {
-                p class="mb-6 rounded-control border border-line bg-raised p-3" { (done) }
-            }
-            @if !refused.is_empty() {
-                p class="mb-6 text-danger" { (refused) }
-            }
-            @match connection {
-                Connection::Unset => p {
-                    a href="/settings" { "Connect your Schemati" } " in Settings to see its files here."
-                },
-                Connection::Forgotten => p {
-                    "Schemati has forgotten your session. " a href="/settings" { "Give it a new one" } " in Settings."
-                },
-                Connection::Unreachable(why) => p class="text-danger" { (why) },
-                Connection::Open(folder) => (open(folder)),
-            }
-        }
-    }
 }
 
 /// Where the viewer's Schemati files are offered, which the slot they
@@ -117,7 +58,7 @@ const SLOT: &str = "schemati-files";
 /// of their session, so the page asks Schemati nothing: a note saying how
 /// to connect it, or that it expired, or while it seems to work, a slot
 /// that asks for the files once the page is in, as `own_file_field` shows
-/// them. Without scripts, the slot says where else to find them.
+/// them. Without scripts, the slot says what to give in their place.
 pub(super) fn own_files_slot(
     link: Option<&SchematiLink>,
     offered: Offered,
@@ -132,7 +73,7 @@ pub(super) fn own_files_slot(
                 p class="text-muted" { "Loading your Schemati files…" }
                 noscript {
                     p class="text-muted" {
-                        a href="/schemati" { "See your Schemati files" } " on their own page."
+                        "Your Schemati files need scripts to list. Give a Schemati download link in their place."
                     }
                 }
             }
@@ -223,99 +164,6 @@ pub fn schemati_sent(sent: &Result<String, String>) -> Markup {
     }
 }
 
-/// The open folder: its files, each with what can be done to it, and the
-/// form for adding files.
-fn open(folder: &Folder) -> Markup {
-    html! {
-        p class="mb-6" {
-            "Connected as " strong { (folder.player) } ". "
-            a href="/settings" { "Change in Settings" }
-        }
-        form action="/schemati/files" method="post" enctype="multipart/form-data"
-            fx-action="/schemati/files" fx-method="post" fx-target="#schemati-folder"
-            class="mb-8 flex flex-wrap items-end gap-4 rounded-overlay border border-line bg-raised p-5 shadow-sm" {
-            label class="field flex-1" {
-                span { "Add files" }
-                input type="file" name="file" multiple required accept=".schem,.schematic" class="input";
-            }
-            button type="submit" class="btn btn-primary" { "Add to Schemati" }
-        }
-        @if folder.files.is_empty() {
-            p class="text-muted" {
-                "Your Schemati folder is empty. In game, " code { "//save <name>" } " adds to it."
-            }
-        } @else {
-            div class="relative overflow-x-auto" {
-                table class="w-full border-collapse" {
-                    thead {
-                        tr {
-                            th scope="col" class=(TABLE_HEAD) { "File" }
-                            th scope="col" class=(TABLE_HEAD) { span class="sr-only" { "Actions" } }
-                        }
-                    }
-                    tbody {
-                        @for (index, file) in folder.files.iter().enumerate() {
-                            tr {
-                                th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                    span class="block font-mono break-all" { (file.name) }
-                                    @if let Some(saved) = file.modified {
-                                        span class="block text-meta text-muted" { "Saved " (ago(saved)) }
-                                    }
-                                }
-                                td class=(TABLE_CELL) { (file_actions(index, &file.name)) }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// What can be done to the file `name`, the `index`th listed: download it,
-/// publish it, rename it in a dialog, or delete it once asked.
-fn file_actions(index: usize, name: &str) -> Markup {
-    let path = format!("/schemati/files/{name}");
-    let (stem, extension) = name.rsplit_once('.').unwrap_or((name, "schem"));
-    let rename = format!("rename-{index}");
-    html! {
-        div class="flex flex-wrap justify-end gap-2" {
-            a href=(path) download=(name) class="btn btn-quiet" { "Download" }
-            // Publishing previews it as the upload page does a chosen file.
-            form action="/upload/preview" method="post" enctype="multipart/form-data" class="contents" {
-                input type="hidden" name="schemati_file" value=(name);
-                button type="submit" class="btn btn-quiet" { "Publish" }
-            }
-            button type="button" commandfor=(rename) command="show-modal" class="btn btn-quiet" { "Rename" }
-            form action={ (path) "/delete" } method="post"
-                fx-action={ (path) "/delete" } fx-method="post" fx-target="#schemati-folder" class="contents" {
-                button type="submit" data-confirm={ "Delete " (name) " from your Schemati folder for good?" }
-                    class="btn btn-quiet" { "Delete" }
-            }
-        }
-        dialog id=(rename) aria-labelledby={ (rename) "-heading" } class="dialog w-full max-w-form" {
-            form action={ (path) "/rename" } method="post"
-                fx-action={ (path) "/rename" } fx-method="post" fx-target="#schemati-folder"
-                class="flex flex-col gap-4" {
-                h2 id={ (rename) "-heading" } class=(SECTION_TITLE) { "Rename " (name) }
-                label class="field" {
-                    span { "New name" }
-                    div class="flex items-center gap-1" {
-                        input name="new_name" value=(stem) required
-                            pattern="[A-Za-z0-9_.]+" autocomplete="off" class="input font-mono";
-                        span class="font-mono text-muted" { "." (extension) }
-                    }
-                    span class="text-meta font-normal" { "Letters, digits, underscores, and dots." }
-                }
-                div class="flex items-center gap-4" {
-                    button type="submit" class="btn btn-primary" { "Rename" }
-                    button type="button" commandfor=(rename) command="close" class="btn btn-quiet" { "Cancel" }
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,6 +225,5 @@ mod tests {
         );
         assert!(loading.contains(r#"fx-trigger="load""#), "{loading}");
         assert!(loading.contains("Loading your Schemati files"), "{loading}");
-        assert!(loading.contains(r#"href="/schemati""#), "{loading}");
     }
 }

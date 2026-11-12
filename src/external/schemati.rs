@@ -227,27 +227,6 @@ pub async fn put(
     outcome(response).await
 }
 
-/// Deletes the file `name` from the folder of `session`'s player.
-pub async fn delete(session: &str, name: &str) -> Result<(), Refusal> {
-    check(name)?;
-    let query = [("file", name), ("confirm", "")];
-    outcome(signed(session, "/schems/delete", &query).await?).await
-}
-
-/// Renames the file `name` in the folder of `session`'s player to
-/// `new_name`, which keeps its extension. Schemati would put it in place
-/// of a file already named so; that is for the caller to check.
-pub async fn rename(
-    session: &str,
-    name: &str,
-    new_name: &str,
-) -> Result<(), Refusal> {
-    check(name)?;
-    check(new_name)?;
-    let query = [("file", name), ("newname", new_name)];
-    outcome(signed(session, "/schems/rename", &query).await?).await
-}
-
 /// Refuses a name Schemati would, before asking it.
 fn check(name: &str) -> Result<(), Refusal> {
     if valid_name(name) {
