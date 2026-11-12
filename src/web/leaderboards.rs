@@ -71,8 +71,7 @@ pub async fn show(
     .into_response())
 }
 
-/// The leaderboards' front page: the records most contested, and who
-/// built, added, and holds the records for the most builds.
+/// The leaderboards' front page: who built and who added the most builds.
 pub async fn people(
     State(state): State<AppState>,
     Query(chosen): Query<Chosen>,
@@ -85,16 +84,11 @@ pub async fn people(
     }
     let all = schematic::visible(&state.db, None).await?;
     let categories = Category::all();
-    let stacks = leaderboard::stacked(&all);
-    let builds: Vec<&Schematic> = all.iter().chain(&stacks).collect();
-    let records = leaderboard::records(&builds);
     Ok(pages::people(
         user_opt.as_ref(),
         &pages::PeoplePage {
-            records: &records,
             built: &leaderboard::most_built(&all),
             added: &leaderboard::most_added(&all),
-            holders: &leaderboard::most_records(&records),
             facets: &facets(&categories, &all, ""),
         },
     )

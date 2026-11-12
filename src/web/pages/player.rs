@@ -2,10 +2,7 @@
 
 use maud::{Markup, html};
 
-use crate::{
-    leaderboard::Record,
-    models::{schematic::Schematic, user::User},
-};
+use crate::models::{schematic::Schematic, user::User};
 
 use super::{
     PAGE_TITLE, SECTION_TITLE, base,
@@ -26,8 +23,6 @@ pub struct PlayerPage<'a> {
     /// The builds whose descriptions name them with `@name`, but don't
     /// credit them.
     pub mentioned: &'a [Schematic],
-    /// The records builds crediting them hold.
-    pub records: &'a [&'a Record<'a>],
     pub viewing: &'a Viewing,
 }
 
@@ -39,7 +34,6 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
         built,
         contributed,
         mentioned,
-        records,
         viewing,
     } = *page;
     base(
@@ -62,19 +56,7 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
                             }
                             None => { "Not signed up" }
                         }
-                        @if !records.is_empty() {
-                            " · "
-                            a href="#records-heading" {
-                                (records.len()) (if records.len() == 1 { " record" } else { " records" })
-                            }
-                        }
                     }
-                }
-            }
-            @if !records.is_empty() {
-                section aria-labelledby="records-heading" class="mb-10" {
-                    h2 id="records-heading" class={ (SECTION_TITLE) " mb-3" } { "Records" }
-                    (super::leaderboard::record_table(records, Some(name)))
                 }
             }
             // One only named in descriptions has no credits to list.
