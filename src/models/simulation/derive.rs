@@ -195,12 +195,17 @@ mod tests {
     use super::*;
     use crate::{models::schematic::Orientation, search::tests::schematic};
 
-    /// A result that ran every case of `pattern`, `wrong` of them wrong,
-    /// with `timing` if it was measured.
-    fn ran(pattern: &str, wrong: u64, timing: &serde_json::Value) -> Report {
+    /// A result that ran every case of a test, `wrong` of them wrong, read
+    /// as `reading` says, with `timing` if it was measured.
+    fn ran(
+        reading: &serde_json::Value,
+        wrong: u64,
+        timing: &serde_json::Value,
+    ) -> Report {
         serde_json::from_value(json!({
             "outcome": "ran",
-            "pattern": pattern,
+            "pattern": "its cases",
+            "reading": reading,
             "cases": 4,
             "exhaustive": true,
             "patterns": 0,
@@ -263,19 +268,22 @@ mod tests {
     #[test]
     fn a_comparators_cases_say_whether_it_reads_signed() {
         let s = schematic("greater_than", Orientation::Horizontal, &[]);
-        let signed = ran("A > B, signed", 0, &json!(null));
+        let reads =
+            |signed: bool| json!({"of": "greater_than", "signed": signed});
+        let signed = ran(&reads(true), 0, &json!(null));
         assert_eq!(decided(&s, &[], &signed).flags, [SIGNED]);
-        let unsigned = ran("A > B", 0, &json!(null));
+        let unsigned = ran(&reads(false), 0, &json!(null));
         assert!(decided(&s, &[SIGNED], &unsigned).flags.is_empty());
         // Wrong cases say nothing of how it reads its operands.
-        let failing = ran("A > B", 1, &json!(null));
+        let failing = ran(&reads(false), 1, &json!(null));
         assert_eq!(decided(&s, &[SIGNED], &failing).flags, [SIGNED]);
     }
 
     #[test]
     fn a_thresholds_cases_say_how_many_bits_turn_it_on() {
         let s = schematic("threshold", Orientation::Horizontal, &[]);
-        let report = ran("at least 3 of A on", 0, &json!(null));
+        let reading = json!({"of": "threshold", "at_least": 3});
+        let report = ran(&reading, 0, &json!(null));
         assert_eq!(decided(&s, &[], &report).measured.at_least, Some(3));
     }
 
@@ -283,7 +291,7 @@ mod tests {
     fn a_monostables_timing_gives_its_pulse_and_flags() {
         let s = schematic("monostable", Orientation::Horizontal, &[]);
         let pulse = json!({"ticks": 4, "inverted": true, "edge": "falling"});
-        let report = ran("A", 0, &timing(2, 6, &pulse));
+        let report = ran(&json!(null), 0, &timing(2, 6, &pulse));
         let derived = decided(&s, &[], &report);
         assert_eq!(derived.measured.pulse, Some(4));
         assert_eq!(derived.flags, [INVERTED, FALLING_EDGE]);
@@ -292,7 +300,7 @@ mod tests {
         assert_eq!(derived.measured.synchronized, Some(true));
         // One that rests off and pulses as A turns on loses both flags.
         let pulse = json!({"ticks": 4, "inverted": false, "edge": "rising"});
-        let report = ran("A", 0, &timing(2, 6, &pulse));
+        let report = ran(&json!(null), 0, &timing(2, 6, &pulse));
         let derived = decided(&s, &[INVERTED, FALLING_EDGE], &report);
         assert!(derived.flags.is_empty());
     }

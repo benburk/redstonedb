@@ -155,12 +155,6 @@ impl fmt::Display for Op {
     }
 }
 
-/// The name of the operation a word on a control line's sign names, such
-/// as `shr` for `rsh`, as its flag reads; `None` for any other word.
-pub fn op(word: &str) -> Option<&'static str> {
-    Op::named(word).map(Op::name)
-}
-
 /// An ALU's ports, by their place in its interface.
 struct Alu {
     a: usize,
@@ -901,7 +895,7 @@ mod tests {
         assert_eq!(Op::named("sra"), Some(Op::Asr));
         assert_eq!(Op::named("and"), Some(Op::And));
         assert_eq!(Op::named("inverted"), None);
-        assert_eq!(op("lsl"), Some("shl"));
+        assert_eq!(Op::named("lsl"), Some(Op::Shl));
     }
 
     #[test]

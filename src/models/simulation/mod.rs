@@ -34,7 +34,8 @@ use runner::{CASES, TIMING, evaluated, taken_ahead};
 /// Build `id`'s stored result, when it ran on the file whose hash is
 /// `sha256` under `test`; a result of another file or test, none. A change
 /// to a test leaves its stored results as they are until a build is
-/// simulated again, as `rsdb refresh` does.
+/// simulated again, as `rsdb refresh` does; one a change to what a report
+/// holds left unreadable is none until then.
 pub async fn stored<'e, E: SqliteExecutor<'e>>(
     db: E,
     id: &str,
@@ -51,10 +52,13 @@ pub async fn stored<'e, E: SqliteExecutor<'e>>(
     )
     .fetch_optional(db)
     .await?;
-    Ok(match report {
-        Some(report) => Some(serde_json::from_str(&report)?),
-        None => None,
-    })
+    Ok(report.and_then(|report| {
+        serde_json::from_str(&report)
+            .inspect_err(|err| {
+                tracing::warn!(id, "stored report is unreadable: {err}");
+            })
+            .ok()
+    }))
 }
 
 /// Keeps `report` as build `id`'s result of `test` on the file whose hash

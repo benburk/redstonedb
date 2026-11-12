@@ -70,7 +70,7 @@ pub mod trace;
 mod value;
 
 pub use adder::Variant as AdderVariant;
-pub use alu::{flags as alu_flags, op as alu_op};
+pub use alu::flags as alu_flags;
 /// An ALU's operations and status lines, as its test reads them.
 pub mod alu_ops {
     pub use super::alu::{Op, carry_out, overflow, shift_out, zero};
@@ -766,8 +766,8 @@ pub struct Run {
     pub examples: Vec<Wrong>,
     /// For a run with cases wrong, each result bit, lowest first, with how
     /// often it came out on and was expected on, so a bit stuck off, stuck
-    /// on, or inverted shows as such. Empty for a pass, and for a report
-    /// stored before they were counted.
+    /// on, or inverted shows as such. Empty for a pass, and for a test
+    /// that doesn't count them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bit_counts: Vec<BitCount>,
     /// What would make every case right, when one change does, such as
@@ -779,8 +779,7 @@ pub struct Run {
     /// What set apart the reading of the build its cases came out best
     /// under, which `pattern` names, for a test whose readings mean more
     /// than their names, such as an adder's subtracting. `None` for any
-    /// other test, and for a report stored before readings were kept,
-    /// whose pattern alone says; see `Run::adder_variant` and the like.
+    /// other test.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reading: Option<Reading>,
     /// For a stateless build that gets every case right, how weakly its
@@ -825,10 +824,6 @@ pub enum Reading {
     Incrementer { counts: Counts },
     /// Whether a register's reads show its cells inverted.
     Register { inverted: bool },
-    /// A reading a report kept that no test reads builds by any more, as
-    /// whether a parity circuit was even once was: as good as none.
-    #[serde(other)]
-    Retired,
 }
 
 impl Run {
@@ -887,7 +882,7 @@ impl Run {
     pub fn adder_variant(&self) -> AdderVariant {
         match self.reading {
             Some(Reading::Adder(variant)) => variant,
-            _ => stored::adder_variant(&self.pattern),
+            _ => AdderVariant::default(),
         }
     }
 
@@ -910,67 +905,20 @@ impl Run {
 
     /// Whether a greater-than comparator's cases read its operands signed.
     pub fn signed(&self) -> bool {
-        match self.reading {
-            Some(Reading::GreaterThan { signed }) => signed,
-            _ => stored::signed(&self.pattern),
-        }
+        matches!(self.reading, Some(Reading::GreaterThan { signed: true }))
     }
 
     /// How many of A's bits turn on a threshold, as its cases found.
     pub fn at_least(&self) -> Option<i64> {
         match self.reading {
             Some(Reading::Threshold { at_least }) => Some(at_least.into()),
-            _ => stored::at_least(&self.pattern),
+            _ => None,
         }
     }
 
     /// Whether a register's reads show its cells inverted.
     pub fn reads_inverted(&self) -> bool {
-        match self.reading {
-            Some(Reading::Register { inverted }) => inverted,
-            _ => stored::reads_inverted(&self.pattern),
-        }
-    }
-}
-
-/// Reading a report stored before `Run::reading` was kept, whose reading
-/// only its cases' name, `Run::pattern`, says. Each answers as the name a
-/// fresh run of that reading gives it would.
-mod stored {
-    use super::AdderVariant;
-
-    /// The way an adder whose cases are named `pattern` reads.
-    pub fn adder_variant(pattern: &str) -> AdderVariant {
-        let sum = pattern.starts_with("not (");
-        let add = pattern.trim_start_matches("not (");
-        AdderVariant {
-            subtract: add.starts_with("A − "),
-            carry_in: add.contains("B + not ") || add.contains("B − not "),
-            sum,
-            carry_out: pattern.ends_with("carry out inverted"),
-        }
-    }
-
-    /// Whether a comparison whose cases are named `pattern` reads its
-    /// operands in two's complement.
-    pub fn signed(pattern: &str) -> bool {
-        pattern == super::adder::SIGNED_GREATER_THAN
-    }
-
-    /// How many of A's bits a threshold's cases, named `pattern`, turn it
-    /// on at; `None` for any other cases.
-    pub fn at_least(pattern: &str) -> Option<i64> {
-        pattern
-            .strip_prefix("at least ")?
-            .strip_suffix(" of A on")?
-            .parse()
-            .ok()
-    }
-
-    /// Whether a register whose cases are named `pattern` reads its cells
-    /// inverted.
-    pub fn reads_inverted(pattern: &str) -> bool {
-        pattern.ends_with(" inverted")
+        matches!(self.reading, Some(Reading::Register { inverted: true }))
     }
 }
 
@@ -1151,19 +1099,6 @@ pub fn guess(blocks: &Blocks) -> Option<Guess> {
 mod tests {
     use super::*;
 
-    /// A report kept with a reading no test gives any more, as a parity
-    /// circuit's evenness, still reads, its reading as good as none.
-    #[test]
-    fn a_retired_reading_still_reads() {
-        let reading: Reading =
-            serde_json::from_str(r#"{"of":"parity","even":false}"#).unwrap();
-        assert_eq!(reading, Reading::Retired);
-        let kept: Reading =
-            serde_json::from_str(r#"{"of":"register","inverted":true}"#)
-                .unwrap();
-        assert_eq!(kept, Reading::Register { inverted: true });
-    }
-
     #[test]
     fn builds_up_to_64_bits_are_tested() {
         assert_eq!(Test::of("adder", Some(16)), Some(Test::Adder));
@@ -1173,51 +1108,5 @@ mod tests {
         assert_eq!(Test::of("register", Some(8)), Some(Test::Register));
         assert_eq!(Test::of("ram", Some(8)), None);
         assert_eq!(Test::of("multiplier", Some(65)), None);
-    }
-
-    /// A report stored before readings were kept is read from its cases'
-    /// name, so the name each reading gives must read back as it.
-    #[test]
-    fn a_stored_pattern_reads_as_the_reading_that_named_it() {
-        let ways = [false, true];
-        for (subtract, carry_in, sum, carry_out) in
-            ways.into_iter().flat_map(|a| {
-                ways.into_iter().flat_map(move |b| {
-                    ways.into_iter().flat_map(move |c| {
-                        ways.into_iter().map(move |d| (a, b, c, d))
-                    })
-                })
-            })
-        {
-            let variant = AdderVariant {
-                subtract,
-                carry_in,
-                sum,
-                carry_out,
-            };
-            for line in [None, Some("carry in"), Some("cin")] {
-                let pattern = variant.name(line);
-                let read = stored::adder_variant(&pattern);
-                // With no carry in, there is none to read inverted.
-                let carry_in = carry_in && line.is_some();
-                assert_eq!(
-                    read,
-                    AdderVariant {
-                        carry_in,
-                        ..variant
-                    }
-                );
-            }
-        }
-        assert!(stored::signed(adder::SIGNED_GREATER_THAN));
-        assert!(!stored::signed("A > B"));
-        for k in 1..=8 {
-            let pattern = converters::threshold_pattern(k);
-            assert_eq!(stored::at_least(&pattern), Some(k.into()));
-        }
-        assert!(stored::reads_inverted("written, then read inverted"));
-        assert!(!stored::reads_inverted(
-            "each of 2 cells written, then read"
-        ));
     }
 }

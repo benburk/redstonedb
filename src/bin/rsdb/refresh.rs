@@ -464,17 +464,6 @@ fn print_stacking(stacking: &Stacking, controls: bool) {
                 limit(*most)
             );
         }
-        Stacking::Separate { ways } => {
-            for way in ways {
-                println!(
-                    "        stacks: {} copies {} apart each work on their own, {}{}",
-                    way.copies,
-                    way.step.describe(),
-                    right(way.cases),
-                    limit(way.most)
-                );
-            }
-        }
         Stacking::Not { step, reason } => println!(
             "        doesn't stack{}: {reason}",
             step.map(|s| format!(" {} apart", s.describe()))

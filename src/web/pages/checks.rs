@@ -598,8 +598,8 @@ fn bit_strip(run: &Run) -> Markup {
     }
 }
 
-/// Each result bit's counts, or for a report stored before they were
-/// counted, each bit with how often it was wrong alone.
+/// Each result bit's counts, or for a test that doesn't count them, each
+/// bit with how often it was wrong alone.
 fn bit_counts(run: &Run) -> Vec<BitCount> {
     if !run.bit_counts.is_empty() {
         return run.bit_counts.clone();

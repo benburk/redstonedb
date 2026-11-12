@@ -8,14 +8,13 @@ use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
-    category::{self, Category, Flag, Kind, Lines},
+    category::{self, Category, Kind, Lines},
     details::{self, Ready, Unrecognized},
     models::{
         schematic::{self, Encoding, New, Orientation, Schematic},
         version,
     },
     recognize::{
-        colour,
         interface::{self, Interface, Port},
         probe,
     },
@@ -263,52 +262,6 @@ pub async fn store(
         id,
     };
     Ok(Ok(schematic::insert(db, &new).await?))
-}
-
-/// The flags the file's signs show: `carry_in` for a line labelled
-/// `carry in` or `cin`, `carry_out` for `carry out` or `cout`, their
-/// borrowing kin `borrow_in` and `borrow_out` likewise, and `overflow` and
-/// `zero` for status lines named so. Those a category has no
-/// flag of are dropped when stored.
-pub fn sign_flags(interface: &Interface) -> Vec<String> {
-    let named = |ports: &[Port], names: &[&str]| {
-        ports
-            .iter()
-            .any(|port| port.labelled && names.contains(&port.name.as_str()))
-    };
-    [
-        (named(&interface.inputs, &colour::CARRY_IN), Flag::CARRY_IN),
-        (
-            named(&interface.outputs, &colour::CARRY_OUT),
-            Flag::CARRY_OUT,
-        ),
-        (
-            named(&interface.inputs, &colour::BORROW_IN),
-            Flag::BORROW_IN,
-        ),
-        (
-            named(&interface.outputs, &colour::BORROW_OUT),
-            Flag::BORROW_OUT,
-        ),
-        (named(&interface.outputs, &["overflow"]), "overflow"),
-        (named(&interface.outputs, &["zero"]), "zero"),
-    ]
-    .into_iter()
-    .filter(|(found, _)| *found)
-    .map(|(_, flag)| flag.to_owned())
-    // An ALU's operations beyond adding and subtracting, as its control
-    // lines' signs name them, such as `and` or `rsh` for shr.
-    .chain(
-        interface
-            .inputs
-            .iter()
-            .filter(|port| port.control())
-            .flat_map(|port| port.words.iter())
-            .filter_map(|word| crate::simulate::alu_op(word))
-            .filter(|op| !matches!(*op, "add" | "sub"))
-            .map(str::to_owned),
-    )
-    .collect()
 }
 
 /// What a category that reads its builds' files, as
@@ -680,39 +633,4 @@ pub async fn moved_up<'a>(
         return Ok(None);
     }
     Ok(Some((rewrapped(&candidate)?, meant)))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn line(name: &str) -> Port {
-        Port {
-            name: name.to_owned(),
-            role: Some(crate::schem::lines::Role::Status),
-            labelled: true,
-            bits: Vec::new(),
-            strength: 1,
-            words: Vec::new(),
-            signal_strength: false,
-        }
-    }
-
-    #[test]
-    fn status_lines_tick_their_flags() {
-        let interface = Interface {
-            inputs: vec![line("cin")],
-            outputs: vec![
-                line("cout"),
-                line("overflow"),
-                line("zero"),
-                line("negative"),
-            ],
-            binary_outputs: false,
-        };
-        assert_eq!(
-            sign_flags(&interface),
-            ["carry_in", "carry_out", "overflow", "zero"]
-        );
-    }
 }
