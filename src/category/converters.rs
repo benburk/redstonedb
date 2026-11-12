@@ -7,6 +7,7 @@
 use anyhow::{Result, bail};
 
 use crate::{
+    category::test::BySpec,
     interface::{Interface, Port},
     simulate::{
         Broken, Reading, Value,
@@ -398,6 +399,23 @@ fn binary_cases(width: usize) -> (Vec<Case>, u64) {
     let rest = patterns + (cases.len() - before) as u64;
     (cases.cases, rest)
 }
+
+pub(super) const BINARY_TO_BCD: BySpec =
+    BySpec::spec(|_, interface| binary_to_bcd(interface));
+pub(super) const BCD_TO_BINARY: BySpec =
+    BySpec::spec(|_, interface| bcd_to_binary(interface));
+pub(super) const ABSOLUTE_VALUE: BySpec =
+    BySpec::spec(|_, interface| absolute_value(interface));
+pub(super) const POPCOUNT: BySpec =
+    BySpec::spec(|_, interface| popcount(interface));
+pub(super) const BINARY_TO_HEX: BySpec =
+    BySpec::spec(|_, interface| binary_to_hex(interface));
+pub(super) const HEX_TO_BINARY: BySpec =
+    BySpec::spec(|_, interface| hex_to_binary(interface));
+pub(super) const THRESHOLD: BySpec =
+    BySpec::spec(|_, interface| threshold(interface));
+pub(super) const PARITY: BySpec =
+    BySpec::spec(|_, interface| parity(interface));
 
 #[cfg(test)]
 mod tests {

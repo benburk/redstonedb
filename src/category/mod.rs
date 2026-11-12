@@ -154,6 +154,9 @@ pub struct Facts {
     /// input, as a hex adder's and a hex to binary converter's do; no
     /// other build is driven by one.
     pub digit_inputs: bool,
+    /// How its own test runs; `None` for a category with no test, or one
+    /// whose builds get another's, as a hex adder's get an adder's.
+    runs: Option<&'static dyn test::Runs>,
     pub behaviour: Behaviour,
 }
 

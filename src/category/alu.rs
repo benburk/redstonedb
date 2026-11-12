@@ -31,7 +31,7 @@ use std::{
 use anyhow::Result;
 
 use crate::{
-    category::adder::adder_cases,
+    category::{adder::adder_cases, test::Runs},
     interface::{Interface, colour},
     schem::Blocks,
     simulate::{
@@ -884,6 +884,38 @@ fn streamed(
             case
         })
         .collect()
+}
+
+/// An ALU's test: each operation its control lines name.
+#[derive(Debug)]
+pub(super) struct Operations;
+
+impl Runs for Operations {
+    fn check(&self, blocks: &Blocks, quick: bool) -> Result<Run> {
+        check(blocks, quick)
+    }
+
+    fn remembers(&self, blocks: &Blocks) -> Result<Option<bool>> {
+        remembers(blocks).map(Some)
+    }
+
+    fn throughput(
+        &self,
+        blocks: &Blocks,
+        _data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>> {
+        throughput(blocks, timing)
+    }
+
+    fn time(
+        &self,
+        blocks: &Blocks,
+        _patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        time(blocks, cancel)
+    }
 }
 
 #[cfg(test)]

@@ -5,7 +5,8 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    interface::Interface,
+    category::test::BySpec,
+    interface::{self, Interface},
     simulate::{
         Broken,
         bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
@@ -123,6 +124,13 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     let paired = (cases.len() - before) as u64;
     (cases.cases, paired)
 }
+
+/// A multiplier's test: its lone control line is named for its role,
+/// calculate.
+pub(super) const MULTIPLIER: BySpec = BySpec::spec(|blocks, interface| {
+    interface::name_lines(super::Kind::Multiplier.lines(), blocks, interface);
+    spec(interface)
+});
 
 #[cfg(test)]
 mod tests {

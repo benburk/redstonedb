@@ -6,8 +6,8 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    category::{Test, converters::byte_cases},
-    interface::Interface,
+    category::{Test, converters::byte_cases, test::BySpec},
+    interface::{self, Interface},
     simulate::{
         Broken, Stacker,
         bench::{Bench, Case, Cases, Kind, Spec, mask},
@@ -96,3 +96,13 @@ pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
          together.",
     )
 }
+
+/// An inverter's test: its lone control line is named for its role,
+/// invert.
+pub(super) const INVERTER: BySpec = BySpec::stacked(
+    |blocks, interface| {
+        interface::name_lines(super::Kind::Inverter.lines(), blocks, interface);
+        spec(interface)
+    },
+    stacker,
+);

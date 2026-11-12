@@ -7,18 +7,13 @@ use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
 
-use super::{
-    Kind, adder, alu, converters, decoder,
-    gate::{self, Gate},
-    incrementer, inverter, monostable, multiplier, negator, register,
-    sequential, shifter, stacks,
-};
+use super::{Kind, alu, incrementer};
 use crate::{
     interface::{self, Interface},
     schem::Blocks,
     simulate::{
-        Counts, MAX_WIDTH, Reading, Report, Run, Stacker, Stacking, Step,
-        Timing, bench, throughput,
+        MAX_WIDTH, Reading, Report, Run, Stacker, Stacking, Step, Timing,
+        bench, throughput,
     },
 };
 
@@ -110,255 +105,255 @@ pub enum Test {
 
 /// What a stateless test drives, reads, and expects of a build, from its
 /// file and its interface, whose lines it names for their roles.
-type SpecOf = fn(&Blocks, &mut Interface) -> Result<bench::Spec>;
+pub(super) type SpecOf = fn(&Blocks, &mut Interface) -> Result<bench::Spec>;
 
 /// How copies of a build, its file, whose own cases came out right, are
 /// stacked and tested as its category's group asks; see `Test::stacking`.
-type StacksOf = for<'a> fn(&'a [u8]) -> Option<Stacker<'a>>;
+pub(super) type StacksOf = for<'a> fn(&'a [u8]) -> Option<Stacker<'a>>;
 
-/// How a test runs: from a spec, as most stateless ones do, or its own
-/// way.
-#[derive(Clone, Copy)]
-enum Way {
-    /// Driven by `spec`, which `bench` runs, its copies stacking as
-    /// `stacks` finds, when they are tried.
-    Spec {
-        spec: SpecOf,
-        stacks: Option<StacksOf>,
-    },
-    /// Each operation an ALU's control lines name.
-    Alu,
-    /// Each shift a barrel shifter's lines give.
-    Shifter,
-    /// Each value written into a register's or buffer's every cell.
-    Register(register::Kind),
-    /// A pulse on one edge of A, or with `dual` on both.
-    Monostable { dual: bool },
-    /// A value held and changed as control lines pulse.
-    Sequential(sequential::Kind),
+/// How a category's test runs: its cases, and what is measured of a build
+/// that gets them all right. Most are a spec's, which the bench runs, see
+/// [`BySpec`]; an ALU's operations, a barrel shifter's shifts, a
+/// register's cells, a monostable's pulse, and a counter's held value run
+/// their own way. Each category's row names its own; see `Facts::runs`.
+pub(super) trait Runs: Sync + std::fmt::Debug {
+    /// The test's cases run on `blocks`, or with `quick` a few telling
+    /// ones, quick enough for a guess at what a build is.
+    fn check(&self, blocks: &Blocks, quick: bool) -> Result<Run>;
+
+    /// The cases run through `interface`, as probing finds it rather than
+    /// as the file marks it; `None` for a test that reads a build's lines
+    /// its own way.
+    fn check_with(
+        &self,
+        _blocks: &Blocks,
+        _interface: Interface,
+        _quick: bool,
+    ) -> Option<Result<Run>> {
+        None
+    }
+
+    /// Whether the build in `blocks`, whose cases all came out right,
+    /// holds state; `None` where nothing tells.
+    fn remembers(&self, blocks: &Blocks) -> Result<Option<bool>>;
+
+    /// How copies of the build in `data` are stacked and tested, one step
+    /// at a time; `None` for a test whose copies are never stacked.
+    fn stacker<'a>(&self, _data: &'a [u8]) -> Option<Stacker<'a>> {
+        None
+    }
+
+    /// Whether copies of the build in `data` stack into a wider one, tried
+    /// at each pitch class.
+    fn stacking(&self, data: &[u8]) -> Option<Stacking> {
+        Some(self.stacker(data)?.stacking())
+    }
+
+    /// Whether `copies` of the build in `data` stacked `step` make a wider
+    /// one: the step with the box that works and the cases run, or why
+    /// not.
+    fn stacks_at(
+        &self,
+        data: &[u8],
+        step: Step,
+        copies: usize,
+    ) -> Option<Result<(Step, u64), String>> {
+        Some(self.stacker(data)?.at(step, copies))
+    }
+
+    /// How often the build in `blocks`, its file `data`, timed as `timing`,
+    /// takes a new case.
+    fn throughput(
+        &self,
+        blocks: &Blocks,
+        data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>>;
+
+    /// The lines of `blocks` named as its timing names them; as
+    /// [`interface::read`] finds them for a test that names none.
+    fn lines(&self, blocks: &Blocks) -> Result<Interface> {
+        Ok(interface::read(blocks))
+    }
+
+    /// Measures when `blocks`' outputs settle, its inputs taking the test
+    /// patterns whatever their width when `patterned`, stopping early once
+    /// `cancel` is set.
+    fn time(
+        &self,
+        blocks: &Blocks,
+        patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing>;
 }
 
-impl Way {
+/// A test driven by a spec, which the bench runs, as most stateless ones
+/// are.
+#[derive(Debug)]
+pub(super) struct BySpec {
+    spec: SpecOf,
+    /// How its copies stack, when they are tried.
+    stacks: Option<StacksOf>,
+    /// What its cases, once judged, add to a run, as an adder's name the
+    /// lines it reads inverted.
+    reads: Option<fn(&mut Run)>,
+    /// Whether it is always timed by the test patterns, as an adder is:
+    /// its slowest changes are its longest carries, which the patterns
+    /// drive, so every live adder times as it did trying every case, in
+    /// half the time.
+    patterned: bool,
+}
+
+impl BySpec {
     /// A test driven by `spec` whose copies are never tried stacked.
-    const fn spec(spec: SpecOf) -> Way {
-        Way::Spec { spec, stacks: None }
+    pub(super) const fn spec(spec: SpecOf) -> Self {
+        BySpec {
+            spec,
+            stacks: None,
+            reads: None,
+            patterned: false,
+        }
     }
 
     /// A test driven by `spec` whose copies stack as `stacks` finds.
-    const fn stacked(spec: SpecOf, stacks: StacksOf) -> Way {
-        Way::Spec {
-            spec,
+    pub(super) const fn stacked(spec: SpecOf, stacks: StacksOf) -> Self {
+        BySpec {
             stacks: Some(stacks),
+            ..Self::spec(spec)
         }
+    }
+
+    /// It, its cases adding to a run what `reads` does.
+    pub(super) const fn reading(self, reads: fn(&mut Run)) -> Self {
+        BySpec {
+            reads: Some(reads),
+            ..self
+        }
+    }
+
+    /// It, always timed by the test patterns.
+    pub(super) const fn patterned(self) -> Self {
+        BySpec {
+            patterned: true,
+            ..self
+        }
+    }
+
+    /// The interface of the build in `blocks` with its lines named as the
+    /// spec names them, and the spec.
+    fn bench(&self, blocks: &Blocks) -> Result<(Interface, bench::Spec)> {
+        let mut interface = interface::read(blocks);
+        let spec = (self.spec)(blocks, &mut interface)?;
+        Ok((interface, spec))
     }
 }
 
-/// The interface of the build in `blocks` with its lines named as `spec`
-/// names them, and the spec.
-fn bench(spec: SpecOf, blocks: &Blocks) -> Result<(Interface, bench::Spec)> {
-    let mut interface = interface::read(blocks);
-    let spec = spec(blocks, &mut interface)?;
-    Ok((interface, spec))
-}
+impl Runs for BySpec {
+    fn check(&self, blocks: &Blocks, quick: bool) -> Result<Run> {
+        let (interface, spec) = self.bench(blocks)?;
+        let mut run = spec.check(blocks, &interface, quick)?;
+        if let Some(reads) = self.reads {
+            reads(&mut run);
+        }
+        Ok(run)
+    }
 
-/// An incrementer's kind of test, counting `counts`: its unsigned line is
-/// named for its role, such as increment, so the cases read `A +
-/// increment`.
-fn counting(
-    kind: Kind,
-    counts: Counts,
-    blocks: &Blocks,
-    interface: &mut Interface,
-) -> Result<bench::Spec> {
-    interface::name_lines(kind.lines(), blocks, interface);
-    incrementer::spec(interface, Some(counts))
+    fn check_with(
+        &self,
+        blocks: &Blocks,
+        mut interface: Interface,
+        quick: bool,
+    ) -> Option<Result<Run>> {
+        Some(
+            (self.spec)(blocks, &mut interface)
+                .and_then(|spec| spec.check(blocks, &interface, quick)),
+        )
+    }
+
+    fn remembers(&self, blocks: &Blocks) -> Result<Option<bool>> {
+        let (interface, spec) = self.bench(blocks)?;
+        bench::remembers(blocks, &interface, &spec.bench).map(Some)
+    }
+
+    fn stacker<'a>(&self, data: &'a [u8]) -> Option<Stacker<'a>> {
+        self.stacks.and_then(|stacks| stacks(data))
+    }
+
+    fn throughput(
+        &self,
+        blocks: &Blocks,
+        _data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>> {
+        let (interface, _) = self.bench(blocks)?;
+        throughput::throughput(blocks, &interface, timing)
+    }
+
+    fn lines(&self, blocks: &Blocks) -> Result<Interface> {
+        Ok(self.bench(blocks)?.0)
+    }
+
+    fn time(
+        &self,
+        blocks: &Blocks,
+        patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        let (interface, spec) = self.bench(blocks)?;
+        spec.time(blocks, &interface, patterned || self.patterned, cancel)
+    }
 }
 
 impl Test {
-    /// The category the test is made for, which its results are stored
-    /// under the name of, and how it runs.
-    #[allow(clippy::too_many_lines, reason = "a table, one arm per test")]
-    fn made(self) -> (Kind, Way) {
+    /// The category it is made for, whose name its results are stored
+    /// under and whose row says how it runs: an adder's for a hex adder's
+    /// and a subtractor's too.
+    pub const fn kind(self) -> Kind {
         match self {
-            Test::Adder => (
-                Kind::Adder,
-                Way::stacked(|_, i| adder::adder(i), stacks::adder),
-            ),
-            Test::Decoder => {
-                (Kind::Decoder, Way::spec(|_, i| decoder::spec(i)))
-            }
-            Test::NandXnor => (
-                Kind::NandXnorGate,
-                Way::stacked(
-                    |_, i| gate::nand_xnor(i),
-                    gate::nand_xnor_stacker,
-                ),
-            ),
-            Test::BarrelShifter => (Kind::BarrelShifter, Way::Shifter),
-            Test::Incrementer => (
-                Kind::Incrementer,
-                Way::stacked(
-                    |b, i| counting(Kind::Incrementer, Counts::Up, b, i),
-                    |data| stacks::chained(data, Test::Incrementer),
-                ),
-            ),
-            Test::Decrementer => (
-                Kind::Decrementer,
-                Way::stacked(
-                    |b, i| counting(Kind::Decrementer, Counts::Down, b, i),
-                    |data| stacks::chained(data, Test::Decrementer),
-                ),
-            ),
-            Test::IncDec => (
-                Kind::IncDec,
-                Way::spec(|b, i| counting(Kind::IncDec, Counts::Either, b, i)),
-            ),
-            Test::Multiplier => (
-                Kind::Multiplier,
-                // Its lone control line is named for its role, calculate.
-                Way::spec(|b, i| {
-                    interface::name_lines(Kind::Multiplier.lines(), b, i);
-                    multiplier::spec(i)
-                }),
-            ),
-            Test::BinaryToBcd => (
-                Kind::BinaryToBcd,
-                Way::spec(|_, i| converters::binary_to_bcd(i)),
-            ),
-            Test::BcdToBinary => (
-                Kind::BcdToBinary,
-                Way::spec(|_, i| converters::bcd_to_binary(i)),
-            ),
-            Test::Alu => (Kind::Alu, Way::Alu),
-            Test::Register => {
-                (Kind::Register, Way::Register(register::Kind::Register))
-            }
-            Test::Buffer => {
-                (Kind::Buffer, Way::Register(register::Kind::Buffer))
-            }
-            Test::AbsoluteValue => (
-                Kind::AbsoluteValue,
-                Way::spec(|_, i| converters::absolute_value(i)),
-            ),
-            Test::Negator => (
-                Kind::Negator,
-                // Its lone control line is named for its role, negate.
-                Way::spec(|b, i| {
-                    interface::name_lines(Kind::Negator.lines(), b, i);
-                    negator::spec(i)
-                }),
-            ),
-            Test::CarryOut => (
-                Kind::CarryOut,
-                Way::stacked(
-                    |_, i| adder::carry_out(i),
-                    |data| stacks::chained(data, Test::CarryOut),
-                ),
-            ),
-            Test::GreaterThan => {
-                (Kind::GreaterThan, Way::spec(|_, i| adder::greater_than(i)))
-            }
-            Test::Equality => {
-                (Kind::Equality, Way::spec(|_, i| adder::equality(i)))
-            }
-            Test::Monostable => {
-                (Kind::Monostable, Way::Monostable { dual: false })
-            }
-            Test::DualEdgeMonostable => {
-                (Kind::DualEdgeMonostable, Way::Monostable { dual: true })
-            }
-            Test::Inverter => (
-                Kind::Inverter,
-                // Its lone control line is named for its role, invert.
-                Way::stacked(
-                    |b, i| {
-                        interface::name_lines(Kind::Inverter.lines(), b, i);
-                        inverter::spec(i)
-                    },
-                    inverter::stacker,
-                ),
-            ),
-            Test::Popcount => {
-                (Kind::Popcount, Way::spec(|_, i| converters::popcount(i)))
-            }
-            Test::BinaryToHex => (
-                Kind::BinaryToHex,
-                Way::spec(|_, i| converters::binary_to_hex(i)),
-            ),
-            Test::HexToBinary => (
-                Kind::HexToBinary,
-                Way::spec(|_, i| converters::hex_to_binary(i)),
-            ),
-            Test::Threshold => {
-                (Kind::Threshold, Way::spec(|_, i| converters::threshold(i)))
-            }
-            Test::Parity => {
-                (Kind::Parity, Way::spec(|_, i| converters::parity(i)))
-            }
-            Test::Xor => (
-                Kind::XorGate,
-                Way::stacked(
-                    |_, i| gate::spec(i, Gate::Xor),
-                    |data| gate::stacker(data, Gate::Xor),
-                ),
-            ),
-            Test::Xnor => (
-                Kind::XnorGate,
-                Way::stacked(
-                    |_, i| gate::spec(i, Gate::Xnor),
-                    |data| gate::stacker(data, Gate::Xnor),
-                ),
-            ),
-            Test::And => (
-                Kind::AndGate,
-                Way::stacked(
-                    |_, i| gate::spec(i, Gate::And),
-                    |data| gate::stacker(data, Gate::And),
-                ),
-            ),
-            Test::Nand => (
-                Kind::NandGate,
-                Way::stacked(
-                    |_, i| gate::spec(i, Gate::Nand),
-                    |data| gate::stacker(data, Gate::Nand),
-                ),
-            ),
-            Test::Or => (
-                Kind::OrGate,
-                Way::stacked(
-                    |_, i| gate::spec(i, Gate::Or),
-                    |data| gate::stacker(data, Gate::Or),
-                ),
-            ),
-            Test::Nor => (
-                Kind::NorGate,
-                Way::stacked(
-                    |_, i| gate::spec(i, Gate::Nor),
-                    |data| gate::stacker(data, Gate::Nor),
-                ),
-            ),
-            Test::Counter => {
-                (Kind::Counter, Way::Sequential(sequential::Kind::Counter))
-            }
-            Test::ShiftRegister => (
-                Kind::ShiftRegister,
-                Way::Sequential(sequential::Kind::ShiftRegister),
-            ),
-            Test::TFlipFlop => (
-                Kind::TFlipFlop,
-                Way::Sequential(sequential::Kind::TFlipFlop),
-            ),
+            Test::Adder => Kind::Adder,
+            Test::Decoder => Kind::Decoder,
+            Test::NandXnor => Kind::NandXnorGate,
+            Test::BarrelShifter => Kind::BarrelShifter,
+            Test::Incrementer => Kind::Incrementer,
+            Test::Decrementer => Kind::Decrementer,
+            Test::IncDec => Kind::IncDec,
+            Test::Multiplier => Kind::Multiplier,
+            Test::BinaryToBcd => Kind::BinaryToBcd,
+            Test::BcdToBinary => Kind::BcdToBinary,
+            Test::Alu => Kind::Alu,
+            Test::Register => Kind::Register,
+            Test::Buffer => Kind::Buffer,
+            Test::AbsoluteValue => Kind::AbsoluteValue,
+            Test::Negator => Kind::Negator,
+            Test::CarryOut => Kind::CarryOut,
+            Test::GreaterThan => Kind::GreaterThan,
+            Test::Equality => Kind::Equality,
+            Test::Monostable => Kind::Monostable,
+            Test::DualEdgeMonostable => Kind::DualEdgeMonostable,
+            Test::Inverter => Kind::Inverter,
+            Test::Popcount => Kind::Popcount,
+            Test::BinaryToHex => Kind::BinaryToHex,
+            Test::HexToBinary => Kind::HexToBinary,
+            Test::Threshold => Kind::Threshold,
+            Test::Parity => Kind::Parity,
+            Test::Xor => Kind::XorGate,
+            Test::Xnor => Kind::XnorGate,
+            Test::And => Kind::AndGate,
+            Test::Nand => Kind::NandGate,
+            Test::Or => Kind::OrGate,
+            Test::Nor => Kind::NorGate,
+            Test::Counter => Kind::Counter,
+            Test::ShiftRegister => Kind::ShiftRegister,
+            Test::TFlipFlop => Kind::TFlipFlop,
         }
     }
 
-    /// The category it is made for, whose name its results are stored
-    /// under: an adder's for a hex adder's and a subtractor's too.
-    pub fn kind(self) -> Kind {
-        self.made().0
-    }
-
-    fn way(self) -> Way {
-        self.made().1
+    /// How it runs, as its category's row says.
+    fn runs(self) -> &'static dyn Runs {
+        self.kind()
+            .facts()
+            .runs
+            .expect("the category a test is made for says how it runs")
     }
 
     /// Every test, each its own category's, in the order of their
@@ -389,48 +384,33 @@ impl Test {
         Report::of(self.check(blocks, false))
     }
 
-    /// A few telling cases of the test run on `blocks`, as its colours mark
+    /// A few telling cases of the test run on `blocks`, as its file marks
     /// its lines: enough to tell one reading of a build from another.
     pub fn quick(self, blocks: &Blocks) -> Result<Run> {
         self.check(blocks, true)
     }
 
     /// The test's cases run on `blocks` through `interface`, as probing
-    /// finds it rather than as colours mark it, or with `quick` a few
+    /// finds it rather than as the file marks it, or with `quick` a few
     /// telling ones. Only a test driven by a spec, such as an adder's,
     /// runs so; any other fails.
     pub fn check_with(
         self,
         blocks: &Blocks,
-        mut interface: Interface,
+        interface: Interface,
         quick: bool,
     ) -> Result<Run> {
-        let Way::Spec { spec, .. } = self.way() else {
-            anyhow::bail!("{} runs its own way", self.kind().a());
-        };
-        let spec = spec(blocks, &mut interface)?;
-        spec.check(blocks, &interface, quick)
+        self.runs()
+            .check_with(blocks, interface, quick)
+            .unwrap_or_else(|| {
+                anyhow::bail!("{} runs its own way", self.kind().a())
+            })
     }
 
     /// The test's cases run on `blocks`, or with `quick` a few telling
     /// ones, quick enough for a guess at what a build is.
     pub(super) fn check(self, blocks: &Blocks, quick: bool) -> Result<Run> {
-        match self.way() {
-            Way::Spec { spec, .. } => {
-                let (interface, spec) = bench(spec, blocks)?;
-                let mut run = spec.check(blocks, &interface, quick)?;
-                // An adder's kinds name the lines it reads inverted.
-                if self == Test::Adder {
-                    run.inverted = run.adder_variant().lines(&run);
-                }
-                Ok(run)
-            }
-            Way::Alu => alu::check(blocks, quick),
-            Way::Shifter => shifter::check(blocks, quick),
-            Way::Register(kind) => register::check(blocks, kind, quick),
-            Way::Monostable { dual } => monostable::check(blocks, dual),
-            Way::Sequential(kind) => sequential::check(blocks, kind),
-        }
+        self.runs().check(blocks, quick)
     }
 
     /// Whether the build in `blocks`, whose cases all came out right, holds
@@ -442,52 +422,31 @@ impl Test {
     /// told of each of its operations; a monostable, a pulse generator,
     /// holds none, its pulse being its input's change, not a held value.
     pub fn remembers(self, blocks: &Blocks) -> Result<Option<bool>> {
-        match self.way() {
-            Way::Spec { spec, .. } => {
-                let (interface, spec) = bench(spec, blocks)?;
-                bench::remembers(blocks, &interface, &spec.bench).map(Some)
-            }
-            Way::Register(_) | Way::Sequential(_) => Ok(Some(true)),
-            Way::Alu => alu::remembers(blocks).map(Some),
-            Way::Shifter => shifter::remembers(blocks).map(Some),
-            Way::Monostable { .. } => Ok(Some(false)),
-        }
+        self.runs().remembers(blocks)
     }
 
     /// Whether copies of the build in `data`, whose own cases came out
     /// right, stack into a wider one of its kind, tried at each pitch
     /// class as its category's group asks: an adder's, an incrementer's,
-    /// and a carry out's copies must chain; a gate's, a monostable's, and a
-    /// T flip-flop's each work alone beside the others; an inverter's, a register's, and
-    /// a buffer's share lines, as many copies as work counted, and a
-    /// register's copies may also add words on its shared bus. `None` for
-    /// any other, and for a category whose builds never stack, as a
-    /// decoder's, whose copies side by side are separate decoders.
+    /// and a carry out's copies must chain; a gate's, a monostable's, and
+    /// a T flip-flop's each work alone beside the others; an inverter's, a
+    /// register's, and a buffer's share lines, as many copies as work
+    /// counted, and a register's copies may also add words on its shared
+    /// bus. `None` for any other, and for a category whose builds never
+    /// stack, as a decoder's, whose copies side by side are separate
+    /// decoders.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
-        if self.kind().facts().behaviour.stacking
-            == crate::category::Stacking::Never
-        {
+        if self.kind().facts().behaviour.stacking == super::Stacking::Never {
             return None;
         }
-        match self.way() {
-            Way::Register(kind) => register::stacking(data, kind),
-            _ => Some(self.stacker(data)?.stacking()),
-        }
+        self.runs().stacking(data)
     }
 
     /// How copies of the build in `data` are stacked and tested, as
     /// [`Test::stacking`] tries each pitch, for one step at a time; see
     /// [`Stacker::at`]. `None` for a test whose copies are never stacked.
     pub fn stacker(self, data: &[u8]) -> Option<Stacker<'_>> {
-        match self.way() {
-            Way::Spec { stacks, .. } => stacks.and_then(|stacks| stacks(data)),
-            Way::Register(kind) => register::stacker(data, kind),
-            Way::Monostable { dual } => monostable::stacker(data, dual),
-            Way::Sequential(sequential::Kind::TFlipFlop) => {
-                sequential::toggle_stacker(data)
-            }
-            Way::Alu | Way::Shifter | Way::Sequential(_) => None,
-        }
+        self.runs().stacker(data)
     }
 
     /// Whether `copies` of the build in `data`, whose own cases came out
@@ -495,20 +454,16 @@ impl Test {
     /// `stacking` tests each step, the box rule's box first, then boxes
     /// leaving out more of the first copy: the step with the box that
     /// works and the cases run, or why not. Copies apart, as
-    /// `stack::touches` has them, never stack. A register's copies are tried as more words on
-    /// its shared bus, then as more bits. `None` for a test whose copies
-    /// are never stacked.
+    /// `stack::touches` has them, never stack. A register's copies are
+    /// tried as more words on its shared bus, then as more bits. `None`
+    /// for a test whose copies are never stacked.
     pub fn stacks_at(
         self,
         data: &[u8],
         step: Step,
         copies: usize,
     ) -> Option<Result<(Step, u64), String>> {
-        if let Way::Register(kind) = self.way() {
-            return register::stacks_at(data, kind, step, copies)
-                .map(|found| found.map(|(step, cases, _)| (step, cases)));
-        }
-        Some(self.stacker(data)?.at(step, copies))
+        self.runs().stacks_at(data, step, copies)
     }
 
     /// How often the build in `blocks`, its file `data`, timed as
@@ -523,34 +478,21 @@ impl Test {
         data: &[u8],
         timing: &Timing,
     ) -> Result<Option<i32>> {
-        match self.way() {
-            Way::Spec { spec, .. } => {
-                let (interface, _) = bench(spec, blocks)?;
-                throughput::throughput(blocks, &interface, timing)
-            }
-            Way::Register(kind) => register::throughput(data, timing, kind),
-            Way::Monostable { .. } => monostable::throughput(blocks, timing),
-            Way::Alu => alu::throughput(blocks, timing),
-            Way::Shifter => shifter::throughput(blocks, timing),
-            Way::Sequential(kind) => sequential::throughput(blocks, kind),
-        }
+        self.runs().throughput(blocks, data, timing)
     }
 
     /// The lines of `blocks` named as its timing names them, such as an
     /// adder's A, B, and carry in; for a test that names none, as
     /// [`interface::read`] finds them.
     pub fn lines(self, blocks: &Blocks) -> Result<Interface> {
-        match self.way() {
-            Way::Spec { spec, .. } => Ok(bench(spec, blocks)?.0),
-            _ => Ok(interface::read(blocks)),
-        }
+        self.runs().lines(blocks)
     }
 
     /// Measures when `blocks`' outputs settle, on every core, stopping
     /// early once `cancel` is set. Meant for a build whose cases all came
     /// out right.
     pub fn time(self, blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
-        self.timed(blocks, false, cancel)
+        self.runs().time(blocks, false, cancel)
     }
 
     /// [`Test::time`], its inputs taking the test patterns whatever their
@@ -561,31 +503,7 @@ impl Test {
         blocks: &Blocks,
         cancel: &AtomicBool,
     ) -> Result<Timing> {
-        self.timed(blocks, true, cancel)
-    }
-
-    /// [`Test::time`], by the test patterns when `patterned`.
-    fn timed(
-        self,
-        blocks: &Blocks,
-        patterned: bool,
-        cancel: &AtomicBool,
-    ) -> Result<Timing> {
-        match self.way() {
-            Way::Spec { spec, .. } => {
-                let (interface, spec) = bench(spec, blocks)?;
-                // An adder's slowest changes are its longest carries, which
-                // the test patterns drive: timed by them, every live adder
-                // times as it did trying every case, in half the time.
-                let patterned = patterned || self == Test::Adder;
-                spec.time(blocks, &interface, patterned, cancel)
-            }
-            Way::Alu => alu::time(blocks, cancel),
-            Way::Shifter => shifter::time(blocks, cancel),
-            Way::Register(kind) => register::time(blocks, kind, cancel),
-            Way::Monostable { dual } => monostable::time(blocks, dual, cancel),
-            Way::Sequential(kind) => sequential::time(blocks, kind, cancel),
-        }
+        self.runs().time(blocks, true, cancel)
     }
 }
 

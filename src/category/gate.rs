@@ -7,7 +7,7 @@
 use anyhow::Result;
 
 use crate::{
-    category::{Test, adder::adder_cases},
+    category::{Test, adder::adder_cases, test::BySpec},
     interface::Interface,
     simulate::{
         Broken, Stacker, Value,
@@ -205,3 +205,32 @@ pub fn stacker(data: &[u8], gate: Gate) -> Option<Stacker<'_>> {
         ),
     )
 }
+
+/// Each gate's test: its copies add bits, each a cell of its own.
+pub(super) const XOR: BySpec = BySpec::stacked(
+    |_, interface| spec(interface, Gate::Xor),
+    |data| stacker(data, Gate::Xor),
+);
+pub(super) const XNOR: BySpec = BySpec::stacked(
+    |_, interface| spec(interface, Gate::Xnor),
+    |data| stacker(data, Gate::Xnor),
+);
+pub(super) const AND: BySpec = BySpec::stacked(
+    |_, interface| spec(interface, Gate::And),
+    |data| stacker(data, Gate::And),
+);
+pub(super) const NAND: BySpec = BySpec::stacked(
+    |_, interface| spec(interface, Gate::Nand),
+    |data| stacker(data, Gate::Nand),
+);
+pub(super) const OR: BySpec = BySpec::stacked(
+    |_, interface| spec(interface, Gate::Or),
+    |data| stacker(data, Gate::Or),
+);
+pub(super) const NOR: BySpec = BySpec::stacked(
+    |_, interface| spec(interface, Gate::Nor),
+    |data| stacker(data, Gate::Nor),
+);
+
+pub(super) const NAND_XNOR_GATE: BySpec =
+    BySpec::stacked(|_, interface| nand_xnor(interface), nand_xnor_stacker);

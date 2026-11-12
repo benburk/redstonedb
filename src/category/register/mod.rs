@@ -32,13 +32,15 @@
 //! but a buffer's output may not. Its timing counts from a write, as a
 //! register's counts from a read.
 
+use std::sync::atomic::AtomicBool;
+
 use anyhow::Result;
 
 use self::check::check_on;
 use crate::{
-    category,
+    category::{self, test::Runs},
     schem::{Blocks, Pos},
-    simulate::{Run, Value, bench::mask},
+    simulate::{Run, Stacker, Stacking, Step, Timing, Value, bench::mask},
 };
 
 mod check;
@@ -145,4 +147,53 @@ pub fn check(blocks: &Blocks, kind: Kind, quick: bool) -> Result<Run> {
 struct Shape {
     cells: usize,
     width: usize,
+}
+
+/// A register's or a buffer's test: each value written into every cell,
+/// so passing it is holding state. A register's copies may add words on
+/// its shared bus as well as bits.
+impl Runs for Kind {
+    fn check(&self, blocks: &Blocks, quick: bool) -> Result<Run> {
+        check(blocks, *self, quick)
+    }
+
+    fn remembers(&self, _blocks: &Blocks) -> Result<Option<bool>> {
+        Ok(Some(true))
+    }
+
+    fn stacker<'a>(&self, data: &'a [u8]) -> Option<Stacker<'a>> {
+        stacker(data, *self)
+    }
+
+    fn stacking(&self, data: &[u8]) -> Option<Stacking> {
+        stacking(data, *self)
+    }
+
+    fn stacks_at(
+        &self,
+        data: &[u8],
+        step: Step,
+        copies: usize,
+    ) -> Option<Result<(Step, u64), String>> {
+        stacks_at(data, *self, step, copies)
+            .map(|found| found.map(|(step, cases, _)| (step, cases)))
+    }
+
+    fn throughput(
+        &self,
+        _blocks: &Blocks,
+        data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>> {
+        throughput(data, timing, *self)
+    }
+
+    fn time(
+        &self,
+        blocks: &Blocks,
+        _patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        time(blocks, *self, cancel)
+    }
 }

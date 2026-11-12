@@ -7,6 +7,7 @@
 use anyhow::Result;
 
 use crate::{
+    category::test::BySpec,
     interface::Interface,
     simulate::{
         Broken,
@@ -56,6 +57,8 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         by_digit: false,
     })
 }
+
+pub(super) const DECODER: BySpec = BySpec::spec(|_, interface| spec(interface));
 
 #[cfg(test)]
 mod tests {

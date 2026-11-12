@@ -16,6 +16,7 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use crate::{
+    category::test::Runs,
     interface::Interface,
     schem::Blocks,
     simulate::{
@@ -500,6 +501,38 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
         |port| port != shifter.a,
         stream,
     )
+}
+
+/// A barrel shifter's test: each shift its lines give.
+#[derive(Debug)]
+pub(super) struct Shifts;
+
+impl Runs for Shifts {
+    fn check(&self, blocks: &Blocks, quick: bool) -> Result<Run> {
+        check(blocks, quick)
+    }
+
+    fn remembers(&self, blocks: &Blocks) -> Result<Option<bool>> {
+        remembers(blocks).map(Some)
+    }
+
+    fn throughput(
+        &self,
+        blocks: &Blocks,
+        _data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>> {
+        throughput(blocks, timing)
+    }
+
+    fn time(
+        &self,
+        blocks: &Blocks,
+        _patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        time(blocks, cancel)
+    }
 }
 
 #[cfg(test)]

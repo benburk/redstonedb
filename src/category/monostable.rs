@@ -26,7 +26,7 @@ use std::{
 use anyhow::{Result, bail};
 
 use crate::{
-    category::Kind,
+    category::{Kind, test::Runs},
     interface::{self, Interface},
     schem::Blocks,
     simulate::{
@@ -745,4 +745,44 @@ pub fn stacker(data: &[u8], dual: bool) -> Option<Stacker<'_>> {
     };
     let ways = (width, stacking::bit_ways(&interface, width));
     Some(Stacker::new(data, kind.copying(), ways, works, not))
+}
+
+/// A monostable's test: a pulse on one edge of A, or with `dual` on both.
+/// It holds no state, its pulse being its input's change, not a held
+/// value.
+#[derive(Debug)]
+pub(super) struct Monostable {
+    pub dual: bool,
+}
+
+impl Runs for Monostable {
+    fn check(&self, blocks: &Blocks, _quick: bool) -> Result<Run> {
+        check(blocks, self.dual)
+    }
+
+    fn remembers(&self, _blocks: &Blocks) -> Result<Option<bool>> {
+        Ok(Some(false))
+    }
+
+    fn stacker<'a>(&self, data: &'a [u8]) -> Option<Stacker<'a>> {
+        stacker(data, self.dual)
+    }
+
+    fn throughput(
+        &self,
+        blocks: &Blocks,
+        _data: &[u8],
+        timing: &Timing,
+    ) -> Result<Option<i32>> {
+        throughput(blocks, timing)
+    }
+
+    fn time(
+        &self,
+        blocks: &Blocks,
+        _patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        time(blocks, self.dual, cancel)
+    }
 }
