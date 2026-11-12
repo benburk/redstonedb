@@ -1,7 +1,7 @@
 //! How alike each build is to the others of its category, as
-//! `crate::similarity` measures it, kept so a build's page can list the
-//! ones it is similar to. A build is compared again whenever its file or
-//! category changes.
+//! `crate::compare::similarity` measures it, kept so a build's page can
+//! list the ones it is similar to. A build is compared again whenever its
+//! file or category changes.
 
 use std::collections::{HashMap, HashSet};
 
@@ -9,8 +9,8 @@ use anyhow::Result;
 use sqlx::SqlitePool;
 
 use crate::{
+    compare::similarity::{self, Skeleton},
     schem::Blocks,
-    similarity::{self, Skeleton},
     store::similarity as store,
 };
 

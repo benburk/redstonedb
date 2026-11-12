@@ -29,7 +29,7 @@ pub async fn visible(
     viewer: Option<&crate::account::User>,
 ) -> Result<Vec<Build>, sqlx::Error> {
     let mut all = all(db).await?;
-    all.retain(|s| s.listed_to(viewer));
+    all.retain(|s| crate::account::lists(viewer, s));
     Ok(all)
 }
 

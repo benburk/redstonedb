@@ -1,12 +1,12 @@
 //! What a build's file and its simulation decide of its details, in place
 //! of what was typed: worked out here without touching the database, and
-//! written by `Derived::save` in the module above.
+//! written by `Derived::save` in `results`.
 
 use crate::{
     build::{Build, Specs, Widened},
     category::{self, Test},
-    import, interface,
-    recognize::evaluate::Evaluation,
+    ingest::{evaluate::Evaluation, read},
+    interface,
     schem::Blocks,
     simulate::{Edge, Report, Stacking},
     stack::StackDirection,
@@ -100,7 +100,7 @@ impl Derived {
     /// Takes what a build of `category` reads from its file, `blocks`.
     pub(super) fn read(&mut self, category: &str, blocks: &Blocks) {
         let interface = interface::read(blocks);
-        let found = import::derived(category, &interface);
+        let found = read::derived(category, &interface);
         if let Some(width) = found.width {
             self.specs.width = Some(width);
         }
@@ -110,7 +110,7 @@ impl Derived {
         if let Some(encoding) = found.encoding {
             self.specs.encoding = Some(encoding);
         }
-        if let Some(flags) = import::derived_flags(category, &interface) {
+        if let Some(flags) = read::derived_flags(category, &interface) {
             self.flags = flags;
         }
     }

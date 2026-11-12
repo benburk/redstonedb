@@ -4,11 +4,11 @@ use std::collections::{BTreeMap, HashMap};
 
 use app::{
     category::{Kind, Test},
-    ingest::standardize,
     recognize::roles::{self, Need, Role},
     schem::{self, Blocks, Pos},
     simulate::Report,
     stack,
+    standard::standardize,
 };
 
 /// The fixture file at `path`, carrying the roles its colours mark, as the

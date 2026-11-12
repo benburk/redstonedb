@@ -7,7 +7,7 @@ use maud::{Markup, html};
 use crate::{
     build::tag::Tag,
     category::{self, Category, Logic},
-    import,
+    ingest::read::Derived,
     interface::Orientation,
 };
 
@@ -100,11 +100,7 @@ fn found_mark(how: &str, hidden: bool) -> Markup {
 /// `derived` is the width and orientation the file gives a category that
 /// reads them from the file, such as an adder's from its input A,
 /// shown in place of the typed ones once such a category is chosen.
-pub(super) fn fields(
-    f: &Form,
-    choices: &Choices,
-    derived: &import::Derived,
-) -> Markup {
+pub(super) fn fields(f: &Form, choices: &Choices, derived: &Derived) -> Markup {
     html! {
         (category_fields(f, choices))
         // A standard category's, found in the file, shown as the field it

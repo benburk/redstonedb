@@ -1,5 +1,15 @@
-//! Making an uploaded file ready to keep: laid the standard way and
-//! shaped as the site stores it.
+//! The path from a file to a stored build with its results up to date:
+//! preparing the file, holding its details to the rules, storing it, and
+//! running its test, its timing, and what follows from them. The site and
+//! `rsdb` both go through here.
 
-pub mod orient;
-pub mod standardize;
+pub mod derive;
+pub mod details;
+pub mod evaluate;
+pub mod jobs;
+pub mod prepare;
+pub mod publish;
+pub mod read;
+pub mod results;
+pub mod similar;
+pub mod version;

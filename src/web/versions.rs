@@ -1,7 +1,7 @@
 //! A build's new version, chosen on its edit page and saved with its
 //! details there; its earlier versions' files; restoring one; and the diff
-//! between two. Whether a file may be a new version is `crate::version`'s
-//! to say, and keeping it `models::version`'s.
+//! between two. Whether a file may be a new version is `crate::ingest::version`'s
+//! to say, and keeping it `store::versions`'s.
 
 use axum::{
     extract::{Path, Query, State},
@@ -13,9 +13,12 @@ use sqlx::SqlitePool;
 
 use crate::{
     account::User,
-    diff::{self, Counts},
-    import,
-    models::{similarity, simulation},
+    compare::diff::{self, Counts},
+    ingest::{
+        jobs,
+        prepare::{self, Purpose},
+        similar,
+    },
     schem,
     store::{
         builds,
@@ -98,7 +101,7 @@ pub async fn restore(
     let file = versions::file(db, &id, number)
         .await?
         .ok_or(AppError::NotFound)?;
-    let prepared = import::prepare_for(&file, import::Purpose::of(&s, false))
+    let prepared = prepare::prepare_for(&file, Purpose::of(&s, false))
         .map_err(|err| AppError::BadRequest(format!("{err:#}")))?;
     let note = format!("Restored version {number}");
     let how = Replacing::NextVersion {
@@ -112,8 +115,8 @@ pub async fn restore(
         versions::set_colours(db, &id, restored, &colours).await?;
     }
     tracing::info!(id, by = user.username, ip, number, "restored a version");
-    simulation::complete_soon(db, &id);
-    similarity::refresh_soon(db);
+    jobs::complete_soon(db, &id);
+    similar::refresh_soon(db);
     Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
 }
 
@@ -157,7 +160,9 @@ pub async fn merge(
         "" => format!("Merged from {}, {}", from.name(), &from.id[..8]),
         note => note.to_owned(),
     };
-    match crate::version::merge(db, &from, &into, Some(by.id), &note).await? {
+    match crate::ingest::version::merge(db, &from, &into, Some(by.id), &note)
+        .await?
+    {
         Ok(number) => {
             tracing::info!(
                 from = id,
@@ -166,8 +171,8 @@ pub async fn merge(
                 number,
                 "merged a build"
             );
-            simulation::complete_soon(db, &into.id);
-            similarity::refresh_soon(db);
+            jobs::complete_soon(db, &into.id);
+            similar::refresh_soon(db);
             Ok(Redirect::to(&format!("/schematics/{}", into.id))
                 .into_response())
         }

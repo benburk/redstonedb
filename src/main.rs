@@ -57,7 +57,7 @@ async fn main() {
     let db = connect_to_database().await;
     // Builds not yet compared with their category's others are, in the
     // background.
-    app::models::similarity::refresh_soon(&db);
+    app::ingest::similar::refresh_soon(&db);
     // Every player's head the site shows, fetched ahead of the first view.
     app::web::fetch_heads_ahead(&db);
 

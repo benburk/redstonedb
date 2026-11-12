@@ -7,7 +7,7 @@ use anyhow::{Context, Result, ensure};
 use app::{
     account::{Role, User},
     external::discord::DiscordProfile,
-    models::simulation,
+    ingest::jobs,
     store::builds,
     web::publish_suggested,
 };
@@ -41,7 +41,7 @@ pub(super) async fn seed(db: &SqlitePool, dir: &Path) -> Result<()> {
         .collect::<Result<_, _>>()?;
     files.retain(|path| path.extension().is_some_and(|ext| ext == "schem"));
     files.sort();
-    simulation::run_at_once(AT_ONCE);
+    jobs::run_at_once(AT_ONCE);
     let gate = Arc::new(tokio::sync::Semaphore::new(AT_ONCE));
     let mut running = tokio::task::JoinSet::new();
     for path in files.clone() {

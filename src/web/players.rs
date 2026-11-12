@@ -47,7 +47,7 @@ pub async fn show(
     let named = |s: &Build| {
         s.description
             .as_deref()
-            .map(pages::mentions)
+            .map(crate::build::mentions)
             .unwrap_or_default()
             .into_iter()
             .find(|n| same(n))

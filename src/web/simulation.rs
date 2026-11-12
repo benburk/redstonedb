@@ -21,9 +21,7 @@ use crate::{
     account::User,
     build::Build,
     category::{self, Category, Test},
-    details,
-    import::Upload,
-    models::simulation,
+    ingest::{details, jobs, prepare::Upload, results},
     recognize::{fault, probe::Recognition},
     simulate::Report,
     store::builds,
@@ -45,7 +43,7 @@ pub async fn poll(
     builds::get(&state.db, &id)
         .await?
         .ok_or(AppError::NotFound)?;
-    if simulation::completing(&id) {
+    if jobs::completing(&id) {
         return Ok(StatusCode::NO_CONTENT.into_response());
     }
     let page = format!("/schematics/{id}#checks");
@@ -216,7 +214,7 @@ async fn stored_file(
     if !user.is_some_and(|user| user.may_edit(&s)) {
         return Err(AppError::Forbidden);
     }
-    let data = simulation::current_file(&state.db, &s).await?;
+    let data = results::current_file(&state.db, &s).await?;
     Ok((s, data))
 }
 
@@ -235,7 +233,7 @@ fn test(
     else {
         return Ok(None);
     };
-    let width = simulation::derived_width(category, true, data)?;
+    let width = results::derived_width(category, true, data)?;
     Ok(Test::of(category, width))
 }
 
@@ -278,7 +276,7 @@ async fn cases(
         None => None,
         Some(test) => match stored_result(state, s, test).await? {
             Some(report) => Some(report),
-            None => match simulation::run(test, lined.clone()).await {
+            None => match jobs::run(test, lined.clone()).await {
                 Ok(report) => Some(report),
                 Err(err) => {
                     return Ok(panel(&could_not(&err.to_string()), false));
@@ -375,7 +373,7 @@ fn lined(
     recognition: Option<&Result<Recognition, String>>,
 ) -> Vec<u8> {
     match recognition {
-        Some(Ok(r)) if crate::models::simulation::carries_roles(&r.file) => {
+        Some(Ok(r)) if crate::ingest::results::carries_roles(&r.file) => {
             r.file.clone()
         }
         _ => data.to_vec(),
@@ -413,7 +411,7 @@ async fn read_file(
     .await
     .map_err(|err| err.to_string())?;
     Ok(pages::FileRead {
-        analysis: crate::import::Analysis::of(&blocks, category),
+        analysis: crate::ingest::read::Analysis::of(&blocks, category),
         block_counts: crate::schem::block::block_counts(&blocks),
         unrecognized: problems,
         strength_inputs: crate::interface::takes_digits(&blocks),
@@ -459,7 +457,7 @@ fn taken_out(
         }
         if let Ok(blocks) = Blocks::read(original) {
             let swapped =
-                crate::ingest::standardize::swappable(&blocks).stand_ins;
+                crate::standard::standardize::swappable(&blocks).stand_ins;
             if !swapped.is_empty() {
                 let one = matches!(swapped.as_slice(), [(_, 1)]);
                 said.push(format!(
@@ -521,7 +519,7 @@ async fn timing(
     // Measured for the form alone: saving the edit stores it.
     let cancel = Arc::new(AtomicBool::new(false));
     let _guard = CancelOnDrop(cancel.clone());
-    Ok(match simulation::time(test, data, cancel).await {
+    Ok(match jobs::time(test, data, cancel).await {
         Ok(timing) => pages::timing_section(&timing, None).into_response(),
         Err(err) => could_not(&err.to_string()).into_response(),
     })

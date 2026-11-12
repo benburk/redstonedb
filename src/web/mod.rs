@@ -49,7 +49,6 @@ use about::about;
 use profile::profile;
 
 pub use heads::fetch_ahead as fetch_heads_ahead;
-pub use pages::mentions;
 pub use upload::publish_suggested;
 
 /// A file under `static/`, built into the binary and served at `path`.

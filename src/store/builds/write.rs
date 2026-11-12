@@ -7,10 +7,8 @@ use sqlx::{SqliteExecutor, SqlitePool};
 
 use super::load::Credit;
 use crate::{
-    build::{Restorable, Specs, Widened},
+    build::{Prepared, Ready, Restorable, Specs, Widened},
     category::Logic,
-    details::Ready,
-    import::Prepared,
     stack::StackDirection,
     store::{tags, versions},
 };

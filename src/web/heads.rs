@@ -143,7 +143,7 @@ async fn fetch_all(db: &SqlitePool) -> anyhow::Result<()> {
     let descriptions = crate::store::builds::descriptions(db).await?;
     let mentioned: Vec<String> = descriptions
         .iter()
-        .flat_map(|text| super::pages::mentions(text))
+        .flat_map(|text| crate::build::mentions(text))
         .collect();
     let names = players::unasked(db, &mentioned).await?;
     for batch in names.chunks(10) {

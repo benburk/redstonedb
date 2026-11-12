@@ -10,11 +10,14 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use crate::{
-    build::Widened,
+    build::{Prepared, Widened},
     category::{self, Logic, Test, adder_design},
-    import::{self, Prepared},
+    ingest::{
+        derive::{FALLING_EDGE, INVERTED, SIGNED},
+        prepare::{self, Purpose},
+        read,
+    },
     interface::{self, Encoding, Orientation},
-    models::simulation::{FALLING_EDGE, INVERTED, SIGNED},
     schem::Blocks,
     simulate::{Design, Edge, Report, Run, Stacking, Timing},
     stack::{self, StackDirection},
@@ -68,9 +71,9 @@ impl Evaluation {
 
 /// Reads the build in `file`.
 pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
-    let prepared = import::prepare_for(
+    let prepared = prepare::prepare_for(
         file,
-        import::Purpose::InPlace {
+        Purpose::InPlace {
             standardize: false,
             conventional: true,
             keep_paste: true,
@@ -82,7 +85,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     let category = category::guess(blocks).map(|guess| guess.category);
     let interface = interface::read(blocks);
     let read = category
-        .map(|c| import::derived(c, &interface))
+        .map(|c| read::derived(c, &interface))
         .unwrap_or_default();
     let mut found = Evaluation {
         category,
@@ -90,7 +93,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
         orientation: read.orientation,
         encoding: read.encoding,
         flags: category
-            .and_then(|c| import::derived_flags(c, &interface))
+            .and_then(|c| read::derived_flags(c, &interface))
             .unwrap_or_default(),
         report: None,
         stacking: Vec::new(),

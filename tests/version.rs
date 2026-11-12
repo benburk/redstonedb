@@ -5,9 +5,9 @@ use std::collections::HashMap;
 mod common;
 
 use app::{
-    ingest::standardize,
+    compare::blocks::{compare, warnings},
     schem::{self, Blocks},
-    version::{compare, warnings},
+    standard::standardize,
 };
 
 /// A fixture as the site stores it.

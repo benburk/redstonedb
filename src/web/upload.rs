@@ -21,14 +21,17 @@ use crate::{
     account::User,
     build::Build,
     category::{self, Category, Guessed},
-    details,
     external::schemati,
-    import::{self, Kept, Upload},
-    ingest::standardize,
+    ingest::{
+        details, jobs,
+        prepare::Upload,
+        publish::{self, Kept},
+        similar,
+    },
     interface,
-    models::{similarity, simulation},
     recognize::probe,
     schem::Blocks,
+    standard::standardize,
     store::{builds, versions},
     web::{
         app_state::AppState,
@@ -292,13 +295,12 @@ async fn closest(
     blocks: &Blocks,
     size: (i64, i64, i64),
 ) -> anyhow::Result<Option<(Build, u32)>> {
-    let Some((id, permille)) = similarity::closest(db, blocks, size).await?
-    else {
+    let Some((id, permille)) = similar::closest(db, blocks, size).await? else {
         return Ok(None);
     };
     Ok(builds::get(db, &id)
         .await?
-        .filter(|s| s.listed_to(Some(user)))
+        .filter(|s| crate::account::lists(Some(user), s))
         .map(|s| (s, permille)))
 }
 
@@ -363,8 +365,8 @@ pub async fn publish(
     let refused = match published {
         Ok(id) => {
             tracing::info!(id, by = user.username, ip, "upload");
-            simulation::complete_soon(&state.db, &id);
-            similarity::refresh_soon(&state.db);
+            jobs::complete_soon(&state.db, &id);
+            similar::refresh_soon(&state.db);
             return Ok(
                 Redirect::to(&format!("/schematics/{id}")).into_response()
             );
@@ -430,7 +432,7 @@ pub async fn publish_suggested(
     );
     match publish_checked(db, user, None, &upload, &form, raw).await {
         Ok(Ok(id)) => {
-            simulation::complete(db, &id).await?;
+            jobs::complete(db, &id).await?;
             Ok(Ok(id))
         }
         Ok(refused) => Ok(refused),
@@ -451,7 +453,7 @@ async fn as_kept(recognition: &probe::Recognition) -> Option<String> {
     let read = recognition.file.clone();
     let passes = recognition.found.is_some();
     tokio::task::spawn_blocking(move || {
-        if !crate::models::simulation::carries_roles(&read) {
+        if !crate::ingest::results::carries_roles(&read) {
             return None;
         }
         let buses = crate::stack::Buses::own();
@@ -516,7 +518,8 @@ async fn publish_checked(
         Ok(given) => given,
         Err(message) => return Ok(Err(message)),
     };
-    let kept = match import::kept(&categories, &given.category, upload).await? {
+    let kept = match publish::kept(&categories, &given.category, upload).await?
+    {
         Ok(kept) => kept,
         Err(message) => return Ok(Err(message)),
     };
@@ -535,7 +538,7 @@ async fn publish_checked(
             Err(message) => return Ok(Err(message)),
         };
     let stored =
-        import::store(db, prepared, &ready, Some(user.id), ip, None, None)
+        publish::store(db, prepared, &ready, Some(user.id), ip, None, None)
             .await?;
     if let Ok(id) = &stored
         && !form.public

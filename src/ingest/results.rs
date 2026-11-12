@@ -1,16 +1,8 @@
 //! Each build's simulation result, kept for the file it ran on, and what is
 //! derived from the file and the simulation in place of details a person
 //! types: an adder's width, and a tested build's latency and whether it is
-//! synchronized. Running the tests is `runner`'s, and deciding the details
+//! synchronized. Running the tests is `jobs`'s, and deciding the details
 //! from what they found `derive`'s; this module stores both.
-
-mod derive;
-mod runner;
-
-pub use derive::{FALLING_EDGE, INVERTED, SIGNED};
-pub use runner::{
-    complete, complete_soon, completing, evaluate_ahead, run, run_at_once, time,
-};
 
 use std::sync::{Arc, atomic::AtomicBool};
 
@@ -20,16 +12,23 @@ use sqlx::SqlitePool;
 use crate::{
     build::Build,
     category::{self, Test},
-    import, interface,
-    recognize::{evaluate::evaluate, roles},
+    ingest::{
+        evaluate::evaluate,
+        prepare::{self, Purpose},
+        publish, read,
+    },
+    interface,
+    recognize::roles,
     schem::Blocks,
     simulate::Report,
     stack::{self, StackDirection},
     store::{builds, results, versions},
 };
 
-use derive::Derived;
-use runner::{CASES, TIMING, evaluated, taken_ahead};
+use super::{
+    derive::Derived,
+    jobs::{CASES, TIMING, evaluated, run, taken_ahead, time},
+};
 
 /// Whether the file `data` carries its lines' roles, as one the site
 /// reads, or whose lines its author marked, does.
@@ -89,7 +88,7 @@ pub fn derived_width(
         return Ok(None);
     }
     let blocks = Blocks::read(data)?;
-    Ok(import::derived_width(category, &interface::read(&blocks)))
+    Ok(read::derived_width(category, &interface::read(&blocks)))
 }
 
 /// Brings build `id` up to date with its file, category, and width: sets
@@ -169,7 +168,7 @@ pub async fn refresh(
 
 /// Build `s`'s current file, carrying its roles: those kept with its
 /// version, or, for a version whose roles are not yet found, as a stored
-/// build's before the site kept them, those [`import::with_roles`] finds
+/// build's before the site kept them, those [`publish::with_roles`] finds
 /// by probing it as its category, then kept with the version, so every
 /// reading of its lines takes them and none reads its colours.
 pub async fn current_file(db: &SqlitePool, s: &Build) -> Result<Vec<u8>> {
@@ -181,7 +180,7 @@ pub async fn current_file(db: &SqlitePool, s: &Build) -> Result<Vec<u8>> {
     }
     let category = s.category.clone();
     let found = tokio::task::spawn_blocking(move || {
-        import::with_roles(&data, &category)
+        publish::with_roles(&data, &category)
     })
     .await??;
     versions::set_current_roles(db, &s.id, &found).await?;
@@ -210,15 +209,15 @@ async fn at_zero(
     let (conventional, keeps_paste) = (s.file.conventional, s.file.keeps_paste);
     let was = data.clone();
     let fixed = tokio::task::spawn_blocking(move || {
-        let fixed = crate::ingest::standardize::levers_at_zero(
+        let fixed = crate::standard::standardize::levers_at_zero(
             &was, &category, &inverted,
         )?;
         if fixed == was {
             return Ok(None);
         }
-        import::prepare_for(
+        prepare::prepare_for(
             &fixed,
-            import::Purpose::InPlace {
+            Purpose::InPlace {
                 standardize: false,
                 conventional,
                 keep_paste: keeps_paste,
@@ -291,9 +290,9 @@ async fn refresh_unverified(
     if !again && let Some(report) = current(db, s).await? {
         return Ok(Some(report));
     }
-    let standard = import::prepare_for(
+    let standard = prepare::prepare_for(
         data,
-        import::Purpose::Standard {
+        Purpose::Standard {
             keep_paste: s.file.keeps_paste,
         },
     );
@@ -366,7 +365,7 @@ async fn refresh_evaluated(
             tokio::task::spawn_blocking(move || {
                 let blocks = &e.prepared.blocks;
                 let width =
-                    import::derived(&category, &interface::read(blocks)).width;
+                    read::derived(&category, &interface::read(blocks)).width;
                 Test::of(&category, width).map(|test| test.run(blocks))
             })
             .await?
@@ -421,6 +420,34 @@ impl Derived {
         }
         Ok(())
     }
+}
+
+/// Runs build `id`'s test, see [`refresh`], and its timing, see
+/// [`refresh_timing`], each where what is stored is stale, or always when
+/// `again`. Returns the result; `None` when it has no test.
+pub async fn tested(
+    db: &SqlitePool,
+    id: &str,
+    again: bool,
+) -> Result<Option<Report>> {
+    match refresh(db, id, again).await? {
+        Some(_) => refresh_timing(db, id, again).await,
+        None => Ok(None),
+    }
+}
+
+/// Brings build `id` up to date with its file as it stands: its test and
+/// timing, see [`tested`], and what its building blocks must be, see
+/// [`keep_needs`]. Nothing of the file changes; see `jobs::complete` for a
+/// build newly stored, whose unused blocks go too.
+pub async fn measure(
+    db: &SqlitePool,
+    id: &str,
+    again: bool,
+) -> Result<Option<Report>> {
+    let report = tested(db, id, again).await?;
+    keep_needs(db, id).await?;
+    Ok(report)
 }
 
 /// Measures build `id`'s timing when its stored result passed and has none
@@ -531,7 +558,7 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     };
     if let Some(pruned) = pruned {
         let checked =
-            crate::version::check(db, &s, &pruned.file, false).await?;
+            crate::ingest::version::check(db, &s, &pruned.file, false).await?;
         // In the version's own place, as its uploader saw it before
         // publishing, rather than as a version after it.
         if checked.refusals.is_empty() {

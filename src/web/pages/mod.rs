@@ -54,7 +54,6 @@ pub use build::{
     favorite_button, schematic_page,
 };
 pub use checks::{Known, Subject, form_checks};
-pub use description::mentions;
 pub use details_page::{
     DetailsPage, Duplicate, File, Reply, counted, details_page,
     failing_or_untested, reason_items,

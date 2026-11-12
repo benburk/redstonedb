@@ -5,7 +5,7 @@ use maud::{Markup, html};
 
 use crate::{
     category::{Flag, Kind},
-    import::Analysis,
+    ingest::read::Analysis,
     interface::{Bit, Port, colour},
     schem::lines::Role,
     simulate::{InputTiming, OutputTiming, Strength, Timing},

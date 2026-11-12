@@ -3,7 +3,7 @@ use super::*;
 /// The fixture `name`, standardized as an upload is.
 fn fixture(name: &str) -> Vec<u8> {
     let raw = std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
-    crate::ingest::standardize::standardize(&raw).unwrap()
+    crate::standard::standardize::standardize(&raw).unwrap()
 }
 
 /// The fixture `name` with every sign taken out.

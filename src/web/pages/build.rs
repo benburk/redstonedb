@@ -8,7 +8,7 @@ use crate::{
     account::User,
     build::{Build, Status, tag},
     category::{self, Logic, Measure},
-    import::{self, Analysis},
+    ingest::read::{self, Analysis},
     interface::Interface,
     simulate::{Report, Timing},
     stack::StackDirection,
@@ -293,7 +293,7 @@ impl Sources {
         // A conventional build's file sets these over what was typed.
         let derived = interface
             .filter(|_| s.file.conventional)
-            .map(|interface| import::derived(&s.category, interface))
+            .map(|interface| read::derived(&s.category, interface))
             .unwrap_or_default();
         let checked = |from_file: bool, simulated: bool| {
             if from_file {

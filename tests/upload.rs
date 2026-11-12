@@ -6,7 +6,10 @@ mod common;
 
 use app::{
     category::Category,
-    import::{self, Kept, Upload},
+    ingest::{
+        prepare::{self, Upload},
+        publish::{self, Kept},
+    },
     schem::{self, Blocks},
 };
 
@@ -31,7 +34,7 @@ async fn a_recognized_build_is_kept_standardized() {
         "the raw build is not in the palette"
     );
     let Ok(Kept::Standard(file)) =
-        import::kept(&categories, "adder", &upload).await.unwrap()
+        publish::kept(&categories, "adder", &upload).await.unwrap()
     else {
         panic!("the adder is not recognized");
     };
@@ -45,7 +48,7 @@ async fn an_unrecognized_build_keeps_its_own_blocks_unverified() {
     let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     assert!(
         matches!(
-            import::kept(&categories, "multiplier", &upload)
+            publish::kept(&categories, "multiplier", &upload)
                 .await
                 .unwrap(),
             Ok(Kept::Unverified(_))
@@ -54,7 +57,7 @@ async fn an_unrecognized_build_keeps_its_own_blocks_unverified() {
     );
     let failing = Upload::read(&common::fixture("cca-8-dust-out")).unwrap();
     let Ok(Kept::Unverified(why)) =
-        import::kept(&categories, "adder", &failing).await.unwrap()
+        publish::kept(&categories, "adder", &failing).await.unwrap()
     else {
         panic!("a failing adder was recognized");
     };
@@ -66,7 +69,7 @@ async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
     let categories = Category::all();
     let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
     assert!(matches!(
-        import::kept(&categories, "piston door", &upload)
+        publish::kept(&categories, "piston door", &upload)
             .await
             .unwrap(),
         Ok(Kept::Original)
@@ -78,14 +81,14 @@ async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
 async fn a_new_version_that_is_recognized_verifies_a_build() {
     let categories = Category::all();
     let category = |name| Category::find(&categories, name).unwrap();
-    let file = import::as_built(&common::fixture("cca-16-raw")).unwrap();
-    let verified = import::verified_by(category("adder"), &file, false)
+    let file = prepare::as_built(&common::fixture("cca-16-raw")).unwrap();
+    let verified = publish::verified_by(category("adder"), &file, false)
         .await
         .unwrap()
         .expect("it is verified");
     assert!(verified.conventional);
     assert!(
-        import::verified_by(category("multiplier"), &file, false)
+        publish::verified_by(category("multiplier"), &file, false)
             .await
             .unwrap()
             .is_none()
@@ -111,7 +114,7 @@ async fn a_wool_build_with_levers_on_lamps_is_recognized_as_built() {
         recognition.problems
     );
     let upload = Upload::read(&recognition.file).expect("it reads");
-    let kept = import::kept(&Category::all(), "adder", &upload)
+    let kept = publish::kept(&Category::all(), "adder", &upload)
         .await
         .expect("it is checked")
         .expect("it can be simulated");
@@ -127,11 +130,12 @@ async fn publishing_keeps_the_file_its_preview_evaluated() {
     let raw = common::fixture("cca-16-raw");
     let coloured = app::recognize::probe::recognize(&raw).unwrap().file;
     let analyzed = Upload::read(&coloured).unwrap();
-    let ahead = import::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
+    let ahead =
+        prepare::rewrapped(analyzed.standard.as_ref().unwrap()).unwrap();
     let published = Upload::read(&analyzed.original.data).unwrap();
     let categories = Category::all();
     let Ok(Kept::Standard(file)) =
-        import::kept(&categories, "adder", &published)
+        publish::kept(&categories, "adder", &published)
             .await
             .unwrap()
     else {
@@ -215,7 +219,7 @@ async fn an_unaligned_build_is_kept_in_its_category() {
         );
         let upload = Upload::read(&recognized.file).unwrap();
         let Ok(Kept::Standard(file)) =
-            import::kept(&categories, category, &upload).await.unwrap()
+            publish::kept(&categories, category, &upload).await.unwrap()
         else {
             panic!("{name} is not kept as a {category}");
         };
