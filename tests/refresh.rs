@@ -401,3 +401,35 @@ async fn a_new_version_of_a_tested_circuit_lies_at_logical_zero() {
         .unwrap();
     assert_eq!(on(&now), levers_on);
 }
+
+/// A failing build probed again keeps the roles of the nearest reading
+/// whose test ran, as an upload's are found: a 16-bit adder whose operands
+/// are each split in two, its carry out never on, reads as two operands of
+/// 16 bits, not four of 8; probed again after, nothing is left to change.
+#[test]
+fn a_failing_build_probed_again_keeps_its_nearest_reading() {
+    let raw = std::fs::read("tests/fixtures/adder-16-split-no-carry-out.schem")
+        .expect("fixture is readable");
+    let data = app::schem::standardize::without_trapdoors(&raw).unwrap();
+    let (file, found) = app::recognize::probe::reprobe(&data, "adder")
+        .unwrap()
+        .expect("its test ran");
+    assert!(!found);
+    let lines = app::recognize::interface::read(
+        &app::schem::Blocks::read(&file).unwrap(),
+    );
+    let operands: Vec<usize> = lines
+        .inputs
+        .iter()
+        .filter(|port| {
+            matches!(port.role, Some(app::schem::lines::Role::Operand(_)))
+        })
+        .map(|port| port.bits.len())
+        .collect();
+    assert_eq!(operands, [16, 16]);
+    assert!(
+        app::recognize::probe::reprobe(&file, "adder")
+            .unwrap()
+            .is_none()
+    );
+}
