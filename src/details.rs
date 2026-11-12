@@ -11,11 +11,11 @@ use crate::{
     interface::Orientation,
     models::{
         player,
-        schematic::{self, Build, Credits, Specs, StackDirection},
+        schematic::{self, Build, Credits, Specs},
         simulation, tag,
     },
     simulate::{Report, Test},
-    stack,
+    stack::{self, StackDirection},
 };
 
 /// A build's details, typed. As given they may break a rule, such as naming
@@ -242,7 +242,7 @@ async fn ready(
         && policy == category::Stacking::Inferred;
     if !stacking_inferred && policy != category::Stacking::Never {
         let buses = stack::Buses::of(
-            Kind::named(&category.name),
+            category::behaviour(&category.name).copies,
             details.specs.orientation,
         );
         stack::check(build.data, &details.stacking, buses)?;

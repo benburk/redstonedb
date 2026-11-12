@@ -20,13 +20,13 @@ use sqlx::{SqliteExecutor, SqlitePool};
 use crate::{
     category, import, interface,
     models::{
-        schematic::{self, Build, StackDirection},
+        schematic::{self, Build},
         version,
     },
     recognize::{evaluate::evaluate, roles},
     schem::Blocks,
     simulate::{Report, Test},
-    stack,
+    stack::{self, StackDirection},
 };
 
 use derive::Derived;
@@ -94,18 +94,12 @@ async fn set<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// How build `s`'s copies stacked share its buses, as its category and the
-/// way its bits run say.
 /// Whether the file `data` carries its lines' roles, as one the site
 /// reads, or whose lines its author marked, does.
 pub fn carries_roles(data: &[u8]) -> bool {
     crate::schem::Blocks::read(data).is_ok_and(|blocks| {
         blocks.roles.is_some_and(|roles| !roles.0.is_empty())
     })
-}
-
-fn buses(s: &Build) -> stack::Buses {
-    stack::Buses::of(s.kind(), s.specs.orientation)
 }
 
 /// Moves build `id`'s stored result to its file `data`, whose hash is
@@ -192,7 +186,7 @@ pub async fn refresh(
     let s = schematic::get(db, id).await?.context("no such schematic")?;
     let data = current_file(db, &s).await?;
     if !again {
-        adopt(db, id, (&data, &s.file.sha256), (&s.stacking, buses(&s)))
+        adopt(db, id, (&data, &s.file.sha256), (&s.stacking, s.buses()))
             .await?;
     }
     if s.evaluated() {
@@ -240,7 +234,7 @@ pub async fn refresh(
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(s.kind(), derived.specs.orientation),
+                s.buses_running(derived.specs.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -350,7 +344,7 @@ async fn reused_at_zero(
 ) -> Result<(Vec<u8>, String)> {
     let (data, sha256) = at_zero(db, s, data, report).await?;
     if sha256 != s.file.sha256 {
-        adopt(db, &s.id, (&data, &sha256), (&s.stacking, buses(s))).await?;
+        adopt(db, &s.id, (&data, &sha256), (&s.stacking, s.buses())).await?;
     }
     Ok((data, sha256))
 }
@@ -463,7 +457,7 @@ async fn refresh_evaluated(
             let key = roles::circuit_key(
                 &data,
                 &derived.stacking,
-                stack::Buses::of(s.kind(), derived.specs.orientation),
+                s.buses_running(derived.specs.orientation),
             )
             .ok();
             let file = (sha256.as_str(), key.as_deref());
@@ -566,7 +560,7 @@ async fn timed(
         let test = test_for(&s).context("no test")?;
         let data = current_file(db, &s).await?;
         let cancel = Arc::new(AtomicBool::new(false));
-        let key = roles::circuit_key(&data, &s.stacking, buses(&s)).ok();
+        let key = roles::circuit_key(&data, &s.stacking, s.buses()).ok();
         run.timing = Some(time(test, data, cancel).await?);
         measured = Some((test, key));
     }
@@ -601,7 +595,7 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     // compiling it shows, the blocks found unused are not, so it keeps
     // them.
     let pruned = if category::blessed(&s.category) {
-        roles::prune(&data, &s.stacking, buses(&s)).unwrap_or_else(|err| {
+        roles::prune(&data, &s.stacking, s.buses()).unwrap_or_else(|err| {
             tracing::warn!(id, "keeping its blocks: {err:#}");
             None
         })
@@ -636,7 +630,7 @@ pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
         return Ok(());
     }
     let needs =
-        crate::recognize::palette::needs_of(&data, &s.stacking, buses(&s))?;
+        crate::recognize::palette::needs_of(&data, &s.stacking, s.buses())?;
     let needs = serde_json::to_string(&needs)?;
     sqlx::query!(
         "UPDATE build_version SET needs = ?

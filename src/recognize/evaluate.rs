@@ -10,18 +10,18 @@ use std::sync::atomic::AtomicBool;
 use anyhow::Result;
 
 use crate::{
-    category::{self, Kind, Logic},
+    category::{self, Logic},
     import::{self, Prepared},
     interface::{self, Encoding, Orientation},
     models::{
-        schematic::{StackDirection, Widened},
+        schematic::Widened,
         simulation::{FALLING_EDGE, INVERTED, SIGNED},
     },
     schem::Blocks,
     simulate::{
         self, Design, Edge, Report, Run, Stacking, Test, Timing, adder_design,
     },
-    stack,
+    stack::{self, StackDirection},
 };
 
 /// The widths a stackable build's copies are stacked to, above its own, to
@@ -222,7 +222,10 @@ impl Evaluation {
                 let (data, _) = stack::stack(
                     &self.prepared.data,
                     &[(along, usize::try_from(copies)?)],
-                    stack::Buses::of(Kind::named(category), orientation),
+                    stack::Buses::of(
+                        category::behaviour(category).copies,
+                        orientation,
+                    ),
                 )?;
                 let blocks = Blocks::read(&data)?;
                 let timing =

@@ -15,9 +15,10 @@ use crate::{
     category::{self, Flag, Group, Logic, Measure, NO_DESIGN},
     interface::Orientation,
     models::{
-        schematic::{Build, PITCHES},
+        schematic::Build,
         tag::{self, Kind, Tag},
     },
+    stack::PITCHES,
 };
 
 /// How many builds each ranking shows.
@@ -1352,9 +1353,8 @@ mod tests {
     use super::*;
     use crate::{
         interface::Encoding,
-        models::schematic::{
-            Credits, Entry, File, Specs, StackDirection, Widened,
-        },
+        models::schematic::{Credits, Entry, File, Specs, Widened},
+        stack::StackDirection,
     };
 
     /// A board's address reads back as it was written, with each measure

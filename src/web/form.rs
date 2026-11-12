@@ -11,12 +11,13 @@ use crate::{
     import::{self, Analysis, FileFacts},
     interface::{self, Interface, Orientation},
     models::{
-        schematic::{self, Build, Credits, Specs, StackDirection},
+        schematic::{self, Build, Credits, Specs},
         tag,
         user::User,
     },
     schem::{Blocks, Size},
     simulate::Guess,
+    stack::StackDirection,
     web::error::AppError,
 };
 

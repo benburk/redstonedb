@@ -1110,7 +1110,7 @@ mod tests {
             &["carry_in", "carry_out", "inverted_carry_in"],
             &["pistons"],
         );
-        s.stacking = vec![crate::models::schematic::StackDirection {
+        s.stacking = vec![crate::stack::StackDirection {
             west: 2,
             up: 0,
             max_copies: None,

@@ -18,12 +18,13 @@ pub use entry::Entry;
 pub use file::File;
 pub use name::file_stem;
 pub use specs::Specs;
-pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
+pub use stacking::Widened;
 pub use status::{Operands, Status};
 
 pub use crate::{
     category::Logic,
     interface::{Encoding, Orientation},
+    stack::{Faces, PITCHES, StackDirection, classes},
 };
 use crate::{
     category::{Design, Flag, Kind, Measure},
@@ -123,6 +124,21 @@ impl Build {
     /// list.
     pub fn kind(&self) -> Option<Kind> {
         Kind::named(&self.category)
+    }
+
+    /// How its copies stacked share its buses, as its category and the way
+    /// its bits run say.
+    pub fn buses(&self) -> crate::stack::Buses {
+        self.buses_running(self.specs.orientation)
+    }
+
+    /// [`Build::buses`], were its bits to run `orientation`.
+    pub fn buses_running(
+        &self,
+        orientation: Orientation,
+    ) -> crate::stack::Buses {
+        let copies = crate::category::Behaviour::of(self.kind()).copies;
+        crate::stack::Buses::of(copies, orientation)
     }
 
     /// The numbers its category's builds are named and ranked by, in

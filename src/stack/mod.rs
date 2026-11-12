@@ -27,6 +27,10 @@
 //! site's tests count copies as stacking only where they touch or
 //! overlap, each box reaching the next; see [`touches`].
 
+mod direction;
+
+pub use direction::{Faces, PITCHES, StackDirection, classes};
+
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     hash::BuildHasher,
@@ -35,9 +39,7 @@ use std::{
 use anyhow::{Result, ensure};
 
 use crate::{
-    category::{self, Behaviour, Kind},
     interface::{self, Orientation, repeater_outputs},
-    models::schematic::{Faces, StackDirection},
     schem::{
         self, AIR, Blocks, Direction, Pos,
         lines::{Role, Roles},
@@ -51,6 +53,22 @@ const MAX_VOLUME: i64 = 16 * 1024 * 1024;
 
 const GLASS: &str = "minecraft:glass";
 
+/// What a category's copies stacked do with its data buses and its
+/// labelled outputs and status lines.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Copies {
+    /// Each keeps its own data buses, and the next takes over its labelled
+    /// outputs and status lines, as an adder's carry out.
+    #[default]
+    Chain,
+    /// Copies across its bits share its data buses, as more registers or
+    /// words on one bus, rather than adding bits.
+    SharedBuses,
+    /// Each keeps its labelled outputs and status lines too, as a
+    /// monostable's lone output is its own bit's.
+    OwnOutputs,
+}
+
 /// What a build's copies do with its data buses, from its category and the
 /// way its bits run. Copies along the bits are new bits, each with its own
 /// data inputs and outputs; copies across a register's bits share its
@@ -58,24 +76,23 @@ const GLASS: &str = "minecraft:glass";
 #[derive(Clone, Copy)]
 pub struct Buses {
     /// Whether the category's copies across its bits share its buses, as
-    /// `category::Copies::SharedBuses` says.
+    /// [`Copies::SharedBuses`] says.
     shared: bool,
     /// The way the build's bits run; `None` when it does not matter.
     orientation: Option<Orientation>,
     /// Whether each copy keeps its labelled outputs and status lines, as
-    /// `category::Copies::OwnOutputs` says.
+    /// [`Copies::OwnOutputs`] says.
     own_outputs: bool,
 }
 
 impl Buses {
-    /// For a build of `kind`, or `None` a category off the list, its bits
-    /// running `orientation`.
-    pub fn of(kind: impl Into<Option<Kind>>, orientation: Orientation) -> Self {
-        let behaviour = Behaviour::of(kind);
+    /// For a build whose category's copies do `copies` with its buses, its
+    /// bits running `orientation`.
+    pub fn of(copies: Copies, orientation: Orientation) -> Self {
         Buses {
-            shared: behaviour.copies == category::Copies::SharedBuses,
+            shared: copies == Copies::SharedBuses,
             orientation: Some(orientation),
-            own_outputs: behaviour.copies == category::Copies::OwnOutputs,
+            own_outputs: copies == Copies::OwnOutputs,
         }
     }
 

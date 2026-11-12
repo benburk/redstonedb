@@ -4,10 +4,11 @@
 
 use crate::{
     category, import, interface,
-    models::schematic::{Build, Specs, StackDirection, Widened},
+    models::schematic::{Build, Specs, Widened},
     recognize::evaluate::Evaluation,
     schem::Blocks,
     simulate::{Edge, Report, Stacking, Test},
+    stack::StackDirection,
 };
 
 /// The flag of a monostable whose output rests on, so its pulse turns it

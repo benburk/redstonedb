@@ -7,8 +7,9 @@ use app::{
     details::{self, Candidate, Details, Ready},
     import::{self, Purpose},
     interface::{Encoding, Orientation},
-    models::schematic::{Specs, StackDirection},
+    models::schematic::Specs,
     schem::{self, Blocks},
+    stack::StackDirection,
 };
 use sqlx::SqlitePool;
 

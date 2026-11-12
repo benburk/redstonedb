@@ -15,7 +15,7 @@ pub use catalogue::{
     check_category, flags_among, words,
 };
 
-pub use crate::interface::Lines;
+pub use crate::{interface::Lines, stack::Copies};
 use crate::{recognize::probe::Line, simulate::Test};
 
 /// A standard category.
@@ -243,6 +243,11 @@ impl Kind {
         self.facts().behaviour.lines
     }
 
+    /// What its copies stacked do with its buses.
+    pub fn copies(self) -> Copies {
+        self.facts().behaviour.copies
+    }
+
     /// Whether its inputs take hex digits; see `Facts::digit_inputs`.
     pub fn digit_inputs(self) -> bool {
         self.facts().digit_inputs
@@ -357,22 +362,6 @@ pub enum Reads {
     /// Its widest output, the value it holds, as a counter's, which may
     /// have no A.
     Output,
-}
-
-/// What a category's copies stacked do with its data buses and its
-/// labelled outputs and status lines.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Copies {
-    /// Each keeps its own data buses, and the next takes over its labelled
-    /// outputs and status lines, as an adder's carry out.
-    #[default]
-    Chain,
-    /// Copies across its bits share its data buses, as more registers or
-    /// words on one bus, rather than adding bits.
-    SharedBuses,
-    /// Each keeps its labelled outputs and status lines too, as a
-    /// monostable's lone output is its own bit's.
-    OwnOutputs,
 }
 
 /// How a category's copies stacked must work together: the group its

@@ -8,11 +8,9 @@ use app::{
     category::{self, Logic},
     details::{self, Details},
     interface::{Encoding, Orientation},
-    models::{
-        schematic::{self, StackDirection},
-        simulation, tag, version,
-    },
-    search, stack,
+    models::{schematic, simulation, tag, version},
+    search,
+    stack::{self, StackDirection},
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -362,7 +360,7 @@ pub(super) async fn export(
         Some(copies) => {
             let wanted = copy_counts(&s.stacking, copies)?;
             let plan = stack::plan(&s.stacking, &wanted)?;
-            let buses = stack::Buses::of(s.kind(), s.specs.orientation);
+            let buses = s.buses();
             let (data, size) = stack::stack(&data, &plan, buses)?;
             (data, s.stacked(&plan, size))
         }
