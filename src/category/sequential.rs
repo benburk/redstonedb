@@ -24,14 +24,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
 
-use super::{
-    Broken, Run, Signal, Value, Wrong,
-    bench::{mask, patterns},
-    circuit::{Circuit, MAX_TICKS},
-    stacking::{self, Stacker, Step},
-    timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
+use crate::{
+    category, interface,
+    schem::Blocks,
+    simulate::{
+        Broken, Run, Signal, Value, Wrong,
+        bench::{mask, patterns},
+        broken,
+        circuit::{Circuit, MAX_TICKS},
+        stacking::{self, Stacker, Step},
+        timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
+    },
 };
-use crate::{category, interface, schem::Blocks};
 
 /// Which kind of build a test takes it for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -781,7 +785,7 @@ pub fn toggle_stacker(data: &[u8]) -> Option<Stacker<'_>> {
                their own.";
     Some(Stacker::new(
         data,
-        category::Kind::TFlipFlop,
+        category::Kind::TFlipFlop.copying(),
         ways,
         works,
         not,

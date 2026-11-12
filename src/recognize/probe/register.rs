@@ -5,9 +5,10 @@
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::{
+    category::Test,
     interface::inspect::{self, Run},
     schem::{Blocks, Pos},
-    simulate::{self, Test},
+    simulate,
 };
 
 /// A register as probing found it: its data bus in, its controls, writes on

@@ -4,11 +4,14 @@
 
 use anyhow::{Result, bail};
 
-use super::{
-    Broken,
-    bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+use crate::{
+    interface::Interface,
+    simulate::{
+        Broken,
+        bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+        broken,
+    },
 };
-use crate::interface::Interface;
 
 /// A multiplier's every product, A × B, plus C when there is one, checked
 /// on as many low bits as its outputs hold together, the first holding the

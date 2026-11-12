@@ -24,14 +24,14 @@ use std::{cmp::Reverse, collections::BTreeMap};
 use anyhow::Result;
 
 use crate::{
-    category::{Kind, Probing},
+    category::{Kind, Probing, alu_ops},
     interface::{self, inspect},
     recognize::probe::{self, Order},
     schem::{
         Blocks, Pos,
         lines::{self, Role, Roles},
     },
-    simulate::{Value, alu_ops, mask},
+    simulate::{Value, mask},
 };
 
 pub mod buses;

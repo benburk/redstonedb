@@ -21,7 +21,7 @@ use crate::{
         version,
     },
     recognize::palette,
-    schem::Blocks,
+    schem::{self, Blocks},
     stack, thumbnail,
     web::{
         app_state::AppState,
@@ -64,11 +64,11 @@ pub async fn thumbnail(
     let (data, key) = if s.file.conventional {
         let needs = palette::needs(&state.db, &id).await?;
         let painted = palette::apply(&data, needs.as_ref(), &palette)?;
-        let key = import::sha256(&painted);
+        let key = schem::sha256(&painted);
         (painted, key)
     } else {
         let data = crate::schem::lines::without(&data)?;
-        let key = import::sha256(&data);
+        let key = schem::sha256(&data);
         (data, key)
     };
     let sha256 = key;

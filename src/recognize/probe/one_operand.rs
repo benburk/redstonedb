@@ -4,11 +4,7 @@
 //! each way given those roles and run through its test.
 
 use super::{Fault, Role, Roles, lengths, split, try_roles};
-use crate::{
-    interface::inspect,
-    schem::Pos,
-    simulate::{self, Test},
-};
+use crate::{category::Test, interface::inspect, schem::Pos, simulate};
 
 /// Whether a build of one operand, A, has a control line: an inverter's,
 /// its invert, always; an incrementer's, its increment, perhaps; an

@@ -6,13 +6,15 @@
 
 use anyhow::Result;
 
-use super::{
-    Broken, Stacker, Test, Value,
-    adder::adder_cases,
-    bench::{Bench, Case, Cases, Kind, Spec, mask},
-    stacking,
+use crate::{
+    category::{Test, adder::adder_cases},
+    interface::Interface,
+    simulate::{
+        Broken, Stacker, Value,
+        bench::{Bench, Case, Cases, Kind, Spec, mask},
+        broken,
+    },
 };
-use crate::interface::Interface;
 
 /// A two-input gate, its category's: one function, or that function
 /// inverted, as a torch on the output makes it.
@@ -178,7 +180,7 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
 /// How copies of the NAND+XNOR gate in `data` stack into a wider one, as
 /// an XOR gate's do, each a gate of its own.
 pub fn nand_xnor_stacker(data: &[u8]) -> Option<Stacker<'_>> {
-    stacking::bitwise(
+    super::stacks::bitwise(
         data,
         Test::NandXnor,
         |interface| nand_xnor(interface).ok().map(|_| 0),
@@ -193,7 +195,7 @@ pub fn nand_xnor_stacker(data: &[u8]) -> Option<Stacker<'_>> {
 /// neighbours don't interfere; `None` when it is not one.
 pub fn stacker(data: &[u8], gate: Gate) -> Option<Stacker<'_>> {
     let pattern = gate.pattern();
-    stacking::bitwise(
+    super::stacks::bitwise(
         data,
         gate.test(),
         move |interface| spec(interface, gate).ok().map(|_| 0),

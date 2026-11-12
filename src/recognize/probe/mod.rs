@@ -7,12 +7,13 @@
 use std::fmt;
 
 use crate::{
+    category::Test,
     interface::{
         self, Bit, Interface, Port,
         inspect::{self, Run},
     },
     schem::{Blocks, Pos, lines},
-    simulate::{self, Test},
+    simulate,
 };
 
 pub(crate) use crate::schem::lines::{Role, Roles};

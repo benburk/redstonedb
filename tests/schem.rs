@@ -218,7 +218,7 @@ fn stacked_slices_form_one_wider_build() {
     // Each copy's carry in hangs a torch on the previous copy's carry out
     // block, and its sign covers the repeater reading that block, so only
     // the last copy's carry out is read, and the stack adds.
-    let report = simulate::Test::Adder.run(&blocks);
+    let report = app::category::Test::Adder.run(&blocks);
     assert!(report.passed(), "{report:?}");
 }
 
@@ -490,7 +490,7 @@ fn a_comparator_with_air_behind_is_a_signal_strength_input() {
     assert_eq!(a.bits[0].entry, Some(Direction::South));
     assert!(!a.bits[0].hard);
     assert_eq!(names(&interface.outputs), [("output", 4)]);
-    assert_eq!(import::guess(&interface).0, Some(4));
+    assert_eq!(app::interface::suggested(&interface).0, Some(4));
     // The comparator's layer is left out; the dust it feeds, on the block
     // that was the input before the build took a comparator, is the
     // build's.
@@ -865,7 +865,8 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     let mut named = interface::read(&blocks);
     interface::name_lines(Kind::Incrementer.lines(), &blocks, &mut named);
     assert!(named.inputs.iter().any(|p| p.name == "increment"));
-    let simulate::Report::Ran(run) = simulate::Test::Incrementer.run(&blocks)
+    let simulate::Report::Ran(run) =
+        app::category::Test::Incrementer.run(&blocks)
     else {
         panic!("the incrementer was not simulated");
     };

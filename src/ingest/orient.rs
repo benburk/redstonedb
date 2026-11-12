@@ -12,9 +12,8 @@
 use anyhow::Result;
 
 use crate::{
-    interface,
+    category, interface,
     schem::{Blocks, Direction, turn::Turn},
-    simulate,
 };
 
 /// The build in `data` laid the standard way, with how it was turned; the
@@ -70,7 +69,7 @@ pub fn oriented(blocks: &Blocks) -> Result<(Option<Blocks>, Turn)> {
 /// wrong as what it seems to be; `None` for a build not recognized, which
 /// is only turned.
 fn wrong(blocks: &Blocks) -> Option<u64> {
-    simulate::guess(blocks).map(|guess| guess.wrong_share())
+    category::guess(blocks).map(|guess| guess.wrong_share())
 }
 
 /// The side A's levers are on, when every one is on the same side, north,

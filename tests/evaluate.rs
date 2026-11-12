@@ -64,7 +64,7 @@ fn a_counters_value_changes_only_on_a_clock_pulse() {
         let blocks =
             Blocks::read(&import::with_roles(&raw, "counter").unwrap())
                 .unwrap();
-        let Report::Ran(run) = app::simulate::Test::Counter.run(&blocks) else {
+        let Report::Ran(run) = app::category::Test::Counter.run(&blocks) else {
             panic!("{name} ran");
         };
         assert!(run.wrong > 0, "{name}");
@@ -76,7 +76,7 @@ fn a_counters_value_changes_only_on_a_clock_pulse() {
             "{name}: {:?}",
             run.examples
         );
-        let timing = app::simulate::Test::Counter
+        let timing = app::category::Test::Counter
             .time(&blocks, &AtomicBool::new(false))
             .unwrap();
         assert_eq!(timing.free_running, free_running, "{name}");
@@ -129,7 +129,7 @@ fn terms(groups: &[(usize, usize)]) -> Vec<app::simulate::Terms> {
 
 #[test]
 fn a_carry_signature_and_terms_name_its_design() {
-    use app::simulate::design_of;
+    use app::category::design_of;
     // No terms, carries mostly strengths or looked ahead: a carry cancel,
     // in one group or two, its lowest carries rippling or not.
     for signature in
@@ -173,7 +173,7 @@ fn a_carry_signature_and_terms_name_its_design() {
 
 #[test]
 fn a_carry_signature_shows_its_groups() {
-    use app::simulate::groups;
+    use app::category::groups;
     assert_eq!(groups("~~~~~~~L"), [0..=7]);
     assert_eq!(groups("~~~~~~~L~~~~~~~s"), [0..=7, 8..=15]);
     assert_eq!(groups("rLLLLLLL"), [0..=7]);

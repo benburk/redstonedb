@@ -3,11 +3,7 @@
 //! decoder test.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
-use crate::{
-    interface::inspect,
-    schem::Pos,
-    simulate::{self, Test},
-};
+use crate::{category::Test, interface::inspect, schem::Pos, simulate};
 
 /// A decoder as probing found it: its input A, its output, the file
 /// carrying their roles, as the decoder test reads them, and that test's

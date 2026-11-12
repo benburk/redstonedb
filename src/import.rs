@@ -1,10 +1,7 @@
 //! Turning a `.schem` file into a stored schematic, shared by
 //! `rsdb refresh`, `rsdb seed`, the upload page, and new versions.
 
-use std::fmt::Write as _;
-
 use anyhow::{Context, Result};
-use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 
 use crate::{
@@ -129,7 +126,7 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     };
     let data = blocks.encode()?;
     let size = measure(&blocks, conventional)?;
-    let sha256 = sha256(&schem::lines::without(&data)?);
+    let sha256 = schem::sha256(&schem::lines::without(&data)?);
     Ok(Prepared {
         facts: FileFacts::of(&blocks),
         data,
@@ -214,16 +211,6 @@ fn torches(blocks: &Blocks) -> i64 {
     i64::try_from(count).unwrap_or(i64::MAX)
 }
 
-/// The file's SHA-256, in hex.
-pub fn sha256(data: &[u8]) -> String {
-    Sha256::digest(data)
-        .iter()
-        .fold(String::new(), |mut hex, b| {
-            let _ = write!(hex, "{b:02x}");
-            hex
-        })
-}
-
 /// A build's size: its box less its outer layers of interface and outputs,
 /// as [`interface::measured`] finds it, for a build that follows the
 /// conventions, and its whole box for one that does not.
@@ -301,7 +288,7 @@ fn read_from_output(interface: &Interface) -> Derived {
     match held {
         Some(port) => Derived {
             width: i64::try_from(port.bits.len()).ok(),
-            orientation: orientation(port),
+            orientation: interface::orientation(port),
             encoding: Some(Encoding::Binary),
         },
         None => Derived::default(),
@@ -322,7 +309,7 @@ pub fn read_from_file(interface: &Interface) -> Derived {
                 a.bits.len() * if a.signal_strength { 4 } else { 1 },
             )
             .ok(),
-            orientation: orientation(a),
+            orientation: interface::orientation(a),
             encoding: Some(if a.signal_strength {
                 Encoding::Hex
             } else {
@@ -398,42 +385,6 @@ pub fn derived_flags(
             .map(|(_, line)| line.replace(' ', "_"))
             .collect(),
     )
-}
-
-/// The width and orientation the inputs suggest: the widest operand's bit
-/// count, four for each block of a signal-strength input, and which way its
-/// bits run. `None` where the inputs say nothing.
-pub fn guess(interface: &Interface) -> (Option<usize>, Option<Orientation>) {
-    let bits = |port: &Port| {
-        port.bits.len() * if port.signal_strength { 4 } else { 1 }
-    };
-    let widest = interface
-        .inputs
-        .iter()
-        .filter(|port| !port.labelled)
-        .max_by_key(|port| bits(port));
-    let width = widest.map(bits);
-    let orientation = widest.and_then(orientation);
-    (width, orientation)
-}
-
-/// The way a bus runs, from how far it runs across and up. A bus that
-/// mostly runs one way, such as a staggered horizontal one, counts as
-/// running that way.
-fn orientation(port: &Port) -> Option<Orientation> {
-    let first = port.bits.first()?.pos;
-    let last = port.bits.last()?.pos;
-    let across = (last[0] - first[0]).abs() + (last[2] - first[2]).abs();
-    let up = (last[1] - first[1]).abs();
-    if across == 0 && up == 0 {
-        None
-    } else if across >= 2 * up {
-        Some(Orientation::Horizontal)
-    } else if up >= 2 * across {
-        Some(Orientation::Vertical)
-    } else {
-        Some(Orientation::Diagonal)
-    }
 }
 
 /// An uploaded file made ready both ways it may be kept.

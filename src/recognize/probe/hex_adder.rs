@@ -6,9 +6,10 @@
 
 use super::{Fault, Order, Role, Roles, try_roles};
 use crate::{
+    category::Test,
     interface::{inspect, repeater_outputs},
     schem::{Blocks, Pos},
-    simulate::{self, Test},
+    simulate,
 };
 
 /// A hex adder as probing found it: its digit inputs, each by the block

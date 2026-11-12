@@ -35,10 +35,10 @@
 use anyhow::Result;
 
 use self::check::check_on;
-use super::{Run, Value, bench::mask};
 use crate::{
     category,
     schem::{Blocks, Pos},
+    simulate::{Run, Value, bench::mask},
 };
 
 mod check;

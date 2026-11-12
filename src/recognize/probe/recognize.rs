@@ -11,7 +11,7 @@ use super::{
     multiplier, one_operand, operands_probe, register, sequential, shifter,
 };
 use crate::{
-    category::{Kind, Probe, Probing},
+    category::{Kind, Probe, Probing, Test},
     ingest::orient,
     interface::inspect,
     recognize::{bus_drivable::not_bus_drivable, matching},
@@ -19,7 +19,7 @@ use crate::{
         self, Blocks, Pos,
         lines::{self, Role},
     },
-    simulate::{self, Test},
+    simulate,
 };
 
 /// What the check by function makes of an uploaded file: the file carrying

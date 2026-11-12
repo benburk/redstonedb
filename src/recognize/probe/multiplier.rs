@@ -5,9 +5,10 @@
 
 use super::{Fault, Order, Role, Roles, lengths, split, try_roles};
 use crate::{
+    category::Test,
     interface::inspect::{self, Run},
     schem::Pos,
-    simulate::{self, Test},
+    simulate,
 };
 
 /// A multiplier as probing found it: its operands A and B, its control

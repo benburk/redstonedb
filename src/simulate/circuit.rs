@@ -27,7 +27,7 @@ use crate::{
 };
 
 /// The most ticks a build may take to settle after its inputs change.
-pub(super) const MAX_TICKS: u32 = 1000;
+pub(crate) const MAX_TICKS: u32 = 1000;
 
 /// A build set up for simulation. Each input is driven by its levers, and
 /// each output bit is on while the component standing on its block is; a
@@ -733,7 +733,7 @@ fn shows_digits(interface: &Interface, port: &Port) -> bool {
 
 /// How many bits input `port` carries: four for each block of a
 /// signal-strength input, a digit per block, else one for each block.
-pub(super) fn input_bits(port: &Port) -> usize {
+pub(crate) fn input_bits(port: &Port) -> usize {
     port.bits.len() * if port.signal_strength { 4 } else { 1 }
 }
 
@@ -741,7 +741,7 @@ pub(super) fn input_bits(port: &Port) -> usize {
 /// for each block when the build takes a signal strength and the port
 /// shows digits, or when its test reads it as a strength, else one for
 /// each block.
-pub(super) fn output_bits(interface: &Interface, port: &Port) -> usize {
+pub(crate) fn output_bits(interface: &Interface, port: &Port) -> usize {
     let digits = interface.inputs.iter().any(|input| input.signal_strength)
         && shows_digits(interface, port)
         || port.signal_strength;
@@ -815,7 +815,7 @@ pub struct Compiled {
 impl Compiled {
     /// A hash of the whole circuit.
     pub fn key(&self) -> String {
-        crate::import::sha256(format!("{self:?}").as_bytes())
+        crate::schem::sha256(format!("{self:?}").as_bytes())
     }
 }
 
@@ -825,7 +825,7 @@ impl Compiled {
 /// components link matters, so one that never rests with every lever off,
 /// as a counter whose clock reads inverted, is compiled as it stands once
 /// the world has tried.
-pub(super) fn compile_graph(blocks: &Blocks) -> Result<CompileGraph> {
+pub(crate) fn compile_graph(blocks: &Blocks) -> Result<CompileGraph> {
     let mut world = world(blocks)?;
     let size = world_size(blocks);
     let _restless = settle_world(&mut world, size);
@@ -853,7 +853,7 @@ pub(super) fn compile_graph(blocks: &Blocks) -> Result<CompileGraph> {
 }
 
 /// Where a node of a compiled graph sits in the build: its first block.
-pub(super) fn node_place(node: &CompileNode) -> Option<Pos> {
+pub(crate) fn node_place(node: &CompileNode) -> Option<Pos> {
     let origin = at([0, 0, 0]);
     node.block
         .first()

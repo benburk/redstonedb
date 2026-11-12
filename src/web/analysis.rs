@@ -14,11 +14,10 @@ use std::{
 use uuid::Uuid;
 
 use crate::{
-    category::Kind,
+    category::{self, Guessed, Kind},
     import::{self, Upload},
     models::{simulation, user::User},
     recognize::probe::{self, Recognition},
-    simulate::{self, Guess},
     version::Checked,
     web::app_state::AppState,
 };
@@ -93,7 +92,7 @@ pub struct Analyzed {
     /// a preview, to keep what was filled in.
     pub sent: Option<Vec<(String, String)>>,
     pub upload: Upload,
-    pub guess: Option<Guess>,
+    pub guess: Option<Guessed>,
     pub recognition: Recognition,
 }
 
@@ -200,7 +199,7 @@ pub fn start(
             .map(|upload| Analyzed {
                 raw: file.clone(),
                 sent: filled,
-                guess: simulate::guess(&upload.read_as().blocks),
+                guess: category::guess(&upload.read_as().blocks),
                 upload,
                 recognition,
             })

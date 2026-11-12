@@ -227,7 +227,7 @@ pub fn circuit_key(
         .iter()
         .map(Compiled::key)
         .collect();
-    Ok(crate::import::sha256(keys.join(" ").as_bytes()))
+    Ok(crate::schem::sha256(keys.join(" ").as_bytes()))
 }
 
 /// The circuit of the build in `data` alone, then stacked each of `ways`.

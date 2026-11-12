@@ -3,15 +3,18 @@
 //! the sum or difference and an optional carry or borrow out above it, or
 //! the carry alone.
 
-use crate::schem::lines::Role;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-
-use super::{
-    Broken, Reading, Run, Value,
-    bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+use crate::{
+    interface::{Interface, Port, colour},
+    schem::lines::Role,
+    simulate::{
+        Broken, Reading, Run, Value,
+        bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+        broken,
+    },
 };
-use crate::interface::{Interface, Port, colour};
+use anyhow::Result;
+
+pub(crate) use crate::simulate::AdderVariant as Variant;
 
 /// How an adder's messages name it and its lone lines: the adder's test
 /// reads a subtractor too, its B inverted, so its lines may go by a
@@ -46,32 +49,6 @@ const CARRY_OR_BORROW_OUT: [&str; 4] = [
     colour::BORROW_OUT[0],
     colour::BORROW_OUT[1],
 ];
-
-/// One way an adder's lines may read: as an add, or, B inverted and its
-/// carries borrows, a subtract, A − B less its borrow in; and with its
-/// carry in inverted, as a torch on that line gives. Inverting a line does
-/// not change what a build is, so a subtractor is an adder, its B
-/// inverted. An adder's sum inverted is an inverted adder, a category of
-/// its own, whose carry out may read either way.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize,
-)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each a line read one way or the other"
-)]
-pub struct Variant {
-    pub subtract: bool,
-    pub carry_in: bool,
-    /// Whether its sum reads inverted, as an inverted adder's does.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub sum: bool,
-    /// Whether its carry out reads inverted, as a carry-cancel adder's
-    /// may, a tick sooner than inverting it again, or an inverted adder's
-    /// with its sum.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub carry_out: bool,
-}
 
 impl Variant {
     /// Every way an adder with a carry in, if it has one, may read, the
@@ -154,9 +131,9 @@ impl Variant {
         } else {
             a + b + carry
         };
-        let sum = total & super::mask(width);
+        let sum = total & crate::simulate::mask(width);
         let sum = if self.sum {
-            !sum & super::mask(width)
+            !sum & crate::simulate::mask(width)
         } else {
             sum
         };

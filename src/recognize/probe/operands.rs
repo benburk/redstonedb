@@ -8,9 +8,10 @@ use super::{
     try_roles,
 };
 use crate::{
+    category::{Gate, Test},
     interface::inspect::{self, Run},
     schem::Pos,
-    simulate::{self, Gate, Test},
+    simulate,
 };
 
 /// A build of two operands as probing found it, a gate or a comparison: its

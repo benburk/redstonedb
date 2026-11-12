@@ -16,17 +16,17 @@ use crate::{interface::Interface, schem::Blocks};
 
 /// Up to this many input bits, every combination is tried; beyond it, every
 /// case of each byte and every pairing of the test patterns.
-pub(super) const EXHAUSTIVE_BITS: usize = 20;
+pub(crate) const EXHAUSTIVE_BITS: usize = 20;
 
 /// The widest input whose every bit `patterns` sets and clears alone.
 const WIDE: usize = 32;
 
 /// One case's input values, in the order of its bench's inputs; those it
 /// has no input for are 0.
-pub(super) type Case = [Value; 3];
+pub(crate) type Case = [Value; 3];
 
 /// What a test drives and reads.
-pub(super) struct Bench {
+pub(crate) struct Bench {
     /// Input ports, by their place in the interface, in the order of each
     /// case's values.
     pub inputs: Vec<usize>,
@@ -116,7 +116,7 @@ impl Bench {
 
 /// A stateless test, as it differs from the others: what it drives and
 /// reads, the cases it tries, and what each case should give.
-pub(super) struct Spec {
+pub(crate) struct Spec {
     pub bench: Bench,
     pub cases: Cases,
     /// What the build may be. Most tests know, so this holds one; an
@@ -132,7 +132,7 @@ pub(super) struct Spec {
 /// One thing a build may compute: its cases' name, such as `A + B`, what
 /// sets it apart from the test's other kinds where more depends on it,
 /// and what it gives for a case, before it is cut to the outputs' bits.
-pub(super) struct Kind {
+pub(crate) struct Kind {
     pub pattern: String,
     pub reading: Option<Reading>,
     pub expected: Box<dyn Fn(&Case) -> Value>,
@@ -161,7 +161,7 @@ impl Kind {
 }
 
 /// Which cases a test tries.
-pub(super) enum Cases {
+pub(crate) enum Cases {
     /// Every combination of the inputs when they come to at most
     /// `EXHAUSTIVE_BITS`, else those the function gives, with how many of
     /// them pair the test patterns. A quick look pairs a few telling values
@@ -292,7 +292,7 @@ pub fn mask(bits: usize) -> Value {
 /// `WIDE` bits, only each hex digit's lowest and highest bit is set or
 /// cleared alone, a carry into it and out of it, so a 64-bit build pairs
 /// as many as a 32-bit one.
-pub(super) fn patterns(width: usize) -> Vec<Value> {
+pub(crate) fn patterns(width: usize) -> Vec<Value> {
     let all = mask(width);
     let mut found = vec![0, all];
     for period in [2, 4, 8] {
@@ -314,7 +314,7 @@ pub(super) fn patterns(width: usize) -> Vec<Value> {
 
 /// Cases without repeats, in the order they are first given.
 #[derive(Default)]
-pub(super) struct Distinct {
+pub(crate) struct Distinct {
     pub cases: Vec<Case>,
     seen: HashSet<Case>,
 }
@@ -335,7 +335,7 @@ impl Distinct {
 /// Every combination of inputs of `widths` bits when they come to at most
 /// `EXHAUSTIVE_BITS`, else what `structured` gives, with whether they were
 /// every one and how many pair the test patterns.
-pub(super) fn cases(
+pub(crate) fn cases(
     widths: &[usize],
     structured: impl FnOnce() -> (Vec<Case>, u64),
 ) -> (Vec<Case>, bool, u64) {
@@ -361,7 +361,7 @@ pub(super) fn cases(
 /// Every pairing of a few telling values of each input's width, a 1-bit one
 /// taking 0 and 1, with how many there are: a quick look, enough to tell
 /// an adder from a multiplier, even for a build slow to run.
-pub(super) fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
+pub(crate) fn paired(widths: &[usize]) -> (Vec<Case>, u64) {
     let choices: Vec<Vec<Value>> = widths
         .iter()
         .map(|&width| {
@@ -418,7 +418,7 @@ fn telling(width: usize) -> Vec<Value> {
 impl Run {
     /// Takes in `other`'s cases, as another operation of the same build,
     /// keeping the first five wrong cases of all.
-    pub(super) fn absorb(&mut self, other: Run) {
+    pub(crate) fn absorb(&mut self, other: Run) {
         self.cases += other.cases;
         self.wrong += other.wrong;
         self.patterns += other.patterns;
@@ -435,7 +435,7 @@ impl Run {
 
     /// Notes whether its cases were every combination, and how many paired
     /// the test patterns.
-    pub(super) fn covering(mut self, exhaustive: bool, patterns: u64) -> Self {
+    pub(crate) fn covering(mut self, exhaustive: bool, patterns: u64) -> Self {
         self.exhaustive = exhaustive;
         self.patterns = patterns;
         self
@@ -562,7 +562,7 @@ fn reading<'k>(
 /// Runs `cases` through the bench's inputs, driving the bits `flip` gives,
 /// if any, the other way round, and checks each result against `expected`,
 /// cut to as many bits as the outputs hold.
-pub(super) fn sweep(
+pub(crate) fn sweep(
     blocks: &Blocks,
     interface: &Interface,
     bench: &Bench,
@@ -577,7 +577,7 @@ pub(super) fn sweep(
 /// What the bench's outputs show, read together as one number, for each
 /// of `cases` run through its inputs, the bits `flip` gives, if any, driven
 /// the other way round.
-pub(super) fn observe(
+pub(crate) fn observe(
     blocks: &Blocks,
     interface: &Interface,
     bench: &Bench,
@@ -615,7 +615,7 @@ pub(super) fn observe(
 /// turn, making the press the test makes, against a fresh copy for each
 /// case given only its inputs, nothing pressed and every control at rest.
 /// An output that differs was left behind by what came before.
-pub(super) fn remembers(
+pub(crate) fn remembers(
     blocks: &Blocks,
     interface: &Interface,
     bench: &Bench,
@@ -644,7 +644,7 @@ pub(super) fn remembers(
 /// Whether the build holds state with any of `settings` held, each a
 /// value for the lines that choose what it does, as an ALU's operation, as
 /// [`remembers`] tells of a bench driving `inputs` and reading `outputs`.
-pub(super) fn remembers_any(
+pub(crate) fn remembers_any(
     blocks: &Blocks,
     interface: &Interface,
     (inputs, outputs): (&[usize], &[usize]),
@@ -669,7 +669,7 @@ pub(super) fn remembers_any(
 
 /// Presses control line `port`: its button, or its lever turned on and,
 /// once that settles, off.
-pub(super) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {
+pub(crate) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {
     if circuit.is_button(port, 0) {
         circuit.press(port, 0);
     } else {
@@ -682,7 +682,7 @@ pub(super) fn pulse(circuit: &mut Circuit, port: usize) -> Result<()> {
 
 /// How `got`, what the outputs showed for each of `cases`, compares with
 /// `expected`, cut to as many bits as the outputs hold.
-pub(super) fn judge(
+pub(crate) fn judge(
     interface: &Interface,
     bench: &Bench,
     cases: &[Case],
@@ -824,8 +824,9 @@ fn count_bits(
         .collect()
 }
 
+/// What the bench's tests and the categories' build their cases from.
 #[cfg(test)]
-mod tests {
+pub(crate) mod testing {
     use super::*;
     use crate::{
         interface::{Bit, Port},
@@ -833,7 +834,7 @@ mod tests {
     };
 
     /// A port of `bits` bits named `name`, of `role`.
-    fn port(name: &str, role: Role, bits: usize) -> Port {
+    pub(crate) fn port(name: &str, role: Role, bits: usize) -> Port {
         Port {
             name: name.to_owned(),
             role: Some(role),
@@ -854,7 +855,7 @@ mod tests {
 
     /// The run `kinds` best explain of what a build of `inputs` and
     /// `outputs` showed, `got`, for every case of its inputs.
-    fn judged(
+    pub(crate) fn judged(
         inputs: Vec<Port>,
         outputs: Vec<Port>,
         kinds: &[Kind],
@@ -876,6 +877,15 @@ mod tests {
         let got: Vec<Value> = cases.iter().map(got).collect();
         best(&interface, &bench, kinds, &cases, &got).unwrap()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        testing::{judged, port},
+        *,
+    };
+    use crate::schem::lines::Role;
 
     /// A control line, such as an incrementer's, may read inverted: on, it
     /// means 0. The test finds it, and names it.
@@ -923,74 +933,6 @@ mod tests {
             |case| Value::from(case[0] != case[1]),
         );
         assert_eq!(run.wrong, run.cases);
-    }
-
-    /// A decoder's outputs are inverted, its selected bit off and the rest
-    /// on; one whose selected bit is on gets every case wrong.
-    #[test]
-    fn a_decoders_selected_bit_is_off() {
-        let interface = || {
-            (
-                vec![port("A", Role::Operand(0), 2)],
-                vec![port("output", Role::Output(0), 4)],
-            )
-        };
-        let (inputs, outputs) = interface();
-        let spec = super::super::decoder::spec(&Interface {
-            inputs: inputs.clone(),
-            outputs: outputs.clone(),
-            binary_outputs: false,
-        })
-        .unwrap();
-        let off =
-            judged(inputs, outputs, &spec.kinds, |case| !(1 << case[0]) & 0xF);
-        assert_eq!((off.wrong, off.pattern.as_str()), (0, "bit A off"));
-        let (inputs, outputs) = interface();
-        let on = judged(inputs, outputs, &spec.kinds, |case| 1 << case[0]);
-        assert_eq!(on.wrong, on.cases);
-    }
-
-    /// A popcount counts at least four bits: one of fewer is refused, as
-    /// a one-bit one's count is the bit itself, as a buffer's is.
-    #[test]
-    fn a_popcount_counts_at_least_four_bits() {
-        let counted = |bits: usize| {
-            super::super::converters::popcount(&mut Interface {
-                inputs: vec![port("A", Role::Operand(0), bits)],
-                outputs: vec![port("output", Role::Output(0), 3)],
-                binary_outputs: false,
-            })
-        };
-        for bits in 1..4 {
-            assert!(counted(bits).is_err(), "{bits}");
-        }
-        assert!(counted(4).is_ok());
-    }
-
-    /// A parity circuit is on for an odd number of A's bits on; its
-    /// inverse, on for an even number, gets every case wrong.
-    #[test]
-    fn a_parity_circuit_is_odd() {
-        let interface = || {
-            (
-                vec![port("A", Role::Operand(0), 4)],
-                vec![port("output", Role::Output(0), 1)],
-            )
-        };
-        let (inputs, outputs) = interface();
-        let spec = super::super::converters::parity(&Interface {
-            inputs: inputs.clone(),
-            outputs: outputs.clone(),
-            binary_outputs: false,
-        })
-        .unwrap();
-        let odd = |case: &Case| Value::from(case[0].count_ones() % 2 == 1);
-        let run = judged(inputs, outputs, &spec.kinds, odd);
-        assert_eq!((run.wrong, run.cases), (0, 16));
-        assert_eq!(run.pattern, "xor of A's bits");
-        let (inputs, outputs) = interface();
-        let run = judged(inputs, outputs, &spec.kinds, |case| odd(case) ^ 1);
-        assert_eq!((run.wrong, run.cases), (16, 16));
     }
 
     #[test]

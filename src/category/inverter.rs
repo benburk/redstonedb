@@ -5,14 +5,16 @@
 
 use anyhow::{Result, bail};
 
-use super::{
-    Broken, Stacker, Test,
-    bench::{Bench, Case, Cases, Kind, Spec, mask},
-    circuit::output_bits,
-    converters::byte_cases,
-    stacking,
+use crate::{
+    category::{Test, converters::byte_cases},
+    interface::Interface,
+    simulate::{
+        Broken, Stacker,
+        bench::{Bench, Case, Cases, Kind, Spec, mask},
+        broken,
+        circuit::output_bits,
+    },
 };
-use crate::interface::Interface;
 
 /// An inverter's every case, or with too many, each byte's and the test
 /// patterns, each with its line off and on: A, or every bit of it
@@ -86,7 +88,7 @@ fn ports(interface: &Interface) -> Result<(usize, usize)> {
 /// every bit with the one line, then as many more as do, as the line runs
 /// only so far. `None` when it is no inverter.
 pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
-    stacking::bitwise(
+    super::stacks::bitwise(
         data,
         Test::Inverter,
         |interface| ports(interface).ok().map(|(a, _)| a),

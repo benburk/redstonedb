@@ -4,11 +4,7 @@
 //! through its test, which finds what each line does.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
-use crate::{
-    interface::inspect,
-    schem::Pos,
-    simulate::{self, Test},
-};
+use crate::{category::Test, interface::inspect, schem::Pos, simulate};
 
 /// A counter or shift register as probing found it: its input A, if any,
 /// the file carrying its lines' roles, as its test reads them, and that

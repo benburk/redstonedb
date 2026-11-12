@@ -18,7 +18,7 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
-    category::Category,
+    category::{self, Category, Guessed},
     details,
     external::schemati,
     import::{self, Kept, Upload},
@@ -32,7 +32,6 @@ use crate::{
     },
     recognize::probe,
     schem::Blocks,
-    simulate::{self, Guess},
     web::{
         app_state::AppState,
         error::AppError,
@@ -491,10 +490,10 @@ async fn recognized(data: &[u8]) -> Vec<u8> {
 }
 
 /// What a file seems to be, from a quick run of the tests it fits.
-async fn guessed(data: &[u8]) -> Option<Guess> {
+async fn guessed(data: &[u8]) -> Option<Guessed> {
     let data = data.to_vec();
     tokio::task::spawn_blocking(move || {
-        simulate::guess(&Blocks::read(&data).ok()?)
+        category::guess(&Blocks::read(&data).ok()?)
     })
     .await
     .ok()

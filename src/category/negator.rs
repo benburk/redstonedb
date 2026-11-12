@@ -4,13 +4,16 @@
 
 use anyhow::Result;
 
-use super::{
-    Broken,
-    bench::{Bench, Cases, Kind, Spec, mask},
-    circuit::output_bits,
-    incrementer::incrementer_cases,
+use crate::{
+    category::incrementer::incrementer_cases,
+    interface::Interface,
+    simulate::{
+        Broken,
+        bench::{Bench, Cases, Kind, Spec, mask},
+        broken,
+        circuit::output_bits,
+    },
 };
-use crate::interface::Interface;
 
 /// A negator's every case, or with too many, each byte's with the bits
 /// below it all clear and all set, as whether any lower bit is on decides

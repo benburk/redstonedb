@@ -15,14 +15,18 @@ use std::sync::atomic::AtomicBool;
 
 use anyhow::Result;
 
-use super::{
-    Broken, Run, Timing, Value,
-    bench::{self, Bench, Case, mask, observe, sweep},
-    circuit::output_bits,
-    rng::Rng,
-    timing,
+use crate::{
+    interface::Interface,
+    schem::Blocks,
+    simulate::{
+        Broken, Run, Timing, Value,
+        bench::{self, Bench, Case, mask, observe, sweep},
+        broken,
+        circuit::output_bits,
+        rng::Rng,
+        timing,
+    },
 };
-use crate::{interface::Interface, schem::Blocks};
 
 /// A shift a barrel shifter may give, of A by the amount `n`, of `width`
 /// bits. On a tie, the one first in `Shift::ALL` is taken.
@@ -489,7 +493,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
             })
             .collect()
     };
-    super::throughput::controlled(
+    crate::simulate::throughput::controlled(
         blocks,
         &interface,
         timing,

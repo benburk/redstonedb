@@ -8,7 +8,7 @@ use super::{
     Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Lines, Measure,
     Probe, Probing, Reads, Section, Stacking,
 };
-use crate::{recognize::probe::Line, simulate::Test};
+use crate::{category::Test, recognize::probe::Line};
 
 /// What the code does with a category's builds when it does nothing
 /// special: the default `Behaviour`, here where a constant needs it.

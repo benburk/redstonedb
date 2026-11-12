@@ -25,8 +25,8 @@ use crate::{interface, schem::Blocks};
 
 /// The fewest random cases the stream a period is found on runs through,
 /// and the long one it is checked on.
-pub(super) const CASES: usize = 64;
-pub(super) const LONG: usize = 4096;
+pub(crate) const CASES: usize = 64;
+pub(crate) const LONG: usize = 4096;
 
 /// The most mixes of each input's telling values a stream begins with.
 const MIXES: usize = 4096;
@@ -88,7 +88,7 @@ fn read_at(timing: &Timing) -> Vec<i32> {
 /// slowest output takes to as many after. The shortest period at any such
 /// timing; `None` when none up to twice its slowest output keeps every
 /// result right.
-pub(super) fn controlled(
+pub(crate) fn controlled(
     blocks: &Blocks,
     interface: &interface::Interface,
     timing: &Timing,
@@ -127,7 +127,7 @@ pub(super) fn controlled(
 /// own takes to give it out. Found on the short stream, then checked on
 /// the long one, a period kept only once every case of that comes out
 /// right too.
-pub(super) fn shortest(
+pub(crate) fn shortest(
     blocks: &Blocks,
     (short, long): (&[Vec<Value>], &[Vec<Value>]),
     offset: &[i32],

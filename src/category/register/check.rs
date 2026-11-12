@@ -12,6 +12,7 @@ use crate::{
     simulate::{
         Action, Broken, CellControls, Reading, Run, Signal, Value, Wrong,
         bench::{mask, patterns},
+        broken,
         circuit::{Circuit, output_bits},
     },
 };

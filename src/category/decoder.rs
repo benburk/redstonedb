@@ -6,11 +6,14 @@
 
 use anyhow::Result;
 
-use super::{
-    Broken,
-    bench::{Bench, Cases, Kind, Spec, mask},
+use crate::{
+    interface::Interface,
+    simulate::{
+        Broken,
+        bench::{Bench, Cases, Kind, Spec, mask},
+        broken,
+    },
 };
-use crate::interface::Interface;
 
 /// A decoder's cases, as they are named.
 const OFF: &str = "bit A off";
@@ -52,4 +55,38 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         kinds: vec![Kind::new(OFF, move |case| !(1 << case[0]) & all)],
         by_digit: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        schem::lines::Role,
+        simulate::bench::testing::{judged, port},
+    };
+
+    /// A decoder's outputs are inverted, its selected bit off and the rest
+    /// on; one whose selected bit is on gets every case wrong.
+    #[test]
+    fn a_decoders_selected_bit_is_off() {
+        let interface = || {
+            (
+                vec![port("A", Role::Operand(0), 2)],
+                vec![port("output", Role::Output(0), 4)],
+            )
+        };
+        let (inputs, outputs) = interface();
+        let spec = spec(&Interface {
+            inputs: inputs.clone(),
+            outputs: outputs.clone(),
+            binary_outputs: false,
+        })
+        .unwrap();
+        let off =
+            judged(inputs, outputs, &spec.kinds, |case| !(1 << case[0]) & 0xF);
+        assert_eq!((off.wrong, off.pattern.as_str()), (0, "bit A off"));
+        let (inputs, outputs) = interface();
+        let on = judged(inputs, outputs, &spec.kinds, |case| 1 << case[0]);
+        assert_eq!(on.wrong, on.cases);
+    }
 }

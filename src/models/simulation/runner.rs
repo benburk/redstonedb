@@ -15,10 +15,10 @@ use sqlx::SqlitePool;
 use tokio::sync::{OnceCell, Semaphore};
 
 use crate::{
-    import,
+    category::Test,
     recognize::evaluate::{Evaluation, evaluate},
-    schem::Blocks,
-    simulate::{Report, Test, Timing},
+    schem::{self, Blocks},
+    simulate::{Report, Timing},
 };
 
 /// One run of a test's cases at a time, and one timing: the server has two
@@ -120,7 +120,7 @@ fn remember(sha256: &str, test: Test, report: &Report) {
 /// threads, and, when they all come out right, whether its copies stack;
 /// or takes the result of the same file run lately.
 pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
-    let sha256 = import::sha256(&data);
+    let sha256 = schem::sha256(&data);
     if let Some(report) = recent(&sha256, test) {
         return Ok(report);
     }
@@ -163,7 +163,7 @@ pub async fn time(
     data: Vec<u8>,
     cancel: Arc<AtomicBool>,
 ) -> Result<Timing> {
-    let sha256 = import::sha256(&data);
+    let sha256 = schem::sha256(&data);
     let measured = |sha256: &str| {
         recent(sha256, test).and_then(|report| report.timing().cloned())
     };
