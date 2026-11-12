@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build\n         SET imported_by = (SELECT minecraft_name FROM user WHERE id = ?1)\n         WHERE imported_by = (SELECT minecraft_name FROM user\n            WHERE id = ?1 AND minecraft_verified) COLLATE NOCASE",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "bf8632c7f0f85d2e81a83de912925cbe09db14ca96a42580d98ba4eb8e6831db"
+}

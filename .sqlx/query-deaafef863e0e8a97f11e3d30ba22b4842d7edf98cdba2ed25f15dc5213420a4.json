@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id FROM build\n         WHERE id GLOB ? || '*' AND deleted_at IS NULL LIMIT 2",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "deaafef863e0e8a97f11e3d30ba22b4842d7edf98cdba2ed25f15dc5213420a4"
+}

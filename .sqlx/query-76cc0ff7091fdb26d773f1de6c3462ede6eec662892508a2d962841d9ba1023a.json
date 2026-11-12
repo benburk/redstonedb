@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build SET width = ?, orientation = ?, encoding = ?,\n            latency = ?, synchronized = ?, pulse = ?, at_least = ?,\n            throughput = ?, design = ?, logic = ?\n         WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 11
+    },
+    "nullable": []
+  },
+  "hash": "76cc0ff7091fdb26d773f1de6c3462ede6eec662892508a2d962841d9ba1023a"
+}

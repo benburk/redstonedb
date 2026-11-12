@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build_version SET data = ?,\n                    needs = iif(sha256 = ?, needs, NULL), sha256 = ?,\n                    roles = coalesce(?, iif(sha256 = ?, roles, NULL))\n                 WHERE build_id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "088ffcc8716f76b8290d2769a3cfa295db0a5f996d18d852d93e94012f449a66"
+}

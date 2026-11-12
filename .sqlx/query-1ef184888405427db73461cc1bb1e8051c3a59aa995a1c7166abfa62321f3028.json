@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT description AS \"description!\" FROM build\n         WHERE description IS NOT NULL AND deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "name": "description!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1ef184888405427db73461cc1bb1e8051c3a59aa995a1c7166abfa62321f3028"
+}

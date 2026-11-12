@@ -9,7 +9,7 @@ use sqlx::SqlitePool;
 
 use crate::{
     category::{self, Category, Kind, Lines},
-    details::{self, Ready, Unrecognized},
+    details::{self, Ready},
     ingest::standardize,
     models::{
         schematic::{self, Build, Encoding, New, Orientation},
@@ -462,55 +462,51 @@ impl Upload {
     }
 }
 
-/// Which of an upload's files a build of the category it is given keeps.
+/// Which of an upload's files a build of the category it is given keeps,
+/// and how it is filed.
 pub enum Kept {
-    /// As built, the build not being one the site recognizes, with why
-    /// not when its category is one the site works out.
-    Original(Option<Unrecognized>),
-    /// Standardized, as a build of the
-    /// listed category named `category`, which an off-list name such as
-    /// `8-bit adder` stands in for.
-    Standard {
-        file: Box<Prepared>,
-        category: String,
-    },
+    /// Standardized and turned to lie the standard way, as a build
+    /// recognized as its category is kept.
+    Standard(Box<Prepared>),
+    /// As built, unverified as its category, one the site recognizes
+    /// builds of, for this reason.
+    Unverified(String),
+    /// As built, under this category of its own, as its category is one
+    /// the site lists but recognizes no builds of yet; see
+    /// `details::off_list_name`.
+    OffList(String),
+    /// As built, in the category it was given, one of its author's own.
+    Original,
 }
 
 /// Which of `upload`'s files a build given as `category` keeps: the
-/// standard one when it is recognized as the blessed category `category`
-/// means, as `details::meant` reads it; else the original, off the list
-/// when `category` names a listed one. The `Err` says it could not be
-/// simulated.
+/// standard one when it is recognized as that category, a blessed one;
+/// else the original. The `Err` says it could not be simulated.
 pub async fn kept(
     categories: &[Category],
     category: &str,
     upload: &Upload,
 ) -> anyhow::Result<Result<Kept, String>> {
-    let Some(meant) = details::meant(categories, category) else {
-        return Ok(Ok(Kept::Original(None)));
+    let Some(listed) = Category::find(categories, category) else {
+        return Ok(Ok(Kept::Original));
     };
     // Only a blessed build goes on the list; any other listed category's
     // goes off it, named for what it is.
-    if !category::blessed(&meant.name) {
+    if !category::blessed(&listed.name) {
         let width = upload.standard.as_ref().ok().and_then(|standard| {
-            derived_width(&meant.name, &interface::read(&standard.blocks))
+            derived_width(&listed.name, &interface::read(&standard.blocks))
         });
-        return Ok(Ok(Kept::Original(Some(Unrecognized {
-            why: format!(
-                "{} aren't recognized yet",
-                meant.plural.to_lowercase()
-            ),
-            name: details::off_list_name(meant, width),
-        }))));
+        return Ok(Ok(Kept::OffList(details::off_list_name(listed, width))));
     }
     let unrecognized = match &upload.standard {
         Ok(standard) => {
-            details::unrecognized(meant, details::Candidate::of(standard)).await
+            details::unrecognized(listed, details::Candidate::of(standard))
+                .await
         }
         // Read as built, it can only say it breaks the conventions.
         Err(_) => {
             details::unrecognized(
-                meant,
+                listed,
                 details::Candidate {
                     data: &upload.original.data,
                     conventional: false,
@@ -520,16 +516,13 @@ pub async fn kept(
             .await
         }
     };
-    Ok(match unrecognized {
-        Err(message) => Err(message),
-        Ok(Some(off)) => Ok(Kept::Original(Some(off))),
-        Ok(None) => match &upload.standard {
-            Ok(standard) => Ok(Kept::Standard {
-                file: Box::new(rewrapped(standard)?),
-                category: meant.name.clone(),
-            }),
-            Err(_) => Ok(Kept::Original(None)),
-        },
+    Ok(match (unrecognized, &upload.standard) {
+        (Err(message), _) => Err(message),
+        (Ok(Some(why)), _) => Ok(Kept::Unverified(why)),
+        (Ok(None), Ok(standard)) => {
+            Ok(Kept::Standard(Box::new(rewrapped(standard)?)))
+        }
+        (Ok(None), Err(_)) => Ok(Kept::Original),
     })
 }
 
@@ -548,8 +541,7 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
 
 /// The file in `data`, a build's of `category`, carrying the roles of its
 /// lines, when it carries none: the roles probing as its category finds,
-/// for a category the site recognizes builds of or one an off-list name
-/// stands in for, as an 8-bit adder's for an adder, its lines read loosely
+/// for a category the site recognizes builds of, its lines read loosely
 /// as a build kept as built may need, see [`probe::kept_roles`]; else, or
 /// when no probe's test runs, those its shapes give it, see
 /// [`interface::shaped_roles`]. Its colours never give a line its role,
@@ -564,10 +556,7 @@ pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
     if blocks.roles.is_some() {
         return Ok(data.to_vec());
     }
-    let meant = std::iter::once(category)
-        .chain(crate::models::simulation::meant_by(category))
-        .find(|c| category::blessed(c))
-        .and_then(Kind::named);
+    let meant = Kind::named(category).filter(|kind| kind.blessed());
     let marked = crate::recognize::legacy::operand_marks(&blocks);
     let order = probe::Order {
         marked: Some(&marked),
@@ -603,34 +592,30 @@ pub async fn probed(data: &[u8], meant: &str) -> Result<Vec<u8>> {
     Ok(coloured)
 }
 
-/// A build unverified as `category`, or off the list as `category` names
-/// it, moved up by its new version `file`: when that is recognized as the
-/// listed category meant, as an 8-bit adder's as an adder, the file
-/// standardized and turned to lie the standard way, as an upload's is,
-/// with that category. `None` for one its version does not move up.
-pub async fn moved_up<'a>(
-    categories: &'a [Category],
-    category: &str,
+/// A build unverified as `category`, verified by its new version `file`:
+/// when that is recognized as the category, the file standardized and
+/// turned to lie the standard way, as an upload's is. `None` for one its
+/// version does not verify.
+pub async fn verified_by(
+    category: &Category,
     file: &Prepared,
     keep_paste: bool,
-) -> Result<Option<(Prepared, &'a Category)>> {
-    let Some(meant) = details::meant(categories, category)
-        .filter(|c| category::blessed(&c.name))
-    else {
+) -> Result<Option<Prepared>> {
+    if !category::blessed(&category.name) {
         return Ok(None);
-    };
-    let coloured = probed(&file.data, &meant.name).await?;
+    }
+    let coloured = probed(&file.data, &category.name).await?;
     let Ok(candidate) =
         prepare_for(&coloured, Purpose::Standard { keep_paste })
     else {
         return Ok(None);
     };
     let recognized =
-        details::unrecognized(meant, details::Candidate::of(&candidate))
+        details::unrecognized(category, details::Candidate::of(&candidate))
             .await
-            .is_ok_and(|off| off.is_none());
+            .is_ok_and(|why| why.is_none());
     if !recognized {
         return Ok(None);
     }
-    Ok(Some((rewrapped(&candidate)?, meant)))
+    Ok(Some(rewrapped(&candidate)?))
 }

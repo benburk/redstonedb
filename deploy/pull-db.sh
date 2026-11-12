@@ -36,4 +36,4 @@ if [ -f database.sqlite3 ]; then
     echo "Backed up the local database to backups/local-$stamp.db."
 fi
 sqlite3 database.sqlite3 ".restore $copy"
-echo "database.sqlite3 now holds the live data: $(sqlite3 database.sqlite3 'SELECT count(*) FROM schematic') builds."
+echo "database.sqlite3 now holds the live data: $(sqlite3 database.sqlite3 'SELECT count(*) FROM build') builds."

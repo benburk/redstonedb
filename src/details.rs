@@ -307,9 +307,9 @@ async fn evaluated(
 ) -> Result<(), Stop> {
     if details.unverified.is_none()
         && !build.passes
-        && let Some(off) = unrecognized(category, build).await?
+        && let Some(why) = unrecognized(category, build).await?
     {
-        details.unverified = Some(off.why);
+        details.unverified = Some(why);
     }
     if details.unverified.is_some() {
         if details.specs.width.is_none() {
@@ -354,35 +354,10 @@ async fn evaluated(
     Ok(())
 }
 
-/// The listed category `name` means: one of `categories` as typed, or the
-/// one an off-list name such as `8-bit adder` stands in for, as
-/// `simulation::meant_by` reads it.
-pub fn meant<'a>(
-    categories: &'a [Category],
-    name: &str,
-) -> Option<&'a Category> {
-    Category::find(categories, name).or_else(|| {
-        let name = Category::name_of(categories, name);
-        let meant = simulation::meant_by(&name)?;
-        Category::find(categories, meant)
-    })
-}
-
-/// Why a build is not recognized as one of `category`, and the category
-/// off the list it goes up under instead.
-pub struct Unrecognized {
-    /// A short sentence about the build, without its full stop, such as
-    /// `Couldn't recognize inputs without levers`.
-    pub why: String,
-    /// Named for what it seems meant to be, such as `8-bit adder`.
-    pub name: String,
-}
-
-/// The category off the list a build not recognized as one of `category`
-/// goes up under, named for what it seems meant to be, such as `8-bit
-/// adder`: from the category's name rather than its label, which may hold
-/// characters no name may, as `NAND+XNOR Gate` does, so
-/// `simulation::meant_by` reads it back.
+/// The category of its own a build of `category`, a listed one the site
+/// recognizes no builds of yet, goes up under, named for what it is, such
+/// as `8-bit ram`: from the category's name rather than its label, which
+/// may hold characters no name may, as `NAND+NOR Gate` does.
 pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
     let words = category.name.replace('_', " ");
     width.map_or_else(
@@ -394,22 +369,21 @@ pub fn off_list_name(category: &Category, width: Option<i64>) -> String {
 /// Why `build` is not recognized as a build of `category`, a blessed one,
 /// see `category::Facts::listed_as`: it must be standardized, take no
 /// signal-strength input, be of a width its test reads, and pass it.
-/// `None` when it is, or when the category is not blessed. The `Err` says
-/// it could not be simulated at all.
+/// `None` when it is, or when the category is not blessed; else a short
+/// sentence about the build, without its full stop, such as `Couldn't
+/// recognize inputs without levers`. The `Err` says it could not be
+/// simulated at all.
 pub async fn unrecognized(
     category: &Category,
     build: Candidate<'_>,
-) -> Result<Option<Unrecognized>, String> {
+) -> Result<Option<String>, String> {
     let Some(kind) = Kind::named(&category.name).filter(|k| k.blessed()) else {
         return Ok(None);
     };
     let width = simulation::derived_width(&category.name, true, build.data)
         .ok()
         .flatten();
-    let off = |why: String| {
-        let name = off_list_name(category, width);
-        Ok(Some(Unrecognized { why, name }))
-    };
+    let off = |why: String| Ok(Some(why));
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
         return off("Couldn't read its file".to_owned());
     };

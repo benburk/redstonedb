@@ -171,8 +171,8 @@ pub(super) async fn merge(
 
 /// Adds `raw`, read from `file`, as build `s`'s next version, after the
 /// checks the site makes, keeping the colours its author gave it, and
-/// moving the build up to the category it stands in for when the version
-/// is recognized as one, as on the site.
+/// verifying an unverified build when the version is recognized as its
+/// category, as on the site.
 async fn next_version(
     db: &SqlitePool,
     s: &schematic::Build,
@@ -207,22 +207,17 @@ async fn next_version(
         note: note.map(str::trim).filter(|note| !note.is_empty()),
         restores: None,
     };
-    // Unverified or off the list, a version recognized as the category it
-    // stands in for moves it up, as on the site.
+    // A version recognized as its category verifies an unverified build,
+    // as on the site.
     let categories = Category::all();
-    let moved = match simulation::stands_in(s) {
-        Some(meant) => {
-            import::moved_up(
-                &categories,
-                meant,
-                &checked.prepared,
-                s.file.keeps_paste,
-            )
-            .await?
+    let verified = match Category::find(&categories, &s.category) {
+        Some(category) if !s.verified() => {
+            import::verified_by(category, &checked.prepared, s.file.keeps_paste)
+                .await?
         }
-        None => None,
+        _ => None,
     };
-    let kept = moved.as_ref().map_or(&checked.prepared, |(file, _)| file);
+    let kept = verified.as_ref().unwrap_or(&checked.prepared);
     let number = version::replace(db, id, kept, how).await?;
     let name = format!("{}  {}", &id[..8], s.filename());
     println!("{name}: version {number}");
@@ -238,9 +233,8 @@ async fn next_version(
             faults.join("; ")
         ),
     }
-    if let Some((file, to)) = &moved {
+    if let Some(file) = &verified {
         let given = Details {
-            category: to.name.clone(),
             unverified: None,
             ..Details::of(s)
         };
@@ -249,9 +243,9 @@ async fn next_version(
         {
             Ok(ready) => {
                 schematic::set_details(db, id, &ready).await?;
-                println!("{name}: moved up as {}", to.name);
+                println!("{name}: verified");
             }
-            Err(why) => println!("{name}: not moved up: {why}"),
+            Err(why) => println!("{name}: not verified: {why}"),
         }
     }
     Ok(())

@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT data as \"data!\", roles FROM current_file\n         WHERE build_id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "data!",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "roles",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "7b6b4d41a16aef3f6dc8c6b317f4e88fce99e70be9630686273b2686fde5fdd9"
+}

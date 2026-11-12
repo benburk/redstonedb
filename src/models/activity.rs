@@ -156,28 +156,28 @@ pub async fn page(
     let fetch = limit + 1;
     let rows = sqlx::query!(
         r#"SELECT kind as "kind!: String", at as "at!: String",
-            user_id as "user_id?: Uuid", schematic_id as "schematic_id?: String",
+            user_id as "user_id?: Uuid", build_id as "build_id?: String",
             version as "version?: i64", detail as "detail?: String",
             restores as "restores?: i64", edit as "edit?: i64"
          FROM (
             SELECT 'signup' AS kind, created_at AS at, id AS user_id,
-                NULL AS schematic_id, NULL AS version, NULL AS detail,
+                NULL AS build_id, NULL AS version, NULL AS detail,
                 NULL AS restores, NULL AS edit
             FROM user WHERE id <> ?1
             UNION ALL
             SELECT iif(version = 1, 'upload', 'version'), added_at, added_by,
-                schematic_id, version, note, restores, NULL
-            FROM schematic_version
+                build_id, version, note, restores, NULL
+            FROM build_version
             UNION ALL
-            SELECT 'edit', at, user_id, schematic_id, NULL, changes, NULL, id
+            SELECT 'edit', at, user_id, build_id, NULL, changes, NULL, id
             FROM edit
             UNION ALL
-            SELECT 'download', at, user_id, schematic_id, version, kind, NULL,
+            SELECT 'download', at, user_id, build_id, version, kind, NULL,
                 NULL
             FROM download
             UNION ALL
             SELECT iif(restored, 'restore', 'delete'), at, user_id,
-                schematic_id, NULL, NULL, NULL, NULL
+                build_id, NULL, NULL, NULL, NULL
             FROM deletion
          )
          WHERE (?2 IS NULL OR kind = ?2 OR (?2 = 'upload' AND kind = 'version')
@@ -211,7 +211,7 @@ pub async fn page(
                 kind,
                 at: row.at,
                 user: row.user_id,
-                schematic: row.schematic_id,
+                schematic: row.build_id,
                 version: row.version,
                 detail,
                 restores: row.restores,
@@ -341,7 +341,7 @@ pub async fn log_edit<'e, E: SqliteExecutor<'e>>(
     let changes =
         serde_json::to_string(changes).expect("a list of changes is JSON");
     sqlx::query!(
-        "INSERT INTO edit (schematic_id, user_id, changes) VALUES (?, ?, ?)",
+        "INSERT INTO edit (build_id, user_id, changes) VALUES (?, ?, ?)",
         id,
         user,
         changes
@@ -369,12 +369,10 @@ pub async fn revert(
     detail: &str,
     by: &User,
 ) -> Result<Result<String, &'static str>, sqlx::Error> {
-    let Some(row) = sqlx::query!(
-        "SELECT schematic_id, changes FROM edit WHERE id = ?",
-        edit
-    )
-    .fetch_optional(db)
-    .await?
+    let Some(row) =
+        sqlx::query!("SELECT build_id, changes FROM edit WHERE id = ?", edit)
+            .fetch_optional(db)
+            .await?
     else {
         return Ok(Err("That edit is not in the log."));
     };
@@ -388,7 +386,7 @@ pub async fn revert(
             "Only a description, authors, or contributors can be put back.",
         ));
     };
-    let Some(s) = schematic::get(db, &row.schematic_id).await? else {
+    let Some(s) = schematic::get(db, &row.build_id).await? else {
         return Ok(Err("That build is gone."));
     };
     if !revertible(&s, &change) {

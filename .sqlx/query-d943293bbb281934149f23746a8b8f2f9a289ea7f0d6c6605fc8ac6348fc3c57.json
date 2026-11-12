@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT build_id, west, up, max_copies, faces, pitch\n         FROM stack_direction\n         WHERE ?1 IS NULL\n            OR build_id IN (SELECT value FROM json_each(?1))\n         ORDER BY west DESC, up DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "build_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "west",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "up",
+        "ordinal": 2,
+        "type_info": "Integer"
+      },
+      {
+        "name": "max_copies",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "faces",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "pitch",
+        "ordinal": 5,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d943293bbb281934149f23746a8b8f2f9a289ea7f0d6c6605fc8ac6348fc3c57"
+}

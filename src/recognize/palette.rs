@@ -624,9 +624,9 @@ pub async fn set(
 /// build's.
 pub async fn needs(db: &SqlitePool, id: &str) -> Result<Option<Needs>> {
     let json: Option<String> = sqlx::query_scalar(
-        "SELECT v.needs FROM schematic_version AS v
-         JOIN current_file AS c USING (schematic_id, version)
-         WHERE v.schematic_id = ?",
+        "SELECT v.needs FROM build_version AS v
+         JOIN current_file AS c USING (build_id, version)
+         WHERE v.build_id = ?",
     )
     .bind(id)
     .fetch_optional(db)

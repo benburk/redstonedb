@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO build_flag (build_id, name) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "37397d0a56f9c9ab81d5d25dadc8e82b09236564bd44e0f679f1a746b503fe7a"
+}

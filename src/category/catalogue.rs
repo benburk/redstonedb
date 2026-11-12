@@ -325,6 +325,14 @@ pub fn check_category(
     if category == "other" {
         return Err("Name the category, rather than other.".to_owned());
     }
+    // A build of a category the site recognizes builds of goes under it,
+    // recognized or not, rather than under a name made from it.
+    if let Some(kind) = made_from(category).filter(|kind| kind.blessed()) {
+        return Err(format!(
+            "Choose {} as the category, rather than a name made from it.",
+            kind.label()
+        ));
+    }
     if let Some(design) = design
         && Design::of(category, design).is_none()
     {
@@ -338,9 +346,31 @@ pub fn check_category(
         .map_or_else(|| Category::off_the_list(category), Category::of))
 }
 
+/// The standard category the name `category` is made from: `adder` for
+/// `8-bit_adder` or `unrecognized_adder`.
+fn made_from(category: &str) -> Option<Kind> {
+    let of = category.strip_prefix("unrecognized_").or_else(|| {
+        let (bits, of) = category.split_once("-bit_")?;
+        bits.parse::<u32>().ok().map(|_| of)
+    })?;
+    Kind::named(of)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_name_made_from_a_recognized_category_is_refused() {
+        for name in ["8-bit_adder", "unrecognized_register"] {
+            assert!(check_category(name, None).is_err(), "{name}");
+        }
+        // The site recognizes no RAM yet, so one goes under a name made
+        // from it.
+        for name in ["8-bit_ram", "eight-bit_adder", "8-bit_horizontal_diode"] {
+            assert!(check_category(name, None).is_ok(), "{name}");
+        }
+    }
 
     #[test]
     fn a_standard_category_is_typed_by_name_or_label() {

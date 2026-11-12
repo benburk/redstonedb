@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR IGNORE INTO build_tag (build_id, tag_id)\n         VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "0000f1ec1c1245e8c4a053b909c59d4be1530c4cb9843b5f208d6d466080796b"
+}

@@ -108,7 +108,7 @@ async fn readied(
     };
     let categories = Category::all();
     let typed = Form::read(pairs).category;
-    let Some(meant) = details::meant(&categories, &typed)
+    let Some(meant) = Category::find(&categories, &typed)
         .filter(|c| category::behaviour(&c.name).evaluated)
     else {
         return Ok((upload.original.data, None));
@@ -128,7 +128,7 @@ async fn readied(
         (upload.original.data, found)
     };
     let filing = match unrecognized {
-        Ok(Some(found)) => Some(Filing::Unverified(found.why)),
+        Ok(Some(why)) => Some(Filing::Unverified(why)),
         Ok(None) => Some(Filing::Verified),
         Err(_) => None,
     };
@@ -227,9 +227,7 @@ fn test(
 ) -> Result<Option<Test>, AppError> {
     let form = Form::read(pairs);
     let categories = Category::all();
-    // An off-list name such as 8-bit adder is tested as an adder, to show
-    // what keeps it from being one.
-    let Some(category) = details::meant(&categories, &form.category)
+    let Some(category) = Category::find(&categories, &form.category)
         .map(|c| c.name.as_str())
         .filter(|c| crate::category::blessed(c))
     else {
@@ -333,11 +331,10 @@ async fn cases(
     ))
 }
 
-/// The category the form names, as the site lists it, or what an
-/// off-list name stands in for; empty for none.
+/// The category the form names, as the site lists it; empty for none.
 fn meant_category(pairs: &[(String, String)]) -> String {
     let categories = Category::all();
-    details::meant(&categories, &Form::read(pairs).category)
+    Category::find(&categories, &Form::read(pairs).category)
         .map_or_else(String::new, |c| c.name.clone())
 }
 

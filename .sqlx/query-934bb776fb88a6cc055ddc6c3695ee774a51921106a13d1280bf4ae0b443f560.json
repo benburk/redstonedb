@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT build_tag.build_id, tag.name, tag.token,\n            tag.kind AS \"kind: tag::Kind\"\n         FROM build_tag JOIN tag ON tag.id = build_tag.tag_id\n         WHERE ?1 IS NULL\n            OR build_tag.build_id IN (SELECT value FROM json_each(?1))\n         ORDER BY tag.kind = 'other', tag.kind, tag.name",
+  "describe": {
+    "columns": [
+      {
+        "name": "build_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "name",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "token",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "kind: tag::Kind",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "934bb776fb88a6cc055ddc6c3695ee774a51921106a13d1280bf4ae0b443f560"
+}

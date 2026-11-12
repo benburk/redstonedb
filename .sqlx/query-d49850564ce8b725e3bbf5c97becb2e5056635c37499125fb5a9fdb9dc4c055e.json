@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT data, colours FROM build_version\n         WHERE build_id = ? ORDER BY version DESC",
+  "describe": {
+    "columns": [
+      {
+        "name": "data",
+        "ordinal": 0,
+        "type_info": "Blob"
+      },
+      {
+        "name": "colours",
+        "ordinal": 1,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "d49850564ce8b725e3bbf5c97becb2e5056635c37499125fb5a9fdb9dc4c055e"
+}

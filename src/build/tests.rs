@@ -126,7 +126,7 @@ fn a_build_stands_by_its_stored_result() {
         Status::Failing
     );
     assert_eq!(Status::of(None, false, None), Status::NoTest);
-    // A skip says no more than the reason, as one off the list is only
+    // A skip says no more than the reason, as an unverified build is only
     // tested to say what keeps it from being recognized.
     assert_eq!(Status::of(Some("skipped"), false, None), Status::NoTest);
 }

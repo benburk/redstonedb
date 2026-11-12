@@ -22,10 +22,10 @@ static COMPARING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 pub async fn refresh(db: &SqlitePool) -> Result<()> {
     let _alone = COMPARING.lock().await;
     let builds = sqlx::query!(
-        r#"SELECT schematic.id as "id!", category,
+        r#"SELECT build.id as "id!", category,
             category || '/' || file.sha256 as "now!: String", compared_as
-         FROM schematic
-         JOIN current_file AS file ON file.schematic_id = schematic.id
+         FROM build
+         JOIN current_file AS file ON file.build_id = build.id
          WHERE deleted_at IS NULL"#
     )
     .fetch_all(db)
@@ -46,9 +46,9 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
         .collect();
     let categories = serde_json::to_string(&categories)?;
     let files: Vec<(String, String, Vec<u8>)> = sqlx::query!(
-        r#"SELECT schematic.id as "id!", category, file.data as "data!"
-         FROM schematic
-         JOIN current_file AS file ON file.schematic_id = schematic.id
+        r#"SELECT build.id as "id!", category, file.data as "data!"
+         FROM build
+         JOIN current_file AS file ON file.build_id = build.id
          WHERE category IN (SELECT value FROM json_each(?))
             AND deleted_at IS NULL"#,
         categories
@@ -66,7 +66,7 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
     let mut tx = db.begin().await?;
     for id in &stale {
         sqlx::query!(
-            "DELETE FROM similarity WHERE schematic_id = ? OR other_id = ?",
+            "DELETE FROM similarity WHERE build_id = ? OR other_id = ?",
             id,
             id
         )
@@ -75,7 +75,7 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
     }
     for (a, b, permille) in &pairs {
         sqlx::query!(
-            "INSERT OR REPLACE INTO similarity (schematic_id, other_id, permille)
+            "INSERT OR REPLACE INTO similarity (build_id, other_id, permille)
              VALUES (?, ?, ?)",
             a,
             b,
@@ -86,7 +86,7 @@ pub async fn refresh(db: &SqlitePool) -> Result<()> {
     }
     for b in builds.iter().filter(|b| stale.contains(b.id.as_str())) {
         sqlx::query!(
-            "UPDATE schematic SET compared_as = ? WHERE id = ?",
+            "UPDATE build SET compared_as = ? WHERE id = ?",
             b.now,
             b.id
         )
@@ -142,10 +142,10 @@ pub fn refresh_soon(db: &SqlitePool) {
 pub async fn similar(db: &SqlitePool, id: &str) -> Result<Vec<(String, u32)>> {
     let at_least = similarity::SIMILAR;
     Ok(sqlx::query!(
-        r#"SELECT iif(schematic_id = ?, other_id, schematic_id) as "other!: String",
+        r#"SELECT iif(build_id = ?, other_id, build_id) as "other!: String",
             permille as "permille!: u32"
          FROM similarity
-         WHERE (schematic_id = ? OR other_id = ?) AND permille >= ?
+         WHERE (build_id = ? OR other_id = ?) AND permille >= ?
          ORDER BY permille DESC"#,
         id,
         id,
@@ -168,7 +168,7 @@ pub async fn ranked(
     limit: usize,
 ) -> Result<Vec<(String, u32)>> {
     let candidates = sqlx::query!(
-        r#"SELECT schematic_id as "id!", data as "data!" FROM current_file"#
+        r#"SELECT build_id as "id!", data as "data!" FROM current_file"#
     )
     .fetch_all(db)
     .await?;
@@ -215,8 +215,8 @@ pub async fn closest(
     let volume = size.0 * size.1 * size.2;
     let candidates = sqlx::query!(
         r#"SELECT id as "id!", file.data as "data!"
-         FROM schematic
-         JOIN current_file AS file ON file.schematic_id = schematic.id
+         FROM build
+         JOIN current_file AS file ON file.build_id = build.id
          WHERE size_x * size_y * size_z * 3 >= ? * 2
             AND size_x * size_y * size_z * 2 <= ? * 3
             AND deleted_at IS NULL"#,

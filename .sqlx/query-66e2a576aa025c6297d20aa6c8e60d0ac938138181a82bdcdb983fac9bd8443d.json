@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO build_version\n            (build_id, version, data, sha256, added_by, added_from,\n            roles)\n         VALUES (?, 1, ?, ?, ?, ?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "66e2a576aa025c6297d20aa6c8e60d0ac938138181a82bdcdb983fac9bd8443d"
+}

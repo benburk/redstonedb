@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO simulation\n            (build_id, test, sha256, circuit, failed, report)\n        VALUES (?, ?, ?, ?, ?, ?)\n        ON CONFLICT (build_id) DO UPDATE SET test = excluded.test,\n            sha256 = excluded.sha256, circuit = excluded.circuit,\n            failed = excluded.failed, report = excluded.report,\n            ran_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 6
+    },
+    "nullable": []
+  },
+  "hash": "2620c166b5f05b9384cdf0b068039241ffe1cd59e325b008af87399774f1eb9b"
+}

@@ -90,32 +90,32 @@ async fn load(
     deleted: bool,
 ) -> Result<Vec<Build>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT schematic.id, schematic.category, width, orientation
+        r#"SELECT build.id, build.category, width, orientation
             as "orientation: Orientation", encoding as "encoding: Encoding", latency,
             synchronized as "synchronized: bool", throughput, at_least, pulse,
             bytes, torches, works_from, works_from_by, size_x, size_y, size_z,
             built_on, imported_by, file.sha256 as "sha256!", added_at,
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
             public as "public: bool", unverified,
-            schematic.logic as "own_logic: Logic",
+            build.logic as "own_logic: Logic",
             conventional as "conventional: bool", description, given_name,
             design, user.username as "uploader?: String",
             coalesce(user.minecraft_name, user.username) as "uploader_name?: String",
             EXISTS (SELECT 1 FROM simulation WHERE simulation.failed
-                AND simulation.schematic_id = schematic.id
+                AND simulation.build_id = build.id
                 AND simulation.sha256 = file.sha256) as "fails_simulation!: bool",
             (SELECT json_extract(simulation.report, '$.outcome') FROM simulation
-                WHERE simulation.schematic_id = schematic.id
+                WHERE simulation.build_id = build.id
                 AND simulation.sha256 = file.sha256) as "outcome?: String",
-            (SELECT count(*) FROM favorite WHERE favorite.schematic_id = schematic.id)
+            (SELECT count(*) FROM favorite WHERE favorite.build_id = build.id)
                 as "favorites!: i64",
-            schematic.deleted_at IS NOT NULL as "deleted!: bool"
-         FROM schematic
-         JOIN current_file AS file ON file.schematic_id = schematic.id
-         LEFT JOIN user ON user.id = schematic.uploaded_by
-         WHERE (?1 IS NULL OR schematic.id IN (SELECT value FROM json_each(?1)))
-            AND (?2 OR schematic.deleted_at IS NULL)
-         ORDER BY schematic.category, width, added_at"#,
+            build.deleted_at IS NOT NULL as "deleted!: bool"
+         FROM build
+         JOIN current_file AS file ON file.build_id = build.id
+         LEFT JOIN user ON user.id = build.uploaded_by
+         WHERE (?1 IS NULL OR build.id IN (SELECT value FROM json_each(?1)))
+            AND (?2 OR build.deleted_at IS NULL)
+         ORDER BY build.category, width, added_at"#,
         only,
         deleted
     )
@@ -210,9 +210,9 @@ async fn layouts_by_schematic(
     only: Option<&str>,
 ) -> Result<HashMap<String, (Operands, bool)>, sqlx::Error> {
     let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT schematic_id, roles FROM current_file
+        "SELECT build_id, roles FROM current_file
          WHERE roles IS NOT NULL AND (?1 IS NULL
-            OR schematic_id IN (SELECT value FROM json_each(?1)))",
+            OR build_id IN (SELECT value FROM json_each(?1)))",
     )
     .bind(only)
     .fetch_all(db)
@@ -241,18 +241,18 @@ async fn tags_by_schematic(
 ) -> Result<HashMap<String, Vec<Tag>>, sqlx::Error> {
     let mut tags: HashMap<String, Vec<Tag>> = HashMap::new();
     for row in sqlx::query!(
-        r#"SELECT schematic_tag.schematic_id, tag.name, tag.token,
+        r#"SELECT build_tag.build_id, tag.name, tag.token,
             tag.kind AS "kind: tag::Kind"
-         FROM schematic_tag JOIN tag ON tag.id = schematic_tag.tag_id
+         FROM build_tag JOIN tag ON tag.id = build_tag.tag_id
          WHERE ?1 IS NULL
-            OR schematic_tag.schematic_id IN (SELECT value FROM json_each(?1))
+            OR build_tag.build_id IN (SELECT value FROM json_each(?1))
          ORDER BY tag.kind = 'other', tag.kind, tag.name"#,
         only
     )
     .fetch_all(db)
     .await?
     {
-        tags.entry(row.schematic_id).or_default().push(Tag {
+        tags.entry(row.build_id).or_default().push(Tag {
             name: row.name,
             token: row.token,
             kind: row.kind,
@@ -269,19 +269,19 @@ async fn flags_by_schematic(
 ) -> Result<HashMap<String, Vec<Flag>>, sqlx::Error> {
     let mut names: HashMap<String, (String, Vec<String>)> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_flag.schematic_id, schematic.category,
-            schematic_flag.name
-         FROM schematic_flag
-         JOIN schematic ON schematic.id = schematic_flag.schematic_id
+        "SELECT build_flag.build_id, build.category,
+            build_flag.name
+         FROM build_flag
+         JOIN build ON build.id = build_flag.build_id
          WHERE ?1 IS NULL
-            OR schematic_flag.schematic_id IN (SELECT value FROM json_each(?1))",
+            OR build_flag.build_id IN (SELECT value FROM json_each(?1))",
         only
     )
     .fetch_all(db)
     .await?
     {
         names
-            .entry(row.schematic_id)
+            .entry(row.build_id)
             .or_insert_with(|| (row.category, Vec::new()))
             .1
             .push(row.name);
@@ -303,10 +303,10 @@ async fn stacking_by_schematic(
 ) -> Result<HashMap<String, Vec<StackDirection>>, sqlx::Error> {
     let mut stacking: HashMap<String, Vec<StackDirection>> = HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_id, west, up, max_copies, faces, pitch
+        "SELECT build_id, west, up, max_copies, faces, pitch
          FROM stack_direction
          WHERE ?1 IS NULL
-            OR schematic_id IN (SELECT value FROM json_each(?1))
+            OR build_id IN (SELECT value FROM json_each(?1))
          ORDER BY west DESC, up DESC",
         only
     )
@@ -314,7 +314,7 @@ async fn stacking_by_schematic(
     .await?
     {
         stacking
-            .entry(row.schematic_id)
+            .entry(row.build_id)
             .or_default()
             .push(StackDirection {
                 west: row.west,
@@ -337,18 +337,18 @@ async fn widened_by_schematic(
 ) -> Result<HashMap<String, Vec<Widened>>, sqlx::Error> {
     let mut widened: HashMap<String, Vec<Widened>> = HashMap::new();
     for row in sqlx::query!(
-        r#"SELECT schematic_id, width, copies, latency,
+        r#"SELECT build_id, width, copies, latency,
             synchronized as "synchronized: bool", throughput
          FROM stacked_width
          WHERE ?1 IS NULL
-            OR schematic_id IN (SELECT value FROM json_each(?1))
+            OR build_id IN (SELECT value FROM json_each(?1))
          ORDER BY width"#,
         only
     )
     .fetch_all(db)
     .await?
     {
-        widened.entry(row.schematic_id).or_default().push(Widened {
+        widened.entry(row.build_id).or_default().push(Widened {
             width: row.width,
             copies: row.copies,
             latency: row.latency,
@@ -368,17 +368,16 @@ async fn credits_by_schematic(
     let mut credits: HashMap<String, (Vec<String>, Vec<String>)> =
         HashMap::new();
     for row in sqlx::query!(
-        "SELECT schematic_id, role, name FROM credit
+        "SELECT build_id, role, name FROM credit
          WHERE ?1 IS NULL
-            OR schematic_id IN (SELECT value FROM json_each(?1))
-         ORDER BY schematic_id, position",
+            OR build_id IN (SELECT value FROM json_each(?1))
+         ORDER BY build_id, position",
         only
     )
     .fetch_all(db)
     .await?
     {
-        let (authors, contributors) =
-            credits.entry(row.schematic_id).or_default();
+        let (authors, contributors) = credits.entry(row.build_id).or_default();
         if row.role == Credit::Author.as_str() {
             authors.push(row.name);
         } else {
@@ -428,7 +427,7 @@ pub async fn ids_with_prefix<'e, E: SqliteExecutor<'e>>(
     prefix: &str,
 ) -> Result<Vec<String>, sqlx::Error> {
     sqlx::query_scalar!(
-        "SELECT id FROM schematic
+        "SELECT id FROM build
          WHERE id GLOB ? || '*' AND deleted_at IS NULL LIMIT 2",
         prefix
     )

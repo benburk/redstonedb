@@ -42,8 +42,8 @@ pub struct FileRead {
     pub analysis: Analysis,
     /// How many of each kind of block it has, most first.
     pub block_counts: Vec<(&'static str, usize)>,
-    /// For a build off the list as an adder or a register, which the check
-    /// by function recognizes, each fault that keeps it from being one.
+    /// For a build not verified as its category, one the check by
+    /// function recognizes, each fault that keeps it from being one.
     pub unrecognized: Vec<String>,
     /// Whether it takes a signal strength as an input, which keeps it
     /// from being recognized.
@@ -319,9 +319,8 @@ impl Sources {
         };
         let category_source = if report.is_some_and(Report::failed) {
             Source::Unconfirmed("failing")
-        } else if crate::models::simulation::stands_in(s).is_some() {
-            // Passing or not, it is untested as its category until
-            // recognized.
+        } else if !s.verified() {
+            // It is untested as its category until recognized.
             Source::Unconfirmed("untested")
         } else {
             checked(false, passed)

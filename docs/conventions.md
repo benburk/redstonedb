@@ -2,7 +2,7 @@
 
 What the site needs from a build, and what it does with one. The How builds are recognized page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
-A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, negators, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. Any other build goes up as built, off the list, under a name of its own, such as `8-bit counter` or `3x3 piston door`, with the facts its author gives. A new version that is recognized moves it up.
+A build is on the list only when probing recognizes it as a blessed category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, negators, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. A build of one of these that isn't recognized goes up as built under its category, unverified, saying why, and lists only when asked for; a new version that is recognized verifies it. Any other build goes up as built, off the list, under a name of its own, such as `8-bit ram` or `3x3 piston door`, with the facts its author gives.
 
 ## Inputs
 

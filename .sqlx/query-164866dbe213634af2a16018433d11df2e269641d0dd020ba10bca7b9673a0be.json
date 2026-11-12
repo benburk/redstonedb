@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build_version SET changes = ?\n         WHERE build_id = ? AND version = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "164866dbe213634af2a16018433d11df2e269641d0dd020ba10bca7b9673a0be"
+}
