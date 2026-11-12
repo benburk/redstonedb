@@ -28,7 +28,9 @@ use crate::{
             upload_view::file_fields,
         },
         ui::{
-            self, PAGE_TITLE, SECTION_TITLE, layout::base, text::grouped,
+            PAGE_TITLE, SECTION_TITLE,
+            layout::base,
+            text::{grouped, percent},
             viewer::beside_viewer,
         },
     },
@@ -215,17 +217,15 @@ enum State {
 }
 
 /// One line of the checks panel.
-fn check(name: &str, state: State, text: &Markup) -> Markup {
-    let (key, class) = match state {
-        State::Pass => ("pass", ""),
-        State::Warn => ("warn", ""),
-        State::Fail => ("fail", "text-danger"),
-        State::Wait => ("wait", "text-muted"),
+fn check(state: State, text: &Markup) -> Markup {
+    let class = match state {
+        State::Pass | State::Warn => "",
+        State::Fail => "text-danger",
+        State::Wait => "text-muted",
     };
     html! {
-        li data-check=(name) data-state=(key)
-            class={ "flex items-start gap-2 " (class) } {
-            span data-icon aria-hidden="true" class="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center" {
+        li class={ "flex items-start gap-2 " (class) } {
+            span aria-hidden="true" class="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center" {
                 @match state {
                     State::Pass => "✓",
                     State::Warn => "!",
@@ -233,7 +233,7 @@ fn check(name: &str, state: State, text: &Markup) -> Markup {
                     State::Wait => "○",
                 }
             }
-            span data-text { (text) }
+            span { (text) }
         }
     }
 }
@@ -244,7 +244,7 @@ fn swap_checks(page: &DetailsPage) -> Markup {
     html! {
         @if let File::Upload { hoppers, .. } = &page.file {
             @if *hoppers > 0 {
-                (check("hoppers", State::Wait, &html! {
+                (check(State::Wait, &html! {
                     @if *hoppers == 1 { "Has a hopper, kept as it is: the simulator reads its signal strength but moves no items. " }
                     @else { "Has " (hoppers) " hoppers, kept as they are: the simulator reads their signal strength but moves no items. " }
                     (swap_button("hopper", if *hoppers == 1 { "Swap it for a barrel" } else { "Swap them for barrels" }))
@@ -308,7 +308,7 @@ fn blocked(page: &DetailsPage) -> Option<&'static str> {
 fn checks(page: &DetailsPage) -> Markup {
     let lines = html! {
         @if let File::Upload { duplicate: Some(duplicate), .. } = &page.file {
-            (check("duplicate", State::Fail, &html! {
+            (check(State::Fail, &html! {
                 @match duplicate {
                     Duplicate::Shown(id) => {
                         "This exact file is already on the site: " a href=(href::build(id)) { "see it here" } "."
@@ -320,11 +320,11 @@ fn checks(page: &DetailsPage) -> Markup {
             }))
         }
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
-            (check("similar", State::Warn, &html! {
+            (check(State::Warn, &html! {
                 "Nearly the same as "
                 a href=(href::build(&other.id)) { (other.title()) }
                 @if !other.credits.authors.is_empty() { " by " (other.credits.authors.join(", ")) }
-                ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
+                ": " (percent(*permille)) " of their redstone lines up. If it is that build fixed, "
                 a href={ (href::build(&other.id)) "/versions/new" } { "upload it as a new version" }
                 " instead; if it builds on it, say so in the description."
             }))
@@ -344,7 +344,7 @@ fn checks(page: &DetailsPage) -> Markup {
             } else {
                 (State::Pass, &[][..])
             };
-            (check("same", state, &html! {
+            (check(state, &html! {
                 (same)
                 @if !said.is_empty() {
                     ul class="mt-1 flex list-disc flex-col gap-1 pl-5" {
@@ -369,10 +369,8 @@ fn checks(page: &DetailsPage) -> Markup {
 /// Whether the build is verified as far as is known before the simulation
 /// runs, for its category's badge: `pass`, `fail` for one whose test got
 /// cases wrong, `warn` for one whose test couldn't run, or empty for not
-/// known yet; and why not, each reason with how to fix it, leaving out
-/// wrong cases the stored result shows under the form. `form.js` puts what
-/// the simulation finds in their place.
-fn verdict<'p>(page: &DetailsPage<'p>) -> (&'static str, Vec<&'p str>) {
+/// known yet. `form.js` puts what the simulation finds in its place.
+fn verdict(page: &DetailsPage) -> &'static str {
     match &page.file {
         File::Upload {
             recognized: None,
@@ -381,26 +379,15 @@ fn verdict<'p>(page: &DetailsPage<'p>) -> (&'static str, Vec<&'p str>) {
         } => {
             let problems: Vec<&str> =
                 problems.iter().map(String::as_str).collect();
-            (failing_or_untested(&problems), problems)
+            failing_or_untested(&problems)
         }
-        File::Stored { s, simulation } => {
-            let failed = simulation.is_some_and(Report::failed);
-            match &s.unverified {
-                Some(why) => (
-                    failing_or_untested(&[why]),
-                    [why.as_str()]
-                        .into_iter()
-                        .filter(|why| !(failed && wrong_outputs(why)))
-                        .collect(),
-                ),
-                None if failed => ("fail", Vec::new()),
-                None if simulation.is_some_and(Report::passed) => {
-                    ("pass", Vec::new())
-                }
-                None => ("", Vec::new()),
-            }
-        }
-        _ => ("", Vec::new()),
+        File::Stored { s, simulation } => match &s.unverified {
+            Some(why) => failing_or_untested(&[why]),
+            None if simulation.is_some_and(Report::failed) => "fail",
+            None if simulation.is_some_and(Report::passed) => "pass",
+            None => "",
+        },
+        _ => "",
     }
 }
 
@@ -413,12 +400,6 @@ pub fn failing_or_untested(reasons: &[&str]) -> &'static str {
     } else {
         "warn"
     }
-}
-
-/// Why a build isn't verified, each reason with how to fix it, as list
-/// items, for the section under the form that says so.
-pub fn reason_items(reasons: &[&str]) -> Markup {
-    html! { @for reason in reasons { (ui::reason_item(reason)) } }
 }
 
 /// The fields for choosing another file, the same on every details page:
@@ -496,7 +477,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
         form id="details-form" action=(action) method="post" enctype="multipart/form-data"
             data-step data-step-page data-simulate=(simulate)
             data-unverified[unverified]
-            data-verdict=(verdict(page).0) class="flex flex-col gap-4" {
+            data-verdict=(verdict(page)) class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
             @match &page.file {
                 // Carried as its author made it, so tested standardized.

@@ -1,8 +1,6 @@
 //! Lists of builds, as cards or a table, and the home page that searches
 //! and narrows them, by its search and its menu of categories.
 
-use std::collections::HashSet;
-
 use maud::{Markup, html};
 
 use crate::{
@@ -12,101 +10,25 @@ use crate::{
         Build,
         tag::{self, Tag},
     },
-    category::{Flag, Section},
+    category::Section,
     interface::Encoding,
     search::Term,
     web::{
+        browse::query::{HomeQuery, View},
         href,
         ui::{
-            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD,
+            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, Tone,
+            cards::{
+                CARDS, Viewing, badges, card, cards, stacked_note,
+                thumbnail_src,
+            },
             icons::{self, icon},
             layout::base,
             person::name_links,
-            summary::{self, badge, latency, size, volume},
-            text,
+            summary::{latency, size, volume},
         },
     },
 };
-
-/// How the home page lays out its schematics: cards, or `view=list` in its
-/// address for a table.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum View {
-    #[default]
-    Cards,
-    List,
-}
-
-/// A field the home page can order builds by.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum SortField {
-    AddedAt,
-    Volume,
-    Latency,
-    Downloads,
-}
-
-impl SortField {
-    const ALL: [SortField; 4] = [
-        SortField::AddedAt,
-        SortField::Volume,
-        SortField::Latency,
-        SortField::Downloads,
-    ];
-
-    /// As an address names it.
-    fn name(self) -> &'static str {
-        match self {
-            SortField::AddedAt => "added_at",
-            SortField::Volume => "volume",
-            SortField::Latency => "latency",
-            SortField::Downloads => "downloads",
-        }
-    }
-}
-
-/// The order the home page lists builds in: fields, each ascending or
-/// descending, the first deciding and each after it breaking the ties
-/// before. Its address writes it as `sort=-downloads,volume`, `-` for
-/// descending. With no fields, or on a tie, builds go newest first.
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct Sort(pub Vec<(SortField, bool)>);
-
-impl Sort {
-    /// `text` as an address gives it, leaving out any field it does not
-    /// know.
-    pub fn parse(text: &str) -> Self {
-        Sort(
-            text.split(',')
-                .map(str::trim)
-                .filter_map(|key| {
-                    let (name, descending) = key
-                        .strip_prefix('-')
-                        .map_or((key, false), |name| (name, true));
-                    let field = SortField::ALL
-                        .into_iter()
-                        .find(|field| field.name() == name)?;
-                    Some((field, descending))
-                })
-                .collect(),
-        )
-    }
-
-    /// As an address writes it, such as `-downloads,volume`.
-    pub fn name(&self) -> String {
-        self.0
-            .iter()
-            .map(|&(field, descending)| {
-                if descending {
-                    format!("-{}", field.name())
-                } else {
-                    field.name().to_owned()
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",")
-    }
-}
 
 /// The orders the home page offers, as `sort` values and their labels. Any
 /// other order of the fields in [`Sort`] works in the address too.
@@ -133,16 +55,6 @@ pub struct Listing<'a> {
     pub unaligned: usize,
     pub facets: &'a [Facet],
     pub viewing: &'a Viewing,
-}
-
-/// What a viewer's cards show of them: their palette's key, for the
-/// pictures, if they chose one, and, once signed in, a star to favourite
-/// each build with, filled on those they have.
-#[derive(Default)]
-pub struct Viewing {
-    pub palette: Option<String>,
-    pub signed_in: bool,
-    pub favorites: HashSet<String>,
 }
 
 /// One category in the home page's sidebar.
@@ -176,106 +88,6 @@ pub struct Index<'a> {
     /// How many builds there are in all.
     pub total: usize,
     pub viewing: &'a Viewing,
-}
-
-/// What the home page's address asks for, and where its links lead.
-/// Separate parameters narrow together; within one, commas mean any of
-/// them, as in `?category=adder,subtractor`. `tag` may repeat, each needing
-/// a match: `?tag=alpha&tag=torchless` is both, and `?tag=alpha,torchless`
-/// either.
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
-pub struct HomeQuery {
-    pub view: View,
-    pub sort: Sort,
-    /// A search such as `register vertical alpha -torchless`.
-    pub q: String,
-    /// The chosen category, such as `adder`; empty for all.
-    pub category: String,
-    /// Tag filters, each needing a match; commas within one give choices.
-    pub tags: Vec<String>,
-    /// Whether builds not verified as their category are listed too.
-    pub unverified: bool,
-    /// Whether unaligned builds, whose buses aren't laid as the
-    /// conventions lay them, are left out; verified, they list as any
-    /// other unless hidden.
-    pub hide_unaligned: bool,
-}
-
-impl HomeQuery {
-    /// The query string `raw`, without its `?`. Asking for the unverified
-    /// by their tag shows them.
-    pub fn parse(raw: &str) -> Self {
-        let mut query = HomeQuery::default();
-        for (key, value) in form_urlencoded::parse(raw.as_bytes()) {
-            let value = value.trim().to_owned();
-            match key.as_ref() {
-                "view" => {
-                    query.view = if value == "list" {
-                        View::List
-                    } else {
-                        View::Cards
-                    };
-                }
-                "q" => query.q = value,
-                "category" => query.category = value,
-                "sort" => query.sort = Sort::parse(&value),
-                "tag"
-                    if [tag::FAILING, tag::UNTESTED]
-                        .contains(&tag::name(&value).as_str()) =>
-                {
-                    query.unverified = true;
-                    query.tags.push(value);
-                }
-                "tag" if !value.is_empty() => query.tags.push(value),
-                "unverified" => query.unverified = value == "show",
-                "unaligned" => query.hide_unaligned = value == "hide",
-                _ => {}
-            }
-        }
-        query
-    }
-
-    /// Whether it searches or chooses anything. With nothing to narrow it,
-    /// the home page shows its index, so every build has an address of its
-    /// own, `/builds`.
-    pub fn narrows(&self) -> bool {
-        !self.q.is_empty() || !self.category.is_empty() || !self.tags.is_empty()
-    }
-
-    /// Its address, such as `/?category=adder&q=8b`, as
-    /// [`HomeQuery::parse`] reads it.
-    pub fn href(&self) -> String {
-        let mut params = form_urlencoded::Serializer::new(String::new());
-        if self.view == View::List {
-            params.append_pair("view", "list");
-        }
-        let sort = self.sort.name();
-        if !sort.is_empty() {
-            params.append_pair("sort", &sort);
-        }
-        if !self.category.is_empty() {
-            params.append_pair("category", &self.category);
-        }
-        for tag in &self.tags {
-            params.append_pair("tag", tag);
-        }
-        if self.unverified {
-            params.append_pair("unverified", "show");
-        }
-        if self.hide_unaligned {
-            params.append_pair("unaligned", "hide");
-        }
-        if !self.q.is_empty() {
-            params.append_pair("q", &self.q);
-        }
-        let path = if self.narrows() { "/" } else { "/builds" };
-        let params = params.finish();
-        if params.is_empty() {
-            path.to_owned()
-        } else {
-            format!("{path}?{params}")
-        }
-    }
 }
 
 impl Listing<'_> {
@@ -625,24 +437,23 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                     // With no sidebar, the category searched in is one of
                     // the things to remove.
                     @if !here.category.is_empty() {
-                        a href=(HomeQuery { category: String::new(), ..here.clone() }.href())
-                            aria-label={ "Search every category, not only " (title) }
-                            class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
-                            "in " (title)
-                            span aria-hidden="true" { "×" }
-                        }
+                        (removable(
+                            &HomeQuery { category: String::new(), ..here.clone() }.href(),
+                            &format!("Search every category, not only {title}"),
+                            PLAIN_CHIP,
+                            &format!("in {title}"),
+                        ))
                     }
                     @if !terms.is_empty() {
                         ul class="contents" aria-label="Search terms" {
                             @for (i, term) in terms.iter().enumerate() {
                                 li {
-                                    a href=(HomeQuery { q: without(terms, i), ..here.clone() }.href())
-                                        aria-label={ "Remove " (term.display()) }
-                                        class={ "badge gap-1.5 pr-2 hover:no-underline "
-                                            (if term.negated { "bg-danger/10 text-danger" } else { "bg-selection text-ink" }) } {
-                                        (if term.negated { "not " } else { "" }) (term.text)
-                                        span aria-hidden="true" { "×" }
-                                    }
+                                    (removable(
+                                        &HomeQuery { q: without(terms, i), ..here.clone() }.href(),
+                                        &format!("Remove {}", term.display()),
+                                        if term.negated { Tone::Bad.class() } else { PLAIN_CHIP },
+                                        &format!("{}{}", if term.negated { "not " } else { "" }, term.text),
+                                    ))
                                 }
                             }
                         }
@@ -650,16 +461,14 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                     @if !here.tags.is_empty() && here.category.is_empty() {
                         ul class="contents" aria-label="Tag filters" {
                             @for (i, group) in here.tags.iter().enumerate() {
-                                @let rest: Vec<String> = here.tags.iter().enumerate()
-                                    .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
                                 @let shown = group.replace('_', " ").replace(',', " or ");
                                 li {
-                                    a href=(HomeQuery { tags: rest, ..here.clone() }.href())
-                                        aria-label={ "Remove the tag filter " (shown) }
-                                        class="badge gap-1.5 bg-selection pr-2 text-ink hover:no-underline" {
-                                        "tag: " (shown)
-                                        span aria-hidden="true" { "×" }
-                                    }
+                                    (removable(
+                                        &here.without_tag(i).href(),
+                                        &format!("Remove the tag filter {shown}"),
+                                        PLAIN_CHIP,
+                                        &format!("tag: {shown}"),
+                                    ))
                                 }
                             }
                         }
@@ -684,6 +493,22 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
     }
 }
 
+/// The colours of a chip that is neither a tag nor a warning.
+const PLAIN_CHIP: &str = "bg-selection text-ink";
+
+/// A chip naming one thing the search is narrowed by, `words`, in the
+/// colours of `tone`, which takes it off the search at `href`; `removes`
+/// says so to a screen reader.
+fn removable(href: &str, removes: &str, tone: &str, words: &str) -> Markup {
+    html! {
+        a href=(href) aria-label=(removes)
+            class={ "badge gap-1.5 pr-2 hover:no-underline " (tone) } {
+            (words)
+            span aria-hidden="true" { "×" }
+        }
+    }
+}
+
 /// The query with term `index` taken out.
 fn without(terms: &[Term], index: usize) -> String {
     terms
@@ -694,57 +519,6 @@ fn without(terms: &[Term], index: usize) -> String {
         .collect::<Vec<_>>()
         .join(" ")
 }
-
-/// A listed build's tags on one row, but those its card makes plain:
-/// any its name says, such as its design, its orientation, and its
-/// carry in and out, which its picture shows. `fails simulation` comes
-/// first, so a failing build stands out to be fixed or removed.
-fn badges(s: &Build, class: &str) -> Markup {
-    let tags = on_card(s);
-    html! {
-        @if !tags.is_empty() || !s.entry.public {
-            ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
-                @if !s.entry.public {
-                    li { (summary::private_badge()) }
-                }
-                @for tag in &tags {
-                    li { (badge(tag, s)) }
-                }
-            }
-        }
-    }
-}
-
-/// The tags of build `s` its card shows: not its design or orientation,
-/// nor a flag in [`SEEN`], nor any its name says in words, nor one another
-/// tag implies, see [`tag::implied`].
-fn on_card(s: &Build) -> Vec<Tag> {
-    let name = format!(" {} ", s.name().to_lowercase());
-    let tags = s.every_tag();
-    tags.iter()
-        .filter(|tag| {
-            !tag::implied(&tag.name, &tags)
-                && !matches!(
-                    tag.kind,
-                    tag::Kind::Design | tag::Kind::Orientation
-                )
-                && s.specs.design.as_deref() != Some(tag.name.as_str())
-                && !SEEN.contains(&tag.name.as_str())
-                && !name.contains(&format!(" {} ", tag.label()))
-        })
-        .cloned()
-        .collect()
-}
-
-/// Tags left off a card: synced, which most builds are, and the flags its
-/// picture shows plainly.
-const SEEN: [&str; 5] = [
-    tag::SYNCED,
-    Flag::CARRY_IN,
-    Flag::CARRY_OUT,
-    Flag::BORROW_IN,
-    Flag::BORROW_OUT,
-];
 
 /// A tag the builds listed carry, to narrow them by, with how many have
 /// it, or one they are already narrowed by.
@@ -823,9 +597,7 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                     @let label = filter.tag.label().replace(',', " or ");
                     li {
                         @if let Some(i) = filter.chosen {
-                            @let rest: Vec<String> = here.tags.iter().enumerate()
-                                .filter(|(j, _)| *j != i).map(|(_, tag)| tag.clone()).collect();
-                            a href=(HomeQuery { tags: rest, ..here.clone() }.href())
+                            a href=(here.without_tag(i).href())
                                 aria-label={ "Remove the tag filter " (label) }
                                 title=(filter.tag.about())
                                 class={ "badge " (filter.tag.class()) " gap-1.5 pr-2 ring-2 ring-brand ring-offset-1 ring-offset-canvas hover:no-underline" } {
@@ -848,55 +620,6 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
             }
         }
     }
-}
-
-/// That build `s` makes the width `terms` ask for as a stack of its
-/// copies, if it does only so.
-fn stacked_note(s: &Build, terms: &[Term]) -> Markup {
-    html! {
-        @if let Some((width, copies)) = crate::search::stacked_width(terms, s) {
-            p class="text-meta text-brand" { (width) " bits as " (copies) " stacked copies" }
-        }
-    }
-}
-
-/// Builds as cards, each noting the width `terms` ask for when it reaches
-/// it only by stacking, as the viewer sees it.
-pub(crate) fn cards(
-    schematics: &[Build],
-    terms: &[Term],
-    viewing: &Viewing,
-) -> Markup {
-    html! {
-        ul class=(CARDS) {
-            @for s in schematics {
-                (card(s, &stacked_note(s, terms), viewing))
-            }
-        }
-    }
-}
-
-/// The list holding cards: as many 16rem cards to a row as fit, and two
-/// on a phone.
-const CARDS: &str = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,calc(50%_-_0.375rem)),1fr))] gap-3 sm:gap-5";
-
-/// The picture of `s`, at an address that changes with its file, with
-/// the viewer's `palette`, and as it comes to be drawn in a theme's
-/// building blocks, once recognized, as a build marked as following the
-/// conventions later may be, its file the same.
-pub(crate) fn thumbnail_src(s: &Build, palette: Option<&str>) -> String {
-    let palette = palette.map_or(String::new(), |key| format!("&p={key}"));
-    let themed = if s.evaluated() && s.verified() {
-        "-b"
-    } else {
-        ""
-    };
-    format!(
-        "/schematics/{}/thumbnail.webp?v={}-{}{themed}{palette}",
-        s.id,
-        &s.file.sha256[..12.min(s.file.sha256.len())],
-        crate::thumbnail::RENDERER
-    )
 }
 
 /// The tiles under their sections' headings, each with its heading and
@@ -928,92 +651,6 @@ fn tile_groups<'t>(
         groups.push(("Other", "other", rest));
     }
     groups
-}
-
-/// Build `s` as a card, with `note` under its tags, pictured in the
-/// viewer's palette, with a star when they have favourited it.
-fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
-    html! {
-                // The title's link covers the whole card; the tag and name
-                // links sit above it.
-                li class="group relative flex h-full flex-col overflow-hidden rounded-overlay border border-line bg-raised text-ink shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                    img src=(thumbnail_src(s, viewing.palette.as_deref()))
-                        alt="" loading="lazy" decoding="async" width="640" height="480"
-                        class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
-                    @if viewing.signed_in {
-                        (card_star(&s.id, viewing.favorites.contains(&s.id)))
-                    }
-                    // What every build has comes first, so cards line up:
-                    // its name, then its latency and size; then what some
-                    // have, its tags; and its people at the foot.
-                    div class="flex flex-1 flex-col gap-2 p-3 sm:p-4" {
-                        div class="flex flex-col gap-0.5" {
-                            h2 class="text-section font-semibold" {
-                                a href=(href::build(&s.id))
-                                    class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
-                            }
-                            // Latency is what builds are compared by, so it
-                            // leads.
-                            p class="flex flex-wrap items-baseline gap-x-2 tabular-nums" {
-                                @if s.specs.latency.is_some() {
-                                    span class="font-semibold" { (latency(s)) }
-                                }
-                                span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
-                                @if s.entry.favorites > 0 {
-                                    @let label = text::favourites_label(s.entry.favorites);
-                                    span class="ml-auto inline-flex items-center gap-1 self-center text-meta text-muted" title=(label) aria-label=(label) {
-                                        (icon(icons::STAR, "size-3.5")) (s.entry.favorites)
-                                    }
-                                }
-                            }
-                        }
-                        (note)
-                        (badges(s, ""))
-                        // Its authors, then who helped, on one line; the
-                        // build's page names them all.
-                        @if !s.credits.authors.is_empty() || !s.credits.contributors.is_empty() {
-                            p class="mt-auto truncate pt-1 text-meta text-muted" {
-                                (name_links(&s.credits.authors))
-                                @if !s.credits.contributors.is_empty() {
-                                    @if !s.credits.authors.is_empty() { " · " }
-                                    "with " (name_links(&s.credits.contributors))
-                                }
-                            }
-                        }
-                    }
-                }
-    }
-}
-
-/// The star in a card's corner that favourites build `id`, or takes it
-/// back, as its page's does: filled on a favourite, and otherwise shown
-/// while the card is pointed at or focused, or always where nothing can
-/// point. Through fixi it is redrawn in place.
-pub fn card_star(id: &str, favorited: bool) -> Markup {
-    let label = if favorited {
-        "Remove from favourites"
-    } else {
-        "Add to favourites"
-    };
-    let action = format!("/schematics/{id}/favorite");
-    let shown = if favorited {
-        "text-brand"
-    } else {
-        "text-muted opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 hover:text-brand [@media(hover:none)]:opacity-100"
-    };
-    html! {
-        form action=(action) method="post" fx-action=(action) fx-method="post"
-            class="absolute top-2 right-2 z-10" {
-            input type="hidden" name="card" value="yes";
-            @if !favorited {
-                input type="hidden" name="on" value="yes";
-            }
-            button type="submit" aria-label=(label) title=(label) aria-pressed=(favorited)
-                class={ "flex size-8 cursor-pointer items-center justify-center rounded-full bg-raised/90 shadow-sm transition-opacity duration-150 ease-calm " (shown) } {
-                (icon(icons::STAR, if favorited { "size-4 fill-current" } else { "size-4" }))
-            }
-        }
-    }
 }
 
 /// Builds as table rows, for the home page's List layout.
@@ -1065,29 +702,6 @@ mod tests {
     use super::*;
     use crate::{category::Flag, interface::Orientation};
 
-    /// An address reads back as it was written, but for a sort field the
-    /// site does not know, which is left out.
-    #[test]
-    fn a_home_address_reads_back_as_written() {
-        for href in [
-            "/builds",
-            "/builds?view=list&sort=volume",
-            "/?category=adder",
-            "/?view=list&sort=-downloads%2Cvolume&category=adder&tag=alpha%2Ctorchless&tag=synced&unverified=show&q=8b+adder",
-        ] {
-            let raw = href.split_once('?').map_or("", |(_, raw)| raw);
-            assert_eq!(HomeQuery::parse(raw).href(), href);
-        }
-        // Unaligned builds list unless the switch hides them.
-        let hidden = HomeQuery::parse("category=adder&unaligned=hide");
-        assert!(hidden.hide_unaligned);
-        assert_eq!(hidden.href(), "/?category=adder&unaligned=hide");
-        assert!(!HomeQuery::parse("category=adder").hide_unaligned);
-        let query = HomeQuery::parse("q=add&sort=bogus,-latency");
-        assert_eq!(query.href(), "/?sort=-latency&q=add");
-        assert!(!HomeQuery::parse("view=list").narrows());
-    }
-
     fn adder(
         design: Option<&str>,
         flags: &[&'static str],
@@ -1104,34 +718,6 @@ mod tests {
             .map(|&name| Flag { name, label: name })
             .collect();
         s
-    }
-
-    /// A card leaves out what its picture or name makes plain, or says
-    /// little, such as an inverted carry in, and keeps what is hard to
-    /// tell, such as how its copies stack.
-    #[test]
-    fn a_card_shows_only_the_tags_hard_to_tell() {
-        let mut s = adder(
-            Some("carry_cancel"),
-            &["carry_in", "carry_out", "inverted_carry_in"],
-            &["pistons"],
-        );
-        s.stacking = vec![crate::stack::StackDirection {
-            west: 2,
-            up: 0,
-            max_copies: None,
-            faces: None,
-            pitch: Some(2),
-        }];
-        let names = |s: &Build| -> Vec<String> {
-            on_card(s).into_iter().map(|tag| tag.name).collect()
-        };
-        // How far apart its copies stack says it stacks.
-        assert_eq!(names(&s), ["2-wide_stackable", "pistons"]);
-        let mut gate = adder(None, &[], &[]);
-        gate.category = "xnor_gate".to_owned();
-        assert!(gate.name().contains("XNOR"), "{}", gate.name());
-        assert!(names(&gate).is_empty());
     }
 
     fn shown(filters: &[Filter]) -> Vec<(&str, usize, Option<usize>)> {

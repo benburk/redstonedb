@@ -1,7 +1,11 @@
 //! The markup several pages share, such as the page around each one,
 //! facts, badges, and the 3D viewer.
 
+pub(crate) mod cards;
 pub(crate) mod description;
+pub(crate) mod dialog;
+pub(crate) mod editable;
+pub(crate) mod hover;
 pub(crate) mod icons;
 pub(crate) mod layout;
 pub(crate) mod person;
@@ -28,12 +32,87 @@ pub(crate) const CHOICE: &str = "cursor-pointer rounded-control px-3 py-1 text-m
 pub(crate) const SWITCHES: &str =
     "flex flex-wrap items-center gap-1 rounded-control bg-sidebar p-1";
 
+/// What a pill or a mark says of what it marks, which its colours show;
+/// in markup, the class that colours it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tone {
+    Good,
+    /// Worth a look, but nothing wrong.
+    Warn,
+    Bad,
+    /// Neither good nor bad.
+    Plain,
+}
+
+impl Tone {
+    pub(crate) const fn class(self) -> &'static str {
+        match self {
+            Tone::Good => "tone-good",
+            Tone::Warn => "tone-warn",
+            Tone::Bad => "tone-bad",
+            Tone::Plain => "tone-plain",
+        }
+    }
+}
+
+impl maud::Render for Tone {
+    fn render_to(&self, buffer: &mut String) {
+        buffer.push_str(self.class());
+    }
+}
+
 /// A small spinning ring, for something under way; still where motion is
 /// reduced.
 pub fn spinner() -> Markup {
     html! {
         span aria-hidden="true"
             class="inline-block size-4 shrink-0 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" {}
+    }
+}
+
+/// A line saying something is under way, with a spinner.
+pub(crate) fn waiting(text: &str) -> Markup {
+    html! {
+        p class="flex items-center gap-2 text-muted" { (spinner()) (text) }
+    }
+}
+
+/// The top of a page that is a list to manage: its title, a line on what
+/// it lists, and `message`, why something asked of it was refused, when
+/// there is one.
+pub(crate) fn page_header(title: &str, about: &str, message: &str) -> Markup {
+    html! {
+        h1 class={ (PAGE_TITLE) " mb-2" } { (title) }
+        p class="mb-6 max-w-prose text-muted" { (about) }
+        @if !message.is_empty() {
+            p role="alert" class="mb-6 text-danger" { (message) }
+        }
+    }
+}
+
+/// One link of a segmented control: what it says, where it goes, whether
+/// it is the one chosen, and how many it leads to, when it says.
+pub(crate) struct Segment<'a> {
+    pub label: &'a str,
+    pub href: String,
+    pub chosen: bool,
+    pub count: Option<usize>,
+}
+
+/// A segmented control: links side by side in a bar, the chosen one
+/// marked, such as a list's filters.
+pub(crate) fn segmented(segments: &[Segment]) -> Markup {
+    html! {
+        div class={ (SWITCHES) " w-fit" } {
+            @for segment in segments {
+                a href=(segment.href) class=(SWITCH) aria-current=[segment.chosen.then_some("page")] {
+                    (segment.label)
+                    @if let Some(count) = segment.count {
+                        span class="ml-1.5 text-meta text-muted tabular-nums" { (count) }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -54,28 +133,8 @@ pub(crate) fn sections(
         .collect()
 }
 
-/// One reason a build isn't verified, as a list item: what is wrong, then
-/// how to fix it, with a link to the rule it breaks when the Build
-/// Analysis page pictures it.
-pub(crate) fn reason_item(reason: &str) -> Markup {
-    let advice = crate::recognize::fault::advice(reason);
-    html! {
-        li {
-            span class="block" { (reason) }
-            @if let Some(advice) = advice {
-                span class="block text-muted" {
-                    "Fix: " (advice.fix)
-                    @if let Some(rule) = advice.rule {
-                        " " a href={ "/about/recognized#" (rule) } { "See the rule" }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Why a download is greyed out for someone signed out.
-pub(crate) const SIGN_IN_TO_DOWNLOAD: &str = "Sign in to download";
+const SIGN_IN_TO_DOWNLOAD: &str = "Sign in to download";
 
 /// A link to download a file at `href`, for someone signed in; greyed out,
 /// saying why, for anyone else.
@@ -86,6 +145,13 @@ pub(crate) fn download_link(href: &str, text: &str, signed_in: bool) -> Markup {
         } @else {
             span class="cursor-not-allowed text-muted" title=(SIGN_IN_TO_DOWNLOAD) { (text) }
         }
+    }
+}
+
+/// A download's button for someone signed out: greyed out, saying why.
+pub(crate) fn locked_download(label: &str, class: &str) -> Markup {
+    html! {
+        button type="button" aria-disabled="true" title=(SIGN_IN_TO_DOWNLOAD) class=(class) { (label) }
     }
 }
 

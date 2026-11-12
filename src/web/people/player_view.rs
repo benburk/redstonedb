@@ -7,10 +7,14 @@ use crate::{
     build::Build,
     leaderboard::Record,
     web::{
-        browse::list_view::{Viewing, cards},
         href,
         leaderboard::view,
-        ui::{PAGE_TITLE, SECTION_TITLE, layout::base, text},
+        ui::{
+            PAGE_TITLE, SECTION_TITLE,
+            cards::{Viewing, cards},
+            layout::base,
+            text,
+        },
     },
 };
 

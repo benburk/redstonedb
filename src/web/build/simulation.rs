@@ -22,7 +22,7 @@ use crate::{
     build::Build,
     category::{self, Category, Test},
     ingest::{details, jobs, prepare::Upload, results},
-    recognize::{fault, probe::Recognition},
+    recognize::probe::Recognition,
     simulate::Report,
     store::builds,
     web::{
@@ -151,22 +151,16 @@ enum Filing {
 }
 
 impl Filing {
-    /// The filing, for `form.js` to badge the category with, verified,
-    /// failing, or untested, and say why under the form, leaving out
-    /// wrong cases when `failed`, as the simulation's section shows them.
-    fn note(&self, failed: bool) -> Markup {
-        let (state, why) = match self {
-            Filing::Verified => ("pass", None),
-            Filing::Unverified(why) => (
-                details_view::failing_or_untested(&[why]),
-                Some(why.as_str()),
-            ),
+    /// The filing, for `form.js` to badge the category with: verified,
+    /// failing, or untested.
+    fn note(&self) -> Markup {
+        let state = match self {
+            Filing::Verified => "pass",
+            Filing::Unverified(why) => {
+                details_view::failing_or_untested(&[why])
+            }
         };
-        let reasons: Vec<&str> = why
-            .into_iter()
-            .filter(|why| !(failed && fault::wrong_outputs(why)))
-            .collect();
-        html! { template data-filing=(state) { (details_view::reason_items(&reasons)) } }
+        html! { template data-filing=(state) {} }
     }
 }
 
@@ -273,8 +267,8 @@ async fn cases(
         Some(s) => format!("/schematics/{}/simulation", s.id),
         None => "/upload/simulation".to_owned(),
     };
-    let panel = |content: &Markup, failed: bool| {
-        let note = filing.as_ref().map(|filing| filing.note(failed));
+    let panel = |content: &Markup| {
+        let note = filing.as_ref().map(Filing::note);
         let content = html! { (note.unwrap_or_default()) (content) };
         simulation_view::simulation_results(&simulate, &content).into_response()
     };
@@ -288,7 +282,7 @@ async fn cases(
             None => match jobs::run(test, lined.clone()).await {
                 Ok(report) => Some(report),
                 Err(err) => {
-                    return Ok(panel(&could_not(&err.to_string()), false));
+                    return Ok(panel(&could_not(&err.to_string())));
                 }
             },
         },
@@ -337,10 +331,7 @@ async fn cases(
         trace: trace.as_deref(),
         timing: Some(&timing),
     };
-    Ok(panel(
-        &checks_view::form_checks(&known),
-        report.as_ref().is_some_and(Report::failed),
-    ))
+    Ok(panel(&checks_view::form_checks(&known)))
 }
 
 /// The category the form names, as the site lists it; empty for none.

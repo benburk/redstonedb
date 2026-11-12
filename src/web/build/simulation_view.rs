@@ -13,7 +13,7 @@ use crate::{
     stack::StackDirection,
     web::{
         build::trace::shown_glitch,
-        ui::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, spinner, text::grouped},
+        ui::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, text::grouped, waiting},
     },
 };
 
@@ -38,29 +38,10 @@ pub(crate) fn cases_pending(poll: &str) -> Markup {
             h2 id="simulation-heading" class={ (SECTION_TITLE) " mb-1" } { "Simulation" }
             div fx-action=(poll) fx-trigger="poll" data-every="3000"
                 fx-target="#simulation" class="mt-3" {
-                p class="flex items-center gap-2 text-muted" {
-                    (spinner())
-                    "Simulating every case and timing its outputs, which takes a few seconds…"
-                }
+                (waiting("Simulating every case and timing its outputs, which takes a few seconds…"))
                 noscript { p class="text-muted" { "Reload the page to see it once it is done." } }
             }
         }
-    }
-}
-
-/// A simulation result in a few words, such as `all 131,072 cases right`.
-pub(crate) fn simulation_summary(report: &Report) -> String {
-    match report {
-        Report::Ran(run) if run.wrong == 0 => {
-            format!("all {} cases right.", grouped(run.cases))
-        }
-        Report::Ran(run) => format!(
-            "{} of {} cases wrong.",
-            grouped(run.wrong),
-            grouped(run.cases)
-        ),
-        Report::Broken { reason } => format!("broken. {reason}"),
-        Report::Skipped { reason } => format!("untested. {reason}"),
     }
 }
 
@@ -186,7 +167,7 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
     let quiet =
         timing.synced && timing.pulse.is_none() && timing.start == Start::Input;
     html! {
-        div data-timing data-state=(if timing.synced { "pass" } else { "fail" })
+        div data-timing
             data-summary=(timing_summary(timing)) hidden[quiet && trace.is_none()]
             data-latency=[timing.latency()] data-synced=(timing.synced) {
             (timing_intro(timing))
@@ -213,10 +194,7 @@ pub fn timing_section(timing: &Timing, trace: Option<&str>) -> Markup {
                 // Its glitch, or with none its slowest change, drawn as it
                 // runs once the page has loaded.
                 div fx-action={ (trace) "/glitch" } fx-trigger="load" role="status" class="mt-4" {
-                    p class="flex items-center gap-2 text-muted" {
-                        (spinner())
-                        @if shown.is_some() { "Tracing its glitch…" } @else { "Tracing its slowest change…" }
-                    }
+                    (waiting(if shown.is_some() { "Tracing its glitch…" } else { "Tracing its slowest change…" }))
                 }
                 @for output in timing.outputs.iter().filter(|o| Some(o.name.as_str()) != shown) {
                     @if let Some(glitch) = &output.glitch {

@@ -10,10 +10,10 @@ use crate::{
     schem::lines::Role,
     simulate::{InputTiming, OutputTiming, Strength, Timing},
     web::{
-        build::detail_view::hover_note,
         href,
         ui::{
             SECTION_TITLE, TABLE_CELL, TABLE_HEAD,
+            hover::hover_words,
             icons::{CHEVRON_RIGHT, icon},
         },
     },
@@ -244,9 +244,7 @@ fn head(id: &str, label: &str, note: Option<&str>) -> Markup {
     html! {
         th scope="col" class=(TABLE_HEAD) {
             @match note {
-                Some(note) => (hover_note(id, &html! {
-                    span class="underline decoration-boundary decoration-dotted underline-offset-4" { (label) }
-                }, note)),
+                Some(note) => (hover_words(id, label, note)),
                 None => (label),
             }
         }
@@ -447,11 +445,9 @@ fn output_ticks(output: &OutputTiming) -> Markup {
         td class=(TABLE_CELL) { (output.first_change) "t" }
         td class={ (TABLE_CELL) " font-semibold" } {
             @if output.carried > 0 {
-                (hover_note(
+                (hover_words(
                     &format!("carried-{}", output.name.replace(' ', "-")),
-                    &html! {
-                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { (output.latency) "t" }
-                    },
+                    &format!("{}t", output.latency),
                     &format!(
                         "{}t out of the build: +{}t through the repeater on its output block",
                         output.latency + output.carried,

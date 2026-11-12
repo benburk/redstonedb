@@ -15,7 +15,6 @@ use crate::{
     store::versions::Version,
     web::{
         back,
-        browse::list_view,
         build::{
             checks_view::{Known, Subject, checks_section},
             download::Colours,
@@ -25,8 +24,9 @@ use crate::{
         },
         href,
         ui::{
-            self, CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES,
-            description, field,
+            self, CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, Tone,
+            cards, description, dialog, field,
+            hover::{hover_note, hover_words},
             icons::{self, icon},
             layout::{self, base_previewed},
             person::{name_badges, person_badge},
@@ -131,7 +131,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                         button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
                         (download_dialog(s, colours))
                     } @else {
-                        button type="button" aria-disabled="true" title=(ui::SIGN_IN_TO_DOWNLOAD) class="btn btn-primary flex-1 sm:flex-none" { "Download" }
+                        (ui::locked_download("Download", "btn btn-primary flex-1 sm:flex-none"))
                     }
                     @if viewer.is_some() {
                         (favorite_button(&path, favorited, s.entry.favorites))
@@ -180,7 +180,7 @@ pub fn build_banner(s: &Build, simulating: bool) -> Markup {
             class="flex flex-wrap items-center gap-1.5" {
             @if simulating {
                 @let pill = html! {
-                    span class="inline-block rounded-full bg-muted/12 px-2.5 text-meta leading-6 font-semibold text-muted" { "Simulating…" }
+                    span class={ "inline-block rounded-full px-2.5 text-meta leading-6 font-semibold " (Tone::Plain) } { "Simulating…" }
                 };
                 (hover_note("verdict-note", &pill, "Its cases and timing are running; this updates when they finish."))
             }
@@ -190,13 +190,12 @@ pub fn build_banner(s: &Build, simulating: bool) -> Markup {
 
 /// The tag a tag-like badge is drawn as: its label, its tone, and what it
 /// says more on hover or focus.
-type Verdict = (&'static str, &'static str, String);
+type Verdict = (&'static str, Tone, String);
 
 /// Whether build `s` works, as the first of its tags: passing, failing,
 /// not tested, or of a category with no test; and when it is unranked
 /// though it works, why. Each links to its checks.
 fn verdicts(s: &Build, report: Option<&Report>) -> Vec<Verdict> {
-    const MUTED: &str = "bg-muted/12 text-muted";
     let status = {
         let note = match (s.status, report) {
             (Status::Passing, Some(Report::Ran(run))) => format!(
@@ -221,10 +220,10 @@ fn verdicts(s: &Build, report: Option<&Report>) -> Vec<Verdict> {
             _ => s.unverified.clone().unwrap_or_default(),
         };
         let (label, tone) = match s.status {
-            Status::Passing => ("passing", "bg-success/12 text-success"),
-            Status::Failing => ("failing", "bg-danger/12 text-danger"),
-            Status::NotTested => ("not tested", MUTED),
-            Status::NoTest => ("no test", MUTED),
+            Status::Passing => ("passing", Tone::Good),
+            Status::Failing => ("failing", Tone::Bad),
+            Status::NotTested => ("not tested", Tone::Plain),
+            Status::NoTest => ("no test", Tone::Plain),
         };
         (label, tone, note)
     };
@@ -234,7 +233,7 @@ fn verdicts(s: &Build, report: Option<&Report>) -> Vec<Verdict> {
     if let Some(why) = s.unranked().filter(|_| s.status != Status::NoTest) {
         verdicts.push((
             "unranked",
-            "bg-restriction text-on-restriction",
+            Tone::Warn,
             format!("Listed, but on no leaderboard: {why}."),
         ));
     }
@@ -561,24 +560,6 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
     }
 }
 
-/// `content` with `note` in a small popup above it while it is hovered or
-/// focused, and as its description for a screen reader. `id` names the
-/// note, once on the page. Hidden, it takes no room, and on a phone it
-/// shows along the foot of the screen, so one near the edge never widens
-/// the page.
-pub(crate) fn hover_note(id: &str, content: &Markup, note: &str) -> Markup {
-    html! {
-        span tabindex="0" aria-describedby=(id)
-            class="group relative inline-block cursor-help rounded-control focus-visible:outline-2 focus-visible:outline-boundary" {
-            (content)
-            span id=(id) role="tooltip"
-                class="pointer-events-none absolute bottom-full left-0 z-20 mb-1.5 hidden w-max max-w-xs max-desktop:fixed max-desktop:inset-x-4 max-desktop:top-auto max-desktop:bottom-4 max-desktop:mb-0 max-desktop:w-auto max-desktop:max-w-none rounded-control bg-ink px-2.5 py-1.5 text-meta font-normal text-canvas shadow-overlay transition-[opacity,display] transition-discrete duration-150 ease-calm group-hover:block group-focus-within:block starting:opacity-0 motion-reduce:transition-none" {
-                (note)
-            }
-        }
-    }
-}
-
 /// One way build `s` stacks, short: for copies that add bits, their step
 /// and pitch class, such as `16 up, pitch 2, any number`; for a
 /// register's copies across its bits, as more words, such as `4 west as
@@ -618,13 +599,9 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
         section aria-labelledby="specs-heading" {
             h2 id="specs-heading" class={ (SECTION_TITLE) " mb-2" } {
                 @if sources.verified {
-                    (hover_note("specs-note", &html! {
-                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Verified specs" }
-                    }, VERIFIED_NOTE))
+                    (hover_words("specs-note", "Verified specs", VERIFIED_NOTE))
                 } @else if s.unverified.is_some() {
-                    (hover_note("specs-note", &html! {
-                        span class="underline decoration-boundary decoration-dotted underline-offset-4" { "Untested specs" }
-                    }, UNVERIFIED_NOTE))
+                    (hover_words("specs-note", "Untested specs", UNVERIFIED_NOTE))
                 } @else {
                     "Specs"
                 }
@@ -679,9 +656,9 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
 fn flag(on: bool, term: Option<&str>) -> Markup {
     let pill = "inline-block min-w-10 rounded-full px-2 text-center text-meta leading-[1.375rem] font-semibold";
     let (word, color) = if on {
-        ("Yes", "bg-success/15 text-success")
+        ("Yes", Tone::Good)
     } else {
-        ("No", "bg-muted/12 text-muted")
+        ("No", Tone::Plain)
     };
     html! {
         @match term {
@@ -928,7 +905,7 @@ fn merge_dialog(s: &Build) -> Markup {
                 }
                 div class="flex items-center gap-4" {
                     button type="submit" class="btn btn-primary" { "Merge" }
-                    button type="button" commandfor="merge" command="close" class="btn btn-quiet" { "Cancel" }
+                    (dialog::close("merge", "Cancel"))
                 }
             }
         }
@@ -949,7 +926,7 @@ fn delete_dialog(s: &Build, from: Option<&str>) -> Markup {
                 p { "It is taken off the site. An admin can restore it." }
                 div class="flex items-center gap-4" {
                     button type="submit" class="btn btn-danger" { "Delete" }
-                    button type="button" commandfor="delete" command="close" class="btn btn-quiet" { "Cancel" }
+                    (dialog::close("delete", "Cancel"))
                 }
             }
         }
@@ -1049,7 +1026,7 @@ fn download_dialog(s: &Build, colours: ColoursShown) -> Markup {
                         class="btn btn-quiet" {
                         "Send to Schemati"
                     }
-                    button type="button" commandfor="download" command="close" class="btn btn-quiet" { "Cancel" }
+                    (dialog::close("download", "Cancel"))
                 }
                 div id="sent" aria-live="polite" class="text-meta empty:hidden" {}
             }
@@ -1122,6 +1099,6 @@ fn preview(s: &Build) -> layout::Preview {
     layout::Preview {
         title,
         description: facts.join(" · "),
-        image: Some(list_view::thumbnail_src(s, None)),
+        image: Some(cards::thumbnail_src(s, None)),
     }
 }

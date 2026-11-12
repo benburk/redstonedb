@@ -2,16 +2,14 @@
 //! pictured by the examples in [`crate::recognize::guide`], and the work it
 //! is built on.
 
-use maud::{Markup, PreEscaped, html};
+use maud::{Markup, html};
 
 use crate::{
     account::User,
     recognize::guide,
     web::{
         assets::guide_image,
-        ui::{
-            PAGE_TITLE, SECTION_TITLE, description::player_badge, layout::base,
-        },
+        ui::{PAGE_TITLE, SECTION_TITLE, layout::base, person},
     },
 };
 
@@ -79,7 +77,7 @@ pub fn credits(viewer: Option<&User>) -> Markup {
             div class="max-w-prose leading-prose" {
                 h1 class={ (PAGE_TITLE) " mb-4" } { "Credits" }
                 p class="mb-4" {
-                    "RedstoneDB is built by Ben Burk, " (badge("embizone")) " in game, "
+                    "RedstoneDB is built by Ben Burk, " (person::mention("embizone")) " in game, "
                     "and " a href="https://github.com/benburk" { "benburk" } " on GitHub. "
                     "Two open-source projects do the heavy lifting."
                 }
@@ -89,7 +87,7 @@ pub fn credits(viewer: Option<&User>) -> Markup {
                 p class="mb-4" {
                     "Every test, latency, and throughput on this site comes from running the build in "
                     "MCHPRS, the Minecraft High Performance Redstone Server, and its redstone compiler, "
-                    "Redpiler, by " (badge("StackDoubleFlow")) " and its contributors. RedstoneDB uses "
+                    "Redpiler, by " (person::mention("StackDoubleFlow")) " and its contributors. RedstoneDB uses "
                     a href="https://github.com/benburk/MCHPRS" { "a fork" }
                     " of it. MIT License."
                 }
@@ -106,11 +104,6 @@ pub fn credits(viewer: Option<&User>) -> Markup {
             }
         },
     )
-}
-
-/// The player `name` as a badge, as a description's `@name` shows them.
-fn badge(name: &str) -> Markup {
-    PreEscaped(player_badge(name))
 }
 
 /// How builds are recognized: the input and output contract, each rule

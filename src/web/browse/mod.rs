@@ -3,6 +3,7 @@
 
 pub(crate) mod list;
 pub(crate) mod list_view;
+pub(crate) mod query;
 pub(crate) mod similar;
 pub(crate) mod similar_view;
 

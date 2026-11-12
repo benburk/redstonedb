@@ -4,7 +4,6 @@
 // the reader's place across a swap.
 //
 // Conventions the pages follow:
-// - `data-confirm` on a trigger asks before sending.
 // - `data-form="id"` sends that form's fields from an element outside it.
 // - A live panel has `fx-trigger="redraw"` and a stable id; an answer's
 //   `FX-Redraw` header names panels to redraw, space-separated.
@@ -29,9 +28,7 @@
 // - A `<details data-menu>` is a menu: it closes when a choice in it is
 //   made, or on a click outside it or Escape.
 // - A form with `data-analyzing` gives way to its `[data-uploading]` steps
-//   as soon as it sends, and `data-progress="url"` redraws an upload's
-//   steps from that address until it answers `X-Analysis: done`, then
-//   loads the page again.
+//   as soon as it sends.
 // - A `<details>` whose id the address names opens, as a build's check its
 //   stage's link goes to.
 
@@ -87,9 +84,6 @@ document.addEventListener("fx:config", (event) => {
   const { cfg, requests } = event.detail;
   const element = event.target;
   cfg.transition = null;
-  const trigger = cfg.trigger.submitter ?? element;
-  const question = trigger.dataset?.confirm;
-  if (question) cfg.confirm = () => confirm(question);
   const named = element.dataset.form;
   if (named) cfg.body = new FormData(document.getElementById(named));
   // Fields go URL-encoded, without any file, unless a form sends files.

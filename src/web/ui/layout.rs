@@ -12,6 +12,7 @@ use crate::{
         ui::{
             PAGE_TITLE,
             icons::{self, icon},
+            person,
         },
     },
 };
@@ -192,7 +193,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                             @let profile = href::user(&user.username);
                             li {
                                 a href=(profile) aria-current=[current(&profile)] class=(SIDEBAR_LINK) {
-                                    @match user.picture(16) {
+                                    @match person::picture(user, 16) {
                                         Some(picture) => (picture),
                                         None => (icon(icons::USER, SIDEBAR_ICON)),
                                     }
