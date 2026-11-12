@@ -236,6 +236,13 @@ impl Category for Adder {
                 carry(v[0].wrapping_sub(v[1]).wrapping_sub(v[2]))
             })
             .kind(Kind::Subtractor),
+            // Its sum's bits inverted, and its carry out either way, as a
+            // status line reads.
+            Op::new(format!("not ({add})"), move |v| {
+                let sum = v[0] + v[1] + v[2];
+                vec![(!sum).into(), (sum >> n & 1 == 1).into()]
+            })
+            .kind(Kind::InvertedAdder),
         ]
     }
 }
@@ -365,7 +372,9 @@ impl Category for Incrementer {
     }
 }
 
-/// An inverter: A, every bit inverted while its control line is on.
+/// An inverter: A, every bit inverted while its control line is on. Its
+/// control line comes first, so of a one-bit inverter's two levers, which
+/// read either way round, the first is its control line.
 pub struct Inverter;
 
 impl Category for Inverter {
@@ -374,12 +383,12 @@ impl Category for Inverter {
     }
 
     fn slots(&self) -> &'static [Slot] {
-        const { &[A, Slot::new("invert", Role::Control, &[Bit]), OUTPUT] }
+        const { &[Slot::new("invert", Role::Control, &[Bit]), A, OUTPUT] }
     }
 
     fn ops(&self, _: &Shape) -> Vec<Op> {
         vec![Op::new("A xor invert", |v| {
-            vec![(v[0] ^ 0_u128.wrapping_sub(v[1])).into()]
+            vec![(v[1] ^ 0_u128.wrapping_sub(v[0])).into()]
         })]
     }
 }

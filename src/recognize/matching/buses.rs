@@ -59,7 +59,7 @@ const BENT: u32 = 2;
 
 /// The farthest a stray bit may be from the end of the run it joins, in
 /// blocks along each axis together.
-const STRAY_REACH: i32 = 3;
+const STRAY_REACH: i32 = 4;
 
 impl Pool {
     /// Every bit of `runs`, each run a stretch.
@@ -81,16 +81,21 @@ impl Pool {
         self.stretches.iter().map(Vec::len).sum()
     }
 
-    /// The pool with the stretches `taken` taken out and `left` put in.
+    /// The pool with the stretches `taken` taken out and `left`, what is
+    /// left of them, put where the first of them was, so the pool keeps
+    /// its order and the next slot takes the rest of a run before another
+    /// run, as two operands of one bit, side by side, come before a lone
+    /// carry in.
     fn without(&self, taken: &[usize], left: Vec<Vec<BitAt>>) -> Pool {
-        let mut stretches: Vec<Vec<BitAt>> = self
-            .stretches
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| !taken.contains(i))
-            .map(|(_, stretch)| stretch.clone())
-            .collect();
-        stretches.extend(left.into_iter().filter(|s| !s.is_empty()));
+        let mut left = Some(left);
+        let mut stretches: Vec<Vec<BitAt>> = Vec::new();
+        for (i, stretch) in self.stretches.iter().enumerate() {
+            if !taken.contains(&i) {
+                stretches.push(stretch.clone());
+            } else if let Some(left) = left.take() {
+                stretches.extend(left.into_iter().filter(|s| !s.is_empty()));
+            }
+        }
         Pool {
             stretches,
             runs: self.runs.clone(),
@@ -210,6 +215,7 @@ impl Pool {
         if bent && width > 1 {
             let bends = |(bits, cost, rest)| (bits, cost, true, rest);
             found.extend(self.strays(width).into_iter().map(bends));
+            found.extend(self.end_to_end(width).into_iter().map(bends));
             found.extend(self.spread(width).into_iter().map(bends));
         }
         let mut buses: Vec<(Bus, Pool)> = Vec::new();
@@ -267,6 +273,39 @@ impl Pool {
             runs: self.runs.clone(),
         };
         Some((bits, BENT, rest))
+    }
+
+    /// Each bus of `width` bits that is two stretches half as long in one
+    /// line, end to end, however far apart, in order along it, as two
+    /// adders built one beyond the other leave each operand, with the pool
+    /// left after.
+    fn end_to_end(&self, width: usize) -> Vec<(Vec<BitAt>, u32, Pool)> {
+        let mut found = Vec::new();
+        if !width.is_multiple_of(2) {
+            return found;
+        }
+        for (i, x) in self.stretches.iter().enumerate() {
+            for (j, y) in self.stretches.iter().enumerate().skip(i + 1) {
+                if x.len() != width / 2 || y.len() != width / 2 {
+                    continue;
+                }
+                let mut bits: Vec<BitAt> = x.iter().chain(y).copied().collect();
+                // The one axis they lie along, every bit level on the rest.
+                let along: Vec<usize> = (0..3)
+                    .filter(|&axis| {
+                        bits.iter().any(|&bit| {
+                            self.at(bit)[axis] != self.at(bits[0])[axis]
+                        })
+                    })
+                    .collect();
+                let [axis] = along[..] else {
+                    continue;
+                };
+                bits.sort_by_key(|&bit| self.at(bit)[axis]);
+                found.push((bits, BENT, self.without(&[i, j], Vec::new())));
+            }
+        }
+        found
     }
 
     /// Each bus of `width` bits that is a whole run one shorter and a bit

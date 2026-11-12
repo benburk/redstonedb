@@ -15,9 +15,10 @@
 //! way round, and which control lines read inverted is the same for every
 //! category, and done here.
 //!
-//! Only stateless builds driven by levers are matched so far, beside
-//! probing, see [`crate::recognize::probe`], which the site still
-//! recognizes builds by.
+//! Only stateless builds driven by levers are matched so far. The site
+//! recognizes each of those by its reading here, which its kind's own
+//! test then judges, see [`crate::recognize::probe`]; a build held in
+//! time, or taking a digit a block, is probed there.
 
 use std::{cmp::Reverse, collections::BTreeMap};
 
@@ -25,7 +26,7 @@ use anyhow::Result;
 
 use crate::{
     category::{Kind, Probing, alu_ops},
-    interface::{self, inspect},
+    interface::{self, Bit, Interface, Port, inspect},
     recognize::probe::{self, Order},
     schem::{
         Blocks, Pos,
@@ -262,6 +263,44 @@ impl Match {
             .collect()
     }
 
+    /// The interface its kind's test reads it through: each line a port
+    /// named for its slot, its bits in the order matching read them, least
+    /// significant first, wherever the conventions would count them from.
+    pub fn interface(&self, blocks: &Blocks) -> Interface {
+        let switches = interface::switches(blocks);
+        let port = |line: &Line| {
+            let output = matches!(line.role, Role::Output(_) | Role::Status);
+            let bits = line
+                .bits
+                .iter()
+                .map(|&pos| {
+                    if output {
+                        Bit::at(pos)
+                    } else {
+                        Bit::input(blocks, &switches, pos)
+                    }
+                })
+                .collect();
+            let port = Port {
+                name: line.name.to_owned(),
+                role: Some(line.role),
+                labelled: false,
+                bits,
+                strength: 1,
+                words: Vec::new(),
+                signal_strength: false,
+            };
+            (output, port)
+        };
+        let (outputs, inputs): (Vec<_>, Vec<_>) =
+            self.lines.iter().map(port).partition(|(output, _)| *output);
+        Interface {
+            inputs: inputs.into_iter().map(|(_, port)| port).collect(),
+            outputs: outputs.into_iter().map(|(_, port)| port).collect(),
+            binary_outputs: false,
+        }
+    }
+
     /// The line filling the slot `name`, if any.
     pub fn line(&self, name: &str) -> Option<&Line> {
         self.lines.iter().find(|line| line.name == name)
@@ -390,21 +429,54 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
 /// category's reading of those gets every case right.
 pub fn closest(blocks: &Blocks, report: &inspect::Report) -> Option<Match> {
     let observed = observe(blocks, report).ok()?;
-    let mut best: Option<(Score, Match)> = None;
-    for bent in [false, true] {
+    read_as(None, blocks, &observed, true, Order::default())
+}
+
+/// The reading of the build `observed`, of `blocks`, that comes closest,
+/// see [`Score`]: as any category, or with `kind` only as that kind, or
+/// one probed as it, as a subtractor is as an adder. Buses laid as the
+/// conventions lay them are tried first, and with `bent`, bent ones too
+/// when no reading of those gets every case right. Of two operands that
+/// read either way round, A is as `order` prefers.
+pub fn read_as(
+    kind: Option<Kind>,
+    blocks: &Blocks,
+    observed: &Observation,
+    bent: bool,
+    order: Order,
+) -> Option<Match> {
+    let mut closest: Option<(Score, Match)> = None;
+    for bends in [false, true].into_iter().take(1 + usize::from(bent)) {
         for &category in CATEGORIES {
             if let Some((score, found)) =
-                judge(category, blocks, &observed, bent)
-                && best.as_ref().is_none_or(|(best, _)| score < *best)
+                judge(category, kind, blocks, observed, bends, order)
+                && closest.as_ref().is_none_or(|(kept, _)| score < *kept)
             {
-                best = Some((score, found));
+                closest = Some((score, found));
             }
         }
-        if best.as_ref().is_some_and(|(_, found)| found.wrong == 0) {
+        if closest.as_ref().is_some_and(|(_, found)| found.wrong == 0) {
             break;
         }
     }
-    best.map(|(_, found)| found)
+    closest.map(|(_, found)| found)
+}
+
+/// How many operands a build of `kind`, or one probed as it, takes: the
+/// most any category reading it gives it.
+pub fn operands(kind: Kind) -> usize {
+    CATEGORIES
+        .iter()
+        .filter(|category| category.kind().probed_as() == kind.probed_as())
+        .map(|category| {
+            category
+                .slots()
+                .iter()
+                .filter(|slot| matches!(slot.role, Role::Operand(_)))
+                .count()
+        })
+        .max()
+        .unwrap_or(1)
 }
 
 /// How one reading ranks, lowest first: its share of cases wrong; how far
@@ -436,16 +508,35 @@ const SAMPLE: usize = 8;
 /// that come closest on the sample.
 const MOST_READ: usize = 8;
 
+/// What a build of `shape` may compute as `category`: every operation of
+/// the category's, or with `only`, those a build of that kind, or one
+/// probed as it, computes.
+fn operations(
+    category: &dyn Category,
+    shape: &Shape,
+    only: Option<Kind>,
+) -> Vec<Op> {
+    let mut ops = category.ops(shape);
+    ops.retain(|op| {
+        let kind = op.kind.unwrap_or(category.kind());
+        only.is_none_or(|only| kind.probed_as() == only)
+    });
+    ops
+}
+
 /// The closest reading of the build `observed`, of `blocks`, as
-/// `category`, its buses bent too when `bent`, and its score; `None` when
+/// `category`, or with `only` as that kind alone, its buses bent too when
+/// `bent`, and its score, A as `order` prefers on a tie; `None` when
 /// its slots don't fit the lines. Its input slots and its output slots are
 /// filled apart, as they take different lines, and what each operation
 /// expects is worked out once for each way of filling the input slots.
 fn judge(
     category: &dyn Category,
+    only: Option<Kind>,
     blocks: &Blocks,
     observed: &Observation,
     bent: bool,
+    order: Order,
 ) -> Option<(Score, Match)> {
     let slots = category.slots();
     let conventional_in =
@@ -456,7 +547,7 @@ fn judge(
     let outputs = Pool::of(&observed.outputs);
     let mut found: Option<(Score, Match)> = None;
     for shape in shapes(slots, inputs.bits(), outputs.bits()) {
-        let ops = category.ops(&shape);
+        let ops = operations(category, &shape, only);
         if ops.is_empty() {
             continue;
         }
@@ -476,7 +567,21 @@ fn judge(
             })
             .collect();
         let mut expected: Option<(usize, Expected)> = None;
-        let kept = sample(slots, &shape, &ins, &outs, &shown, &ops, observed);
+        let turned: Vec<bool> = ins
+            .iter()
+            .map(|input| {
+                swapped(slots, &positions(slots, input, observed), order)
+            })
+            .collect();
+        let kept = sample(
+            slots,
+            &shape,
+            (&ins, &turned),
+            &outs,
+            &shown,
+            &ops,
+            observed,
+        );
         for (i, o, sample) in kept {
             let (input, output, shown) = (&ins[i], &outs[o], &shown[o]);
             if expected.as_ref().is_none_or(|&(at, _)| at != i) {
@@ -514,7 +619,7 @@ fn judge(
                 Reverse(reading.coverage()),
                 Reverse(reading.decided),
                 reading.inverted.count_ones(),
-                swapped(slots, &positions),
+                turned[i],
                 kind_order(kind),
             );
             if found.as_ref().is_some_and(|(kept, _)| *kept <= score) {
@@ -538,12 +643,13 @@ fn judge(
 /// with each way `outs` fills its output slots, which showed `shown`, each
 /// read as `ops` on a sample of the cases `observed`: the [`MOST_READ`]
 /// that come closest on it, ranked as [`Reading::rank`] ranks them, the
-/// least bent first on a tie, each with its sample's reading, to read on
-/// every case.
+/// least bent first on a tie, then those whose A is where the site puts
+/// it, as `turned` says of each of `ins` it is not, each with its sample's
+/// reading, to read on every case.
 fn sample(
     slots: &[Slot],
     shape: &Shape,
-    ins: &[Vec<Option<Bus>>],
+    (ins, turned): (&[Vec<Option<Bus>>], &[bool]),
     outs: &[Vec<Option<Bus>>],
     shown: &[Vec<Vec<Value>>],
     ops: &[Op],
@@ -562,7 +668,13 @@ fn sample(
         }
     }
     sampled.sort_by_cached_key(|(i, o, reading)| {
-        (reading.rank(), cost(&ins[*i]) + cost(&outs[*o]), *i, *o)
+        (
+            reading.rank(),
+            cost(&ins[*i]) + cost(&outs[*o]),
+            turned[*i],
+            *i,
+            *o,
+        )
     });
     sampled.truncate(MOST_READ);
     sampled.sort_unstable_by_key(|&(i, o, _)| (i, o));
@@ -675,7 +787,11 @@ fn conventional(
 
 /// Whether operands A and B, when a category has both, are the other way
 /// round from where the site puts A, see [`Order`].
-fn swapped(slots: &[Slot], positions: &[Option<Vec<Pos>>]) -> bool {
+fn swapped(
+    slots: &[Slot],
+    positions: &[Option<Vec<Pos>>],
+    order: Order,
+) -> bool {
     let operand = |n: u8| {
         slots
             .iter()
@@ -683,7 +799,7 @@ fn swapped(slots: &[Slot], positions: &[Option<Vec<Pos>>]) -> bool {
             .and_then(|i| positions[i].as_deref())
     };
     match (operand(0), operand(1)) {
-        (Some(a), Some(b)) => !Order::default().keeps(a, b),
+        (Some(a), Some(b)) => !order.keeps(a, b),
         _ => false,
     }
 }

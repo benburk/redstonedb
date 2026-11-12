@@ -120,9 +120,9 @@ const fn probed(order: u16, how: Probe) -> Probing {
     Probing::Tried { order, how }
 }
 
-/// Probing a gate's or a comparison's two operands, in `order`.
-const fn operands(order: u16) -> Probing {
-    probed(order, Probe::Operands)
+/// Probing in `order` a build whose lines matching reads.
+const fn matched(order: u16) -> Probing {
+    probed(order, Probe::Matched)
 }
 
 /// Probing a build of one operand, in `order`, its control line as `line`
@@ -244,7 +244,7 @@ pub(super) const TABLE: [Facts; 36] = [
         designs: ADDER_DESIGNS,
         flags: ADDER_FLAGS,
         listed_as: "adders",
-        probe: probed(150, Probe::Adder),
+        probe: matched(150),
         guess: Guess::Tried(10),
         role_words: ADDER_WORDS,
         behaviour: ADDER,
@@ -367,7 +367,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["inc"],
         listed_as: "incrementers",
-        probe: one_operand(160, Line::Maybe),
+        probe: matched(160),
         guess: Guess::Tried(150),
         role_words: &["increment", "inc", "carry out", "cout"],
         // Its copies chain as an adder's, its carry out the next's
@@ -389,7 +389,7 @@ pub(super) const TABLE: [Facts; 36] = [
         section: Section::Arithmetic,
         logic: Some(Logic::Stateless),
         listed_as: "incrementers",
-        probe: one_operand(180, Line::Maybe),
+        probe: matched(180),
         guess: Guess::ByRunOf(Kind::Incrementer),
         // Its line may mean either way, so it keeps its own name.
         behaviour: read(Test::IncDec),
@@ -405,7 +405,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["dec"],
         listed_as: "decrementers",
-        probe: one_operand(170, Line::Maybe),
+        probe: matched(170),
         guess: Guess::ByRunOf(Kind::Incrementer),
         role_words: &["decrement", "dec", "borrow out", "bout"],
         behaviour: lined(
@@ -426,7 +426,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["comparator", "eq"],
         listed_as: "comparators",
-        probe: operands(80),
+        probe: matched(80),
         guess: Guess::Tried(240),
         behaviour: compares("A = B", Test::Equality),
         ..ROW
@@ -443,7 +443,7 @@ pub(super) const TABLE: [Facts; 36] = [
         flags: &[flag("signed", "Signed")],
         aliases: &["comparator", "gt"],
         listed_as: "comparators",
-        probe: operands(90),
+        probe: matched(90),
         guess: Guess::Tried(230),
         behaviour: compares("A > B", Test::GreaterThan),
         ..ROW
@@ -458,7 +458,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["cout"],
         listed_as: "carry outs",
-        probe: operands(100),
+        probe: matched(100),
         guess: Guess::Tried(220),
         role_words: &["carry in", "cin", "carry out", "cout"],
         // Its copies chain as an adder's, its carry out the next's carry in.
@@ -483,7 +483,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["abs"],
         listed_as: "absolute values",
-        probe: one_operand(120, Line::Never),
+        probe: matched(120),
         guess: Guess::Tried(210),
         behaviour: evaluated(Test::AbsoluteValue, Stacking::Never),
         ..ROW
@@ -499,7 +499,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["neg", "negate", "twos complement"],
         listed_as: "negators",
-        probe: one_operand(125, Line::Maybe),
+        probe: matched(125),
         guess: Guess::Tried(215),
         role_words: &["negate", "neg"],
         behaviour: lined(
@@ -534,7 +534,7 @@ pub(super) const TABLE: [Facts; 36] = [
         measures: &[Measure::Width, Measure::AtLeast],
         aliases: &["majority"],
         listed_as: "thresholds",
-        probe: one_operand(210, Line::Never),
+        probe: matched(210),
         guess: Guess::Tried(140),
         behaviour: evaluated(Test::Threshold, Stacking::Never),
         ..ROW
@@ -550,7 +550,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["parity checker", "parity generator", "xor reduce"],
         listed_as: "parity circuits",
-        probe: one_operand(215, Line::Never),
+        probe: matched(215),
         guess: Guess::Tried(145),
         behaviour: evaluated(Test::Parity, Stacking::Never),
         ..ROW
@@ -598,7 +598,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["gate", "xor", "xor xnor gate"],
         listed_as: "gates",
-        probe: operands(10),
+        probe: matched(10),
         guess: Guess::Tried(60),
         behaviour: gate(Test::Xor),
         ..ROW
@@ -613,7 +613,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["gate", "xnor", "xor xnor gate"],
         listed_as: "gates",
-        probe: operands(20),
+        probe: matched(20),
         guess: Guess::Tried(70),
         behaviour: gate(Test::Xnor),
         ..ROW
@@ -628,7 +628,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["and", "and nand gate", "gate"],
         listed_as: "gates",
-        probe: operands(30),
+        probe: matched(30),
         guess: Guess::Tried(80),
         behaviour: gate(Test::And),
         ..ROW
@@ -643,7 +643,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["and nand gate", "gate", "nand"],
         listed_as: "gates",
-        probe: operands(40),
+        probe: matched(40),
         guess: Guess::Tried(90),
         behaviour: gate(Test::Nand),
         ..ROW
@@ -658,7 +658,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["gate", "or", "or nor gate"],
         listed_as: "gates",
-        probe: operands(50),
+        probe: matched(50),
         guess: Guess::Tried(100),
         behaviour: gate(Test::Or),
         ..ROW
@@ -673,7 +673,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["gate", "nor", "or nor gate"],
         listed_as: "gates",
-        probe: operands(60),
+        probe: matched(60),
         guess: Guess::Tried(110),
         behaviour: gate(Test::Nor),
         ..ROW
@@ -688,7 +688,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["gate"],
         listed_as: "gates",
-        probe: operands(70),
+        probe: matched(70),
         guess: Guess::Tried(30),
         behaviour: gate(Test::NandXnor),
         ..ROW
@@ -703,7 +703,7 @@ pub(super) const TABLE: [Facts; 36] = [
         logic: Some(Logic::Stateless),
         aliases: &["conditional inverter", "controlled inverter", "xor bank"],
         listed_as: "inverters",
-        probe: one_operand(110, Line::Always),
+        probe: matched(110),
         guess: Guess::Tried(50),
         role_words: &["invert", "inv"],
         // Its copies add bits, sharing its control line.
@@ -726,7 +726,7 @@ pub(super) const TABLE: [Facts; 36] = [
         section: Section::Logic,
         logic: Some(Logic::Stateless),
         listed_as: "decoders",
-        probe: probed(250, Probe::Decoder),
+        probe: matched(250),
         guess: Guess::Tried(20),
         // Its copies side by side are separate decoders, each with its own
         // input and outputs, not a wider one, so it never stacks.

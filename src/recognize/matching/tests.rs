@@ -165,16 +165,8 @@ fn a_broken_adder_is_matched_as_an_adder_with_cases_wrong() {
     )
     .unwrap();
     let blocks = Blocks::read(&simulated).unwrap();
-    let line = |name: &str| found.line(name).map(|line| line.bits.clone());
-    let layout = probe::Layout {
-        a: line("A").unwrap(),
-        b: line("B").unwrap(),
-        carry_in: line("carry in").map(|bits| bits[0]),
-        sum: line("output").unwrap(),
-        carry_out: None,
-    };
     let run = crate::category::Test::Adder
-        .check_with(&blocks, layout.interface(&blocks), false)
+        .check_with(&blocks, found.interface(&blocks), false)
         .unwrap();
     assert_eq!(
         run.wrong_bits.first().map(|(bit, _)| bit.as_str()),
@@ -239,8 +231,15 @@ fn a_status_line_may_be_normally_on() {
         outputs: vec![line(2, 2), vec![[3, 0, 0]]],
         cases,
     };
-    let (_, found) =
-        judge(&categories::Adder, &blocks, &observed, false).unwrap();
+    let (_, found) = judge(
+        &categories::Adder,
+        None,
+        &blocks,
+        &observed,
+        false,
+        Order::default(),
+    )
+    .unwrap();
     assert_eq!(found.wrong, 0, "{}", found.found());
     assert!(found.line("carry out").is_some_and(|line| line.inverted));
 }

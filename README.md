@@ -111,7 +111,7 @@ On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's
 ## How it works
 
 1. **Ingest.** `ingest/` takes a Sponge `.schem` file in: it reads it (`schem/`), lays it the standard way and fits its box (`standard/`), holds its details to the rules, and stores it. Files live only in `build_version`; a later file becomes a new version only if `compare/` finds it the same build, fixed.
-2. **Recognition.** `interface/` finds a build's inputs and outputs and checks each one, and `recognize/probe/` finds each line's role by trying the categories' tests. Roles are stored with the version; the file keeps its author's colours. `works_from.rs` finds the oldest release the build works in.
+2. **Recognition.** `interface/` finds a build's inputs and outputs and checks each one, and `recognize/` finds each line's role: it drives the build once, reads its lines as each category's, and lets that category's test judge the reading. Roles are stored with the version; the file keeps its author's colours. `works_from.rs` finds the oldest release the build works in.
 3. **Simulation.** `category/` holds each category's facts and its test. `simulate/` is the engine: it runs the build in Redpiler through a test's cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`stack/`). `ingest/` runs these once a build is stored, and each result is kept with its file's hash.
 4. **Search, leaderboards, and similarity.** `search.rs` parses queries like `register vertical -torchless`, `leaderboard.rs` ranks builds and finds records, and `compare/` scores how alike two builds are by the share of their redstone components that line up.
 
@@ -125,7 +125,7 @@ src/
   simulate/      the engine: cases, timing, throughput, and stacking in Redpiler
   category/      the standard categories, each with its facts and its test
   standard/      laying a file the standard way, in the blocks the site keeps
-  recognize/     what a build is: the roles of its lines, by probing
+  recognize/     what a build is: the roles of its lines, read from what it does
   works_from.rs  the oldest release a file's blocks work in
   compare/       how alike two files are: versions, diffs, and similar builds
   thumbnail.rs   a build drawn small, for cards and link previews
