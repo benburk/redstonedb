@@ -1,15 +1,5 @@
-//! Turning and mirroring a build so it lies the standard way, as
-//! `docs/conventions.md` lays it out: A's inputs entered from the south, and
-//! its least significant bits at the south-east-bottom corner, so its buses
-//! count up as they should.
-//!
-//! A build turns about the vertical until A's levers are on the south side
-//! of their blocks. It is then mirrored east for west, which keeps them
-//! south, when that makes more of the quick cases of the test it seems to
-//! be come out right, as it does for a build whose least significant bits
-//! sit at its west end. It never turns upside down, which redstone does not
-//! survive; a build whose least significant bits sit at its top says so with
-//! an `lsb` sign.
+//! Turning and mirroring a build's file about the vertical. It never turns
+//! upside down, which redstone does not survive.
 //!
 //! Redpiler, and so the simulator, works a mirrored build as it does the
 //! original. Turning and mirroring rewrite every block's `facing`, `axis`,
@@ -20,11 +10,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::{
-    recognize::interface,
-    schem::{self, AIR, Blocks, Direction, Pos},
-    simulate,
-};
+use super::{self as schem, AIR, Blocks, Direction, Pos};
 
 /// How a build was laid down the standard way: mirrored east for west
 /// first, then turned clockwise, seen from above, a quarter at a time.
@@ -70,91 +56,6 @@ impl Turn {
         }
         d
     }
-}
-
-/// The build in `data` laid the standard way, with how it was turned; the
-/// file is returned unchanged when it already lies so.
-pub fn orient(data: &[u8]) -> Result<(Vec<u8>, Turn)> {
-    let blocks = Blocks::read(data)?;
-    let entered = entered(&blocks);
-    // Each way of mirroring, turned so A is entered from the south.
-    let candidates = [false, true].map(|mirrored| {
-        let quarters = entered.map_or(0, |side| {
-            let side = if mirrored { side.mirrored() } else { side };
-            quarters_to_south(side)
-        });
-        Turn { mirrored, quarters }
-    });
-    let laid = |turn: Turn| -> Result<Vec<u8>> {
-        if turn.is_none() {
-            Ok(data.to_vec())
-        } else {
-            turned(data, turn)
-        }
-    };
-    let wrong = |file: &[u8]| Blocks::read(file).ok().and_then(|b| wrong(&b));
-    let plain = laid(candidates[0])?;
-    let plain_wrong = wrong(&plain);
-    if plain_wrong == Some(0) {
-        return Ok((plain, candidates[0]));
-    }
-    let mirrored = laid(candidates[1])?;
-    let better = match (plain_wrong, wrong(&mirrored)) {
-        (None, Some(_)) => true,
-        (Some(plain), Some(mirrored)) => mirrored < plain,
-        _ => false,
-    };
-    Ok(if better {
-        (mirrored, candidates[1])
-    } else {
-        (plain, candidates[0])
-    })
-}
-
-/// The share of quick cases, in thousandths, the build in `blocks` gets
-/// wrong as what it seems to be; `None` for a build not recognized, which
-/// is only turned.
-fn wrong(blocks: &Blocks) -> Option<u64> {
-    simulate::guess(blocks).map(|guess| guess.wrong_share())
-}
-
-/// The side A's levers are on, when every one is on the same side, north,
-/// south, east, or west; for a build with no A, as a T flip-flop, the side
-/// its every other input's lever or button is on. A signal-strength A has
-/// none, as its dust may be entered from any side.
-fn entered(blocks: &Blocks) -> Option<Direction> {
-    let found = interface::read(blocks);
-    let a = found
-        .inputs
-        .iter()
-        .find(|port| !port.labelled && port.a() && !port.signal_strength);
-    let ports: Vec<_> = match a {
-        Some(a) => vec![a],
-        None => found
-            .inputs
-            .iter()
-            .filter(|port| !port.signal_strength)
-            .collect(),
-    };
-    let mut sides = ports
-        .iter()
-        .flat_map(|port| &port.bits)
-        .map(|bit| bit.entry);
-    let first = sides.next()??;
-    (sides.all(|side| side == Some(first))
-        && !matches!(first, Direction::Up | Direction::Down))
-    .then_some(first)
-}
-
-/// The quarter turns clockwise that bring `side` round to the south.
-fn quarters_to_south(side: Direction) -> u8 {
-    let mut d = side;
-    let mut quarters = 0;
-    while d != Direction::South && quarters < 4 {
-        d = d.turned();
-        quarters += 1;
-    }
-    quarters % 4
 }
 
 /// The build in `data` turned as `turn` says, its box fitted to it.
@@ -336,14 +237,6 @@ mod tests {
     }
 
     #[test]
-    fn a_side_turns_round_to_the_south() {
-        assert_eq!(quarters_to_south(Direction::South), 0);
-        assert_eq!(quarters_to_south(Direction::East), 1);
-        assert_eq!(quarters_to_south(Direction::North), 2);
-        assert_eq!(quarters_to_south(Direction::West), 3);
-    }
-
-    #[test]
     fn words_say_what_was_done() {
         assert_eq!(Turn::default().words(), "");
         assert_eq!(
@@ -354,24 +247,5 @@ mod tests {
             .words(),
             "Mirrored east for west and turned a half turn"
         );
-    }
-
-    /// A T flip-flop has no A, so it is turned by its toggle's button,
-    /// which ends up on the south side of its block whichever way it came.
-    #[test]
-    fn a_build_with_no_a_turns_by_its_control_line() {
-        let data = std::fs::read("tests/fixtures/t-flip-flop.schem").unwrap();
-        let probed = crate::recognize::probe::recognize(&data).unwrap();
-        assert!(probed.found.is_some(), "{:?}", probed.problems);
-        for quarters in 0..4 {
-            let turn = Turn {
-                mirrored: false,
-                quarters,
-            };
-            let (laid, _) =
-                orient(&turned(&probed.file, turn).unwrap()).unwrap();
-            let blocks = Blocks::read(&laid).unwrap();
-            assert_eq!(entered(&blocks), Some(Direction::South), "{quarters}");
-        }
     }
 }

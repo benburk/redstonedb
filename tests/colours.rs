@@ -36,19 +36,19 @@ async fn colours_carry_to_later_versions_of_the_same_size() {
         .filter(|(_, state)| app::schem::short(state) == "white_concrete")
         .map(|(pos, _)| (pos, "minecraft:blue_wool".to_owned()))
         .collect();
-    let theirs = app::schem::standardize::edit(&first.data, &wool).unwrap();
-    let turn = app::schem::orient::Turn {
+    let theirs = app::schem::edit(&first.data, &wool).unwrap();
+    let turn = app::schem::turn::Turn {
         mirrored: false,
         quarters: 2,
     };
-    let theirs = app::schem::orient::turned(&theirs, turn).unwrap();
+    let theirs = app::schem::turn::turned(&theirs, turn).unwrap();
     let colours = colouring::read(&theirs, &first.data).unwrap().unwrap();
     assert_eq!(colours.len(), wool.len());
     version::set_colours(&db, &id, 1, &colours).await.unwrap();
 
     // A version the site makes of the same size keeps them.
     let mut same = common::conventional("alpha-rca");
-    same.data = app::schem::standardize::edit(
+    same.data = app::schem::edit(
         &first.data,
         &std::collections::BTreeMap::from([(
             *wool.keys().next().unwrap(),
@@ -95,11 +95,11 @@ async fn a_turned_new_version_is_compared_turned_back() {
         .await
         .unwrap()
         .unwrap();
-    let turn = app::schem::orient::Turn {
+    let turn = app::schem::turn::Turn {
         mirrored: true,
         quarters: 2,
     };
-    let turned = app::schem::orient::turned(&first.data, turn).unwrap();
+    let turned = app::schem::turn::turned(&first.data, turn).unwrap();
     let checked = app::version::check(&db, &s, &turned, false).await.unwrap();
     assert_eq!(checked.comparison.changed, 0);
 }

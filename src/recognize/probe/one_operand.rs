@@ -133,7 +133,7 @@ mod tests {
             let raw =
                 std::fs::read(format!("tests/fixtures/{name}.schem")).unwrap();
             let standard =
-                crate::schem::standardize::standardize(&raw).unwrap();
+                crate::ingest::standardize::standardize(&raw).unwrap();
             let changes: BTreeMap<Pos, String> = Blocks::read(&standard)
                 .unwrap()
                 .iter()
@@ -148,8 +148,7 @@ mod tests {
                 })
                 .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
                 .collect();
-            let data =
-                crate::schem::standardize::edit(&standard, &changes).unwrap();
+            let data = crate::schem::edit(&standard, &changes).unwrap();
             let found = recognize_as(&data, Some(kind)).unwrap();
             assert!(found.found.is_some(), "{name}: {:?}", found.problems);
         }

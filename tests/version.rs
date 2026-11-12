@@ -5,7 +5,8 @@ use std::collections::HashMap;
 mod common;
 
 use app::{
-    schem::{self, Blocks, standardize},
+    ingest::standardize,
+    schem::{self, Blocks},
     version::{compare, warnings},
 };
 

@@ -12,8 +12,9 @@ use super::{
 };
 use crate::{
     category::{Kind, Probe, Probing},
+    ingest::orient,
     recognize::{inspect, matching},
-    schem::{self, Blocks, Pos, lines, lines::Role, orient},
+    schem::{self, Blocks, Pos, lines, lines::Role},
     simulate::{self, Test},
 };
 
@@ -37,7 +38,7 @@ pub struct Recognition {
 /// furnace, cauldron, or cake as a barrel giving the same strength. Every
 /// colour stays.
 pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
-    let data = crate::schem::standardize::barrels(data, &[])?;
+    let data = crate::ingest::standardize::barrels(data, &[])?;
     let blocks = Blocks::read(&data)?;
     let changes: BTreeMap<Pos, String> = blocks
         .iter()
@@ -47,7 +48,7 @@ pub fn simulatable(data: &[u8]) -> anyhow::Result<Vec<u8>> {
     if changes.is_empty() {
         return Ok(data);
     }
-    crate::schem::standardize::edit(&data, &changes)
+    crate::schem::edit(&data, &changes)
 }
 
 /// The file in `data` inspected and, if nothing is wrong with its inputs
@@ -483,7 +484,7 @@ fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
     if changes.is_empty() {
         return Ok(data.to_vec());
     }
-    crate::schem::standardize::edit(data, &changes)
+    crate::schem::edit(data, &changes)
 }
 
 /// As `probe_as`, the file carrying the roles probing found, its signs as
@@ -669,7 +670,7 @@ mod tests {
             "minecraft:iron_trapdoor[facing=east,half=top,open=false,powered=false,waterlogged=false]"
                 .to_owned(),
         )]);
-        let with = crate::schem::standardize::edit(&data, &changes).unwrap();
+        let with = crate::schem::edit(&data, &changes).unwrap();
         let found = recognize(&with).unwrap();
         assert!(found.found.is_some(), "{:?}", found.problems);
         let kept =

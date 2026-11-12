@@ -5,9 +5,10 @@ use std::{collections::HashMap, sync::atomic::AtomicBool};
 use app::{
     category::Kind,
     import,
+    ingest::standardize,
     models::schematic::{Encoding, Orientation},
     recognize::interface,
-    schem::{self, Blocks, orient, standardize},
+    schem::{self, Blocks, turn},
     simulate::{
         self, Action, CellControls, Edge, Report, Run, Stacking, Start, Step,
         Takes, Test,
@@ -1114,11 +1115,11 @@ fn a_hex_to_binary_converter_gives_each_digit_in_binary() {
 fn a_hex_to_binary_converter_lowest_at_the_west_is_found_mirrored() {
     let data = read_fixture("tests/fixtures/hex-bin-4-fixed.schem").unwrap();
     let data = schem::lines::without(&data).unwrap();
-    let turn = orient::Turn {
+    let turn = turn::Turn {
         mirrored: true,
         quarters: 0,
     };
-    let mirrored = orient::turned(&data, turn).unwrap();
+    let mirrored = turn::turned(&data, turn).unwrap();
     let found = app::recognize::probe::recognize(&mirrored).unwrap();
     assert_eq!(
         found.found.as_deref(),
@@ -1272,8 +1273,8 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
         );
         for mirrored in [false, true] {
             for quarters in 0..4 {
-                let turn = orient::Turn { mirrored, quarters };
-                let scrambled = orient::turned(&standard.data, turn).unwrap();
+                let turn = turn::Turn { mirrored, quarters };
+                let scrambled = turn::turned(&standard.data, turn).unwrap();
                 let blocks = upload(&scrambled).blocks;
                 let guess = simulate::guess(&blocks).unwrap();
                 assert_eq!(
@@ -1289,11 +1290,11 @@ fn an_upload_turns_and_mirrors_a_build_to_lie_the_standard_way() {
     assert!(upload(&raw).turn.is_none());
     // Mirrored, its bits would count from the top of the wrong column.
     let raw = read_fixture("tests/fixtures/dd-cca-sub-16.schem").unwrap();
-    let mirrored = orient::Turn {
+    let mirrored = turn::Turn {
         mirrored: true,
         quarters: 0,
     };
-    let scrambled = orient::turned(&upload(&raw).data, mirrored).unwrap();
+    let scrambled = turn::turned(&upload(&raw).data, mirrored).unwrap();
     let laid = upload(&scrambled);
     assert_eq!(laid.turn, mirrored);
     assert!(laid.turn.words().starts_with("Mirrored"));
@@ -1763,7 +1764,7 @@ fn a_build_is_stored_with_its_inputs_at_logical_0() {
         blocks.get(lever).replace("powered=true", "powered=false"),
     )]
     .into();
-    let saved_off = standardize::edit(&saved, &off).unwrap();
+    let saved_off = schem::edit(&saved, &off).unwrap();
     let inverted = ["carry in".to_owned()];
     let fixed =
         standardize::levers_at_zero(&saved_off, "adder", &inverted).unwrap();

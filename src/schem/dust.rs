@@ -112,7 +112,7 @@ pub fn update(data: &[u8]) -> Result<Vec<u8>> {
     if changes.is_empty() {
         return Ok(data.to_vec());
     }
-    crate::schem::standardize::edit(data, &changes)
+    crate::schem::edit(data, &changes)
 }
 
 /// `blocks`' dust, each at the shape the game gives it, by position, for

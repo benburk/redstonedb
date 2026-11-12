@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
-use crate::schem::{self, Blocks, Pos, lines::Role, standardize};
+use crate::schem::{self, Blocks, Pos, lines::Role};
 
 /// Minecraft's dyes, in its own order.
 pub const DYES: [&str; 16] = [
@@ -433,7 +433,7 @@ pub fn apply(
 pub fn needs_of(
     data: &[u8],
     ways: &[crate::models::schematic::StackDirection],
-    buses: crate::schem::stack::Buses,
+    buses: crate::stack::Buses,
 ) -> Result<Needs> {
     use crate::recognize::roles::{Need, Use, roles};
     let mut needs = Needs::new();
@@ -464,7 +464,7 @@ pub fn needs_of(
 pub fn themed(
     data: &[u8],
     ways: &[crate::models::schematic::StackDirection],
-    buses: crate::schem::stack::Buses,
+    buses: crate::stack::Buses,
     palette: &Palette,
 ) -> Result<Vec<u8>> {
     if Blocks::read(data)?
@@ -490,7 +490,7 @@ pub fn blocks_in(
     // A building block, solid or see-through, as `needs` reads them.
     let plain = |pos: Pos| {
         matches!(
-            standardize::block_kind(schem::short(blocks.get(pos))),
+            schem::block::block_kind(schem::short(blocks.get(pos))),
             Some("Solid" | "Transparent")
         )
     };
@@ -520,7 +520,7 @@ pub fn blocks_in(
             changes.insert(pos, format!("minecraft:{block}"));
         }
     }
-    standardize::edit(data, &changes)
+    schem::edit(data, &changes)
 }
 
 /// The file in `data` with each block that has a role, as the roles it
@@ -568,7 +568,7 @@ pub fn colour(data: &[u8], palette: &Palette) -> Result<Vec<u8>> {
             changes.insert(pos, format!("minecraft:{to}"));
         }
     }
-    standardize::edit(data, &changes)
+    schem::edit(data, &changes)
 }
 
 /// The glass a role marked `mark`, of the site's colour `site`, takes

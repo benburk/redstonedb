@@ -27,8 +27,9 @@ use anyhow::Result;
 use crate::{
     models::schematic::StackDirection,
     recognize::interface,
-    schem::{self, Blocks, Direction, Pos, stack},
+    schem::{self, Blocks, Direction, Pos},
     simulate::{Compiled, Link, compiled},
+    stack,
 };
 
 /// What a block must be.
@@ -99,7 +100,7 @@ pub fn prune(
     if gone.is_empty() {
         return Ok(None);
     }
-    let file = crate::schem::standardize::edit(data, &gone)?;
+    let file = crate::schem::edit(data, &gone)?;
     let changed = changed(data, &file, ways, buses)?;
     if let Some(first) = changed.first() {
         anyhow::bail!(
@@ -153,7 +154,7 @@ pub fn roles(
     for (p, state) in file.iter() {
         let output = outputs.contains(&p);
         // Any building block, whatever its author made it.
-        let kind = crate::schem::standardize::block_kind(schem::short(state));
+        let kind = crate::schem::block::block_kind(schem::short(state));
         let building = matches!(kind, Some("Solid" | "Transparent"));
         if !building || inputs.contains(&p) {
             continue;

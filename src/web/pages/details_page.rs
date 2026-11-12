@@ -146,9 +146,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
             let shown = STANDARD
                 .decode(data)
                 .ok()
-                .and_then(|file| {
-                    crate::schem::standardize::for_viewer(&file).ok()
-                })
+                .and_then(|file| crate::schem::for_viewer(&file).ok())
                 .map_or_else(
                     || (*data).to_owned(),
                     |file| STANDARD.encode(file),

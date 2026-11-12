@@ -195,7 +195,7 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
         if interface.contains(&pos) {
             continue;
         }
-        let id = like(schem::id(state).trim_start_matches("minecraft:"));
+        let id = block::like(schem::id(state).trim_start_matches("minecraft:"));
         if let Some(release) =
             RELEASES.iter().find(|release| release.blocks.contains(&id))
         {
@@ -207,7 +207,7 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
         if id == "redstone_wire" && dot(blocks, pos, state) {
             raise(DOT, "a dot of dust".to_owned());
         }
-        if let Some((on, top)) = support(pos, state, id)
+        if let Some((on, top)) = block::support(pos, state, id)
             && block::see_through(schem::short(blocks.get(on)))
         {
             let what = match id {
@@ -237,55 +237,12 @@ pub fn of(blocks: &Blocks) -> WorksFrom {
     found
 }
 
-/// The block the component `id` at `pos` rests on or hangs from, and
-/// whether it rests on its top; `None` for a block that needs none.
-pub(crate) fn support(pos: Pos, state: &str, id: &str) -> Option<(Pos, bool)> {
-    let below = Some((schem::step(pos, Direction::Down), true));
-    match id {
-        "redstone_wire"
-        | "redstone_torch"
-        | "repeater"
-        | "comparator"
-        | "stone_pressure_plate"
-        | "light_weighted_pressure_plate"
-        | "heavy_weighted_pressure_plate" => below,
-        "redstone_wall_torch" => Some((schem::torch_block(pos, state)?, false)),
-        "lever" | "stone_button" | "oak_button" => {
-            match schem::property(state, "face")? {
-                "floor" => below,
-                "ceiling" => Some((schem::step(pos, Direction::Up), false)),
-                _ => {
-                    let facing = Direction::facing(state)?;
-                    Some((schem::step(pos, facing.opposite()), false))
-                }
-            }
-        }
-        _ => None,
-    }
-}
-
 /// A component as people name it, such as `target block` for `target`.
 fn named(id: &str) -> String {
     match id {
         "target" => "target block".to_owned(),
         "redstone_block" => "block of redstone".to_owned(),
         other => other.replace('_', " "),
-    }
-}
-
-/// The block `id` acts as, such as `oak_button` for any wooden button: a
-/// button or pressure plate goes by what it does, not what it is made of.
-pub(crate) fn like(id: &str) -> &str {
-    if id.ends_with("_button") {
-        if matches!(id, "stone_button" | "polished_blackstone_button") {
-            "stone_button"
-        } else {
-            "oak_button"
-        }
-    } else if id.ends_with("_pressure_plate") && !id.contains("weighted") {
-        "stone_pressure_plate"
-    } else {
-        id
     }
 }
 
@@ -464,11 +421,14 @@ mod tests {
 
     #[test]
     fn a_button_or_plate_goes_by_what_it_does() {
-        assert_eq!(like("birch_button"), "oak_button");
-        assert_eq!(like("polished_blackstone_button"), "stone_button");
-        assert_eq!(like("crimson_pressure_plate"), "stone_pressure_plate");
+        assert_eq!(block::like("birch_button"), "oak_button");
+        assert_eq!(block::like("polished_blackstone_button"), "stone_button");
         assert_eq!(
-            like("heavy_weighted_pressure_plate"),
+            block::like("crimson_pressure_plate"),
+            "stone_pressure_plate"
+        );
+        assert_eq!(
+            block::like("heavy_weighted_pressure_plate"),
             "heavy_weighted_pressure_plate"
         );
     }

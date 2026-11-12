@@ -110,16 +110,19 @@ On the server, `deploy/rsdb` runs `rsdb` against the live database as the site's
 
 ## How it works
 
-1. **Import.** `import.rs` reads a Sponge `.schem` file (`schem/`), takes out corner markers, and fits its box. Files live only in `schematic_version`; a later file becomes a new version only if `version.rs` finds it the same build, fixed.
-2. **Recognition.** `recognize/repeater_outputs.rs` finds the outputs, `recognize/inspect.rs` checks each input and output, and `recognize/probe/` finds each line's role by trying the categories' tests. Roles are stored with the version; the file keeps its author's colours. `schem/works_from.rs` finds the oldest release the build works in.
-3. **Simulation.** `category/table.rs` says which test each category gets. `simulate/` runs the build in Redpiler through its cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`schem/rstack.rs`). Each result is stored with its file's hash.
+1. **Import.** `import.rs` reads a Sponge `.schem` file (`schem/`), and `ingest/` lays it the standard way, takes out corner markers, and fits its box. Files live only in `schematic_version`; a later file becomes a new version only if `version.rs` finds it the same build, fixed.
+2. **Recognition.** `recognize/repeater_outputs.rs` finds the outputs, `recognize/inspect.rs` checks each input and output, and `recognize/probe/` finds each line's role by trying the categories' tests. Roles are stored with the version; the file keeps its author's colours. `works_from.rs` finds the oldest release the build works in.
+3. **Simulation.** `category/table.rs` says which test each category gets. `simulate/` runs the build in Redpiler through its cases, times it, and finds how its copies stack, joined as `//rstack` joins them (`stack.rs`). Each result is stored with its file's hash.
 4. **Search, leaderboards, and similarity.** `search.rs` parses queries like `register vertical -torchless`, `leaderboard.rs` ranks builds and finds records, and `similarity.rs` scores how alike two builds are by the share of their redstone components that line up.
 
 ```text
 src/
   main.rs        the web server
   bin/rsdb/      the command-line tool
-  schem/         reading, writing, standardizing, and stacking .schem files
+  schem/         reading, writing, and editing .schem files; the bottom layer
+  ingest/        laying an upload the standard way and shaping it to keep
+  stack.rs       joining copies of a build as //rstack does
+  build/         what a stored build is: its specs, credits, status, and name
   recognize/     what a build is: its inputs, outputs, and roles
   category/      the standard categories and what each is tested on
   simulate/      tests, timing, throughput, and stacking in Redpiler

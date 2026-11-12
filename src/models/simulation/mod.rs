@@ -24,8 +24,9 @@ use crate::{
         version,
     },
     recognize::{evaluate::evaluate, interface, roles},
-    schem::{Blocks, stack},
+    schem::Blocks,
     simulate::{Report, Test},
+    stack,
 };
 
 use derive::Derived;
@@ -316,7 +317,7 @@ async fn at_zero(
     let (conventional, keeps_paste) = (s.file.conventional, s.file.keeps_paste);
     let was = data.clone();
     let fixed = tokio::task::spawn_blocking(move || {
-        let fixed = crate::schem::standardize::levers_at_zero(
+        let fixed = crate::ingest::standardize::levers_at_zero(
             &was, &category, &inverted,
         )?;
         if fixed == was {

@@ -22,6 +22,7 @@ use crate::{
     details,
     external::schemati,
     import::{self, Kept, Upload},
+    ingest::standardize,
     models::{
         schematic::{self, Build},
         similarity, simulation,
@@ -29,7 +30,7 @@ use crate::{
         version,
     },
     recognize::{interface, probe},
-    schem::{Blocks, standardize},
+    schem::Blocks,
     simulate::{self, Guess},
     web::{
         app_state::AppState,
@@ -455,7 +456,7 @@ async fn as_kept(recognition: &probe::Recognition) -> Option<String> {
         if !crate::models::simulation::carries_roles(&read) {
             return None;
         }
-        let buses = crate::schem::stack::Buses::own();
+        let buses = crate::stack::Buses::own();
         let file = passes
             .then(|| {
                 crate::recognize::roles::prune(&read, &[], buses)

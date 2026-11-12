@@ -880,7 +880,7 @@ mod tests {
             })
             .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
             .collect();
-        crate::schem::standardize::edit(&data, &changes).unwrap()
+        crate::schem::edit(&data, &changes).unwrap()
     }
 
     fn run(bits: &[Pos]) -> Run {

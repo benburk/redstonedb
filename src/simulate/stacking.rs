@@ -67,7 +67,8 @@ use crate::{
     import,
     models::schematic::{Faces, Orientation, PITCHES, StackDirection},
     recognize::interface::{self, Interface},
-    schem::{Blocks, stack},
+    schem::Blocks,
+    stack,
 };
 
 /// The farthest dust carries a signal, which a stack tested must reach

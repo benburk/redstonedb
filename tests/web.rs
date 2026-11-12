@@ -366,7 +366,7 @@ async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
         pos,
         "minecraft:white_stained_glass".to_owned(),
     )]);
-    let new = app::schem::standardize::edit(&old, &changes).unwrap();
+    let new = app::schem::edit(&old, &changes).unwrap();
     let prepared = app::import::prepare_for(&new, common::IN_PLACE).unwrap();
     let how = app::models::version::Replacing::NextVersion {
         added_by: None,
@@ -557,7 +557,7 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
         pos,
         "minecraft:white_stained_glass".to_owned(),
     )]);
-    let fixed = app::schem::standardize::edit(&first, &glass).unwrap();
+    let fixed = app::schem::edit(&first, &glass).unwrap();
     let fixed = app::import::prepare_for(&fixed, common::IN_PLACE).unwrap();
     let how = app::models::version::Replacing::NextVersion {
         added_by: None,

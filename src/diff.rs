@@ -16,11 +16,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 
 use crate::{
-    schem::{
-        self, Blocks, Pos, block,
-        standardize::{self, block_kind},
-        works_from,
-    },
+    schem::{self, Blocks, Pos, block},
     version,
 };
 
@@ -101,7 +97,7 @@ fn part(state: &str) -> Option<Part> {
     if name.ends_with("_sign") {
         return Some(Part::Component(version::compared(state)));
     }
-    match block_kind(name)? {
+    match block::block_kind(name)? {
         "Solid" | "Transparent" => Some(Part::Building {
             solid: block::solid(state),
         }),
@@ -204,9 +200,9 @@ fn holder(blocks: &Blocks, pos: Pos) -> Option<Pos> {
     if name.ends_with("_sign") {
         return blocks.sign_block(pos);
     }
-    let id = works_from::like(name);
+    let id = schem::block::like(name);
     Some(
-        works_from::support(pos, state, id).map_or_else(
+        schem::block::support(pos, state, id).map_or_else(
             || schem::step(pos, schem::Direction::Down),
             |(on, _)| on,
         ),
@@ -244,7 +240,7 @@ fn side(
         };
         grid.insert(own(pos), shown);
     }
-    let data = standardize::rebox(data, &grid, low, size)?;
+    let data = schem::rebox(data, &grid, low, size)?;
     schem::lines::without(&data)
 }
 
@@ -292,7 +288,7 @@ mod tests {
             .map(|&(pos, state)| (pos, format!("minecraft:{state}")))
             .collect();
         let any = include_bytes!("../tests/fixtures/monostable-3.schem");
-        standardize::rebox(any, &grid, [0, 0, 0], size).unwrap()
+        schem::rebox(any, &grid, [0, 0, 0], size).unwrap()
     }
 
     #[test]

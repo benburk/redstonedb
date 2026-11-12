@@ -10,6 +10,7 @@ use sqlx::SqlitePool;
 use crate::{
     category::{self, Category, Kind, Lines},
     details::{self, Ready, Unrecognized},
+    ingest::standardize,
     models::{
         schematic::{self, Build, Encoding, New, Orientation},
         version,
@@ -18,12 +19,8 @@ use crate::{
         interface::{self, Interface, Port},
         probe,
     },
-    schem::{
-        self, Blocks, Size,
-        orient::{self, Turn},
-        standardize,
-        works_from::{self, WorksFrom},
-    },
+    schem::{self, Blocks, Size, turn::Turn},
+    works_from::{self, WorksFrom},
 };
 
 /// A file made ready to store.
@@ -120,7 +117,7 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     // it, whatever way it was saved.
     let data = crate::schem::dust::update(&data)?;
     let (data, turn) = if orient {
-        orient::orient(&data)?
+        crate::ingest::orient::orient(&data)?
     } else {
         (data, Turn::default())
     };

@@ -17,10 +17,11 @@ use crate::{
         simulation::{FALLING_EDGE, INVERTED, SIGNED},
     },
     recognize::interface,
-    schem::{Blocks, stack},
+    schem::Blocks,
     simulate::{
         self, Design, Edge, Report, Run, Stacking, Test, Timing, adder_design,
     },
+    stack,
 };
 
 /// The widths a stackable build's copies are stacked to, above its own, to

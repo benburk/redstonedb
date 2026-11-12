@@ -1125,7 +1125,7 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
                 bail!("A bit of input {} has no lever.", port.name);
             };
             let name = schem::short(id);
-            let (button, wooden) = match crate::schem::works_from::like(name) {
+            let (button, wooden) = match crate::schem::block::like(name) {
                 "lever" => (false, false),
                 "stone_button" => (true, false),
                 "oak_button" => (true, true),
@@ -1148,7 +1148,7 @@ fn block(state: &str) -> Result<Block> {
     let name = schem::short(state);
     // A button is held down as long as any of its kind is: a wooden one as
     // a lever `Circuit` lets up, the simulator having none.
-    let id = match crate::schem::works_from::like(name) {
+    let id = match crate::schem::block::like(name) {
         "stone_button" => "minecraft:stone_button",
         "oak_button" => "minecraft:lever",
         _ => schem::id(state),

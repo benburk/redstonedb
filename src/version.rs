@@ -23,7 +23,7 @@ use crate::{
     recognize::inspect,
     schem::{
         self, Blocks, Pos,
-        orient::{self, Turn},
+        turn::{self, Turn},
     },
 };
 
@@ -220,8 +220,7 @@ async fn checked(
     let mut best: Option<(Prepared, Comparison)> = None;
     for mirrored in [false, true] {
         for quarters in 0..4 {
-            let turned =
-                orient::turned(&coloured, Turn { mirrored, quarters })?;
+            let turned = turn::turned(&coloured, Turn { mirrored, quarters })?;
             let prepared = import::prepare_for(
                 &turned,
                 import::Purpose::of(s, standardize),

@@ -18,7 +18,7 @@ use crate::{
         version,
     },
     recognize::palette::{self, Palette},
-    schem::{stack, standardize},
+    schem, stack,
     web::{app_state::AppState, error::AppError, settings::PaletteFields},
 };
 
@@ -169,7 +169,7 @@ pub async fn download(
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
     let data = if preview {
-        standardize::for_viewer(&data).unwrap_or(data)
+        schem::for_viewer(&data).unwrap_or(data)
     } else {
         data
     };

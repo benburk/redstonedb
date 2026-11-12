@@ -7,16 +7,16 @@ mod common;
 use app::{
     details::{self, Candidate, Details},
     import,
+    ingest::standardize,
     models::version,
     recognize::{
         interface::{self, Kept},
         palette::{self, Palette},
     },
     schem::{
-        Blocks, lines,
+        self, Blocks, lines,
         lines::Role,
-        orient::{self, Turn},
-        standardize,
+        turn::{self, Turn},
     },
 };
 
@@ -45,12 +45,12 @@ fn roles_move_with_their_blocks() {
         mirrored: true,
         quarters: 1,
     };
-    assert_eq!(lines_of(&orient::turned(&data, turn).unwrap()), before);
+    assert_eq!(lines_of(&turn::turned(&data, turn).unwrap()), before);
     assert_eq!(lines_of(&standardize::tidy(&data).unwrap()), before);
     let blocks = Blocks::read(&data).unwrap();
     let roles = blocks.roles.clone().unwrap();
     let (&gone, _) = roles.0.iter().next().unwrap();
-    let edited = standardize::edit(
+    let edited = schem::edit(
         &data,
         &[(gone, app::schem::AIR.to_owned())].into_iter().collect(),
     )
@@ -128,7 +128,7 @@ fn a_theme_colours_the_roles_not_the_blocks() {
         .keys()
         .map(|&pos| (pos, "minecraft:gray_wool".to_owned()))
         .collect();
-    let built = standardize::edit(&data, &gray).unwrap();
+    let built = schem::edit(&data, &gray).unwrap();
     let shown = palette::apply(&built, None, &Palette::default()).unwrap();
     let shown = Blocks::read(&shown).unwrap();
     assert_eq!(shown.roles, None, "a download carries no roles");
@@ -162,7 +162,7 @@ fn a_theme_colours_an_input_lamp_as_its_role() {
             (pos, "minecraft:redstone_lamp[lit=false]".to_owned())
         })
         .collect();
-    let built = standardize::edit(&data, &lamps).unwrap();
+    let built = schem::edit(&data, &lamps).unwrap();
     let shown = palette::apply(&built, None, &Palette::default()).unwrap();
     let shown = Blocks::read(&shown).unwrap();
     for (&pos, &role) in inputs {
@@ -206,6 +206,6 @@ fn interchangeable_operands_follow_the_authors_marking() {
         .map(|(pos, _)| (pos, "minecraft:white_concrete".to_owned()))
         .collect();
     assert_eq!(white.len(), 16);
-    let whitened = standardize::edit(&raw, &white).unwrap();
+    let whitened = schem::edit(&raw, &white).unwrap();
     assert_eq!(a_at(&whitened), 0);
 }

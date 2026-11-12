@@ -39,7 +39,7 @@ use anyhow::Result;
 
 use crate::{
     recognize::repeater_outputs,
-    schem::{self, Blocks, Direction, Pos, Switch, block, standardize},
+    schem::{self, Blocks, Direction, Pos, Switch, block},
     simulate,
 };
 
@@ -649,7 +649,7 @@ pub fn not_bus_drivable(data: &[u8]) -> Result<Vec<Pos>> {
             "minecraft:lever[face=floor,facing=north,powered=false]".to_owned(),
         );
     }
-    let (swapped, moved) = standardize::edit_grown(data, &changes)?;
+    let (swapped, moved) = schem::edit_grown(data, &changes)?;
     let back = |p: Pos| [0, 1, 2].map(|axis| p[axis] - moved[axis]);
     let before = simulate::compiled(&blocks)?;
     let after = simulate::compiled(&Blocks::read(&swapped)?)?;

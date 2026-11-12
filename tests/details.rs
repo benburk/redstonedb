@@ -7,7 +7,7 @@ use app::{
     details::{self, Candidate, Details, Ready},
     import::{self, Purpose},
     models::schematic::{Encoding, Orientation, Specs, StackDirection},
-    schem::{Blocks, standardize},
+    schem::{self, Blocks},
 };
 use sqlx::SqlitePool;
 
@@ -185,7 +185,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
         "minecraft:piston[extended=false,facing=up]".to_owned(),
     )]
     .into();
-    let pushed = standardize::edit(&data, &piston).unwrap();
+    let pushed = schem::edit(&data, &piston).unwrap();
     unverified(
         check_file(&db, typed(), &pushed, true).await,
         "Couldn't simulate its piston",
