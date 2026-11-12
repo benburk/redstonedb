@@ -72,7 +72,7 @@ pub use player::{PlayerPage, player};
 pub use schemati::{Connection, Offered, own_file_field, schemati_sent};
 pub use settings::{
     Presets, block_theme, block_theme_page, custom_colours, palette_fields,
-    settings, welcome,
+    settings,
 };
 pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{simulation_results, timing_section};

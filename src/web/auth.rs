@@ -93,18 +93,8 @@ pub async fn callback(
             return refuse(jar, "Could not save your account. Try again.");
         }
     };
-    // A new account sees the welcome steps, once.
-    let welcome = sqlx::query_scalar!(
-        "UPDATE user SET welcomed = 1 WHERE id = ? AND welcomed = 0
-         RETURNING welcomed",
-        user.id,
-    )
-    .fetch_optional(&state.db)
-    .await
-    .unwrap_or(None);
-    let to = if welcome.is_some() { "/welcome" } else { "/" };
     match create_session(&state.db, user.id).await {
-        Ok(cookie) => (jar.add(cookie), Redirect::to(to)).into_response(),
+        Ok(cookie) => (jar.add(cookie), Redirect::to("/")).into_response(),
         Err(err) => {
             warn!("Could not start a session: {err}");
             refuse(jar, "Could not start your session. Try again.")

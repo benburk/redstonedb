@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use maud::{Markup, html};
 
 use super::{
-    PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge, base,
+    PAGE_TITLE, badge, base,
     icons::{self, icon},
     latency, name_links, size, volume,
 };
@@ -14,21 +14,12 @@ use crate::{
     APP_NAME,
     category::{Flag, Section},
     models::{
-        schematic::{Encoding, Schematic},
+        schematic::Schematic,
         tag::{self, Tag},
         user::User,
     },
     search::Term,
 };
-
-/// How the home page lays out its schematics: cards, or `view=list` in its
-/// address for a table.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum View {
-    #[default]
-    Cards,
-    List,
-}
 
 /// A field the home page can order builds by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -178,7 +169,6 @@ pub struct Index<'a> {
 /// either.
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct HomeQuery {
-    pub view: View,
     pub sort: Sort,
     /// A search such as `register vertical alpha -torchless`.
     pub q: String,
@@ -202,13 +192,6 @@ impl HomeQuery {
         for (key, value) in form_urlencoded::parse(raw.as_bytes()) {
             let value = value.trim().to_owned();
             match key.as_ref() {
-                "view" => {
-                    query.view = if value == "list" {
-                        View::List
-                    } else {
-                        View::Cards
-                    };
-                }
                 "q" => query.q = value,
                 "category" => query.category = value,
                 "sort" => query.sort = Sort::parse(&value),
@@ -239,9 +222,6 @@ impl HomeQuery {
     /// [`HomeQuery::parse`] reads it.
     pub fn href(&self) -> String {
         let mut params = form_urlencoded::Serializer::new(String::new());
-        if self.view == View::List {
-            params.append_pair("view", "list");
-        }
         let sort = self.sort.name();
         if !sort.is_empty() {
             params.append_pair("sort", &sort);
@@ -327,14 +307,13 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 }
 
 /// The home page's search, sent to `action`. It sends as the words are
-/// typed, once typing pauses, and redraws the part below it; the layout
-/// and tags `listing` chose go with it, and the category and order from
+/// typed, once typing pauses, and redraws the part below it; the tags
+/// `listing` chose go with it, and the category and order from
 /// their menus in the results. In the box's end, a button opens the dialog
 /// for finding the builds most like a file.
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
     let query = listing.map(|l| l.query).cloned().unwrap_or_default();
     let HomeQuery {
-        view,
         q: query,
         tags,
         unverified,
@@ -344,9 +323,6 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
             fx-action=(action) fx-target="#listing" class="relative mb-3" {
-            @if view == View::List {
-                input type="hidden" name="view" value="list";
-            }
             @for tag in tags {
                 input type="hidden" name="tag" value=(tag);
             }
@@ -504,34 +480,18 @@ pub(super) fn category_menu(
     }
 }
 
-/// The row under the search, its category, order, and layout, then the
-/// page's title and count.
+/// The row under the search, its category and order, then the page's title
+/// and count.
 fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
-    let (shown, view, category) = (listing.shown, here.view, &here.category);
-    let layout = |to: View, label: &str, glyph: &str| {
-        html! {
-            a href=(HomeQuery { view: to, ..here.clone() }.href()) aria-label=(label) title=(label)
-                class={ (SWITCH) " flex items-center px-2" }
-                aria-current=[(view == to).then_some("page")] {
-                (icon(glyph, "size-4"))
-            }
-        }
-    };
+    let (shown, category) = (listing.shown, &here.category);
     html! {
-            // Paired with the search above it: what it searches in, the
-            // order, and the layout, which a phone, too narrow for the
-            // list's table, leaves at cards.
+            // Paired with the search above it: what it searches in, and
+            // the order.
             div class="mb-6 flex items-center gap-2" {
                 div class="min-w-0 flex-1 sm:flex-none" {
                     (category_menu(listing.facets, category, "All categories", Some("search-form")))
                 }
                 (sort_menu(&here.sort.name()))
-                div class="ml-auto hidden shrink-0 sm:block" {
-                    nav aria-label="Layout" class=(SWITCHES) {
-                        (layout(View::Cards, "Cards", icons::GRID))
-                        (layout(View::List, "List", icons::LIST))
-                    }
-                }
             }
             div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
                 h1 class=(PAGE_TITLE) { (title) }
@@ -607,7 +567,6 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
         terms,
         ..
     } = *listing;
-    let view = here.view;
     html! {
             (listing_header(listing, here, title))
             @if !here.category.is_empty() {
@@ -669,10 +628,8 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                 p class="max-w-prose text-muted" {
                     "No builds match. " (search_help()) " Remove a term to widen the search."
                 }
-            } @else if view == View::Cards {
-                (cards(shown, terms, listing.viewing))
             } @else {
-                (table(shown, terms))
+                (cards(shown, terms, listing.viewing))
             }
     }
 }
@@ -1009,50 +966,6 @@ pub fn card_star(id: &str, favorited: bool) -> Markup {
     }
 }
 
-/// Builds as table rows, for the home page's List layout.
-fn table(schematics: &[Schematic], terms: &[Term]) -> Markup {
-    // Columns a phone has no room for; the name and its tags come first.
-    let secondary = "hidden desktop:table-cell";
-    html! {
-                div class="relative overflow-x-auto" {
-                    table class="w-full border-collapse" {
-                        thead {
-                            tr {
-                                th scope="col" class=(TABLE_HEAD) { "Name" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Orientation" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Encoding" }
-                                th scope="col" class=(TABLE_HEAD) { "Latency" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Size" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Volume" }
-                                th scope="col" class=(TABLE_HEAD) { "Authors" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Built" }
-                            }
-                        }
-                        tbody {
-                            @for s in schematics {
-                                tr class="hover:bg-selection/50" {
-                                    th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                        a href={ "/schematics/" (s.id) } class="font-semibold" { (s.name()) }
-                                        (stacked_note(s, terms))
-                                        (badges(s, "mt-1.5"))
-                                    }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.orientation.label()) }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.encoding.map_or("", Encoding::label)) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
-                                    td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
-                                    td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (name_links(&s.authors)) }
-                                    td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
-                                        (s.built_on.as_deref().unwrap_or(""))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1064,9 +977,9 @@ mod tests {
     fn a_home_address_reads_back_as_written() {
         for href in [
             "/builds",
-            "/builds?view=list&sort=volume",
+            "/builds?sort=volume",
             "/?category=adder",
-            "/?view=list&sort=-downloads%2Cvolume&category=adder&tag=alpha%2Ctorchless&tag=synced&unverified=show&q=8b+adder",
+            "/?sort=-downloads%2Cvolume&category=adder&tag=alpha%2Ctorchless&tag=synced&unverified=show&q=8b+adder",
         ] {
             let raw = href.split_once('?').map_or("", |(_, raw)| raw);
             assert_eq!(HomeQuery::parse(raw).href(), href);
@@ -1078,7 +991,7 @@ mod tests {
         assert!(!HomeQuery::parse("category=adder").hide_unaligned);
         let query = HomeQuery::parse("q=add&sort=bogus,-latency");
         assert_eq!(query.href(), "/?sort=-latency&q=add");
-        assert!(!HomeQuery::parse("view=list").narrows());
+        assert!(!HomeQuery::parse("sort=volume").narrows());
     }
 
     fn adder(

@@ -239,7 +239,6 @@ fn sentence(refusal: Refusal) -> String {
 #[derive(Deserialize)]
 pub struct Given {
     session: String,
-    next: Option<String>,
 }
 
 /// Keeps the session given, once Schemati shows it opens a folder,
@@ -249,8 +248,6 @@ pub async fn connect(
     SignedIn(user): SignedIn,
     Form(given): Form<Given>,
 ) -> Result<Response, AppError> {
-    let next = given.next.as_deref();
-    let welcoming = next.is_some_and(|n| n.starts_with("/welcome"));
     let refused = match schemati::session(&given.session) {
         Ok(session) => {
             let call = schemati::folder(&session);
@@ -258,17 +255,13 @@ pub async fn connect(
                 ask(&state.db, &user, &session, "check", PATIENT, call).await;
             match keep_checked(&state.db, &user, &session, checked).await? {
                 Ok(()) => {
-                    let to = super::settings::onward(next, "/settings");
-                    return Ok(Redirect::to(&to).into_response());
+                    return Ok(Redirect::to("/settings").into_response());
                 }
                 Err(refused) => refused,
             }
         }
         Err(message) => message,
     };
-    if welcoming {
-        return super::settings::welcome_page(&state, &user, 2, &refused).await;
-    }
     refused_session(&state, &user, &refused).await
 }
 
