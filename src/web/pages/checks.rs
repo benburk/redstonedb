@@ -270,14 +270,19 @@ fn lines_stage(known: &Known) -> Stage {
                 run.outputs.iter().map(|l| l.bits.to_string()).collect();
             let found =
                 format!("{} in → {} out", ins.join(" + "), outs.join(" + "));
-            match (&unranked, problems.is_empty()) {
-                (Some(why), _) => {
+            // Unaligned buses are said whether it works or not, as what
+            // its lines are; unranked only of one that works.
+            match (&unranked, known.s.unaligned, problems.is_empty()) {
+                (Some(why), _, _) => {
                     (State::Warn, format!("{found}; unranked: {why}"))
                 }
-                (None, false) => {
+                (None, true, _) => {
+                    (State::Warn, format!("{found}; unaligned buses"))
+                }
+                (None, false, false) => {
                     (State::Warn, format!("{found}; bends a convention"))
                 }
-                (None, true) => (State::Pass, found),
+                (None, false, true) => (State::Pass, found),
             }
         }
         // Not tested, its lines say why only when they are what failed.
@@ -339,6 +344,11 @@ fn lines_stage(known: &Known) -> Stage {
                     "It is kept as built, its lines read loosely. "
                 }
                 "It works and is listed, but ranks on no leaderboard."
+            }
+        } @else if known.s.unaligned {
+            p class="mt-3 rounded-md bg-restriction px-3 py-2 text-on-restriction" {
+                strong { "Unaligned buses. " }
+                "Its buses aren't evenly spaced straight lines, so once it works it lists, but ranks on no leaderboard."
             }
         }
         @if !problems.is_empty() {
