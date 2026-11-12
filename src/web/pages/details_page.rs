@@ -109,7 +109,7 @@ pub struct DetailsPage<'a> {
     pub choices: &'a Choices,
     /// The width and orientation an adder reads from the file; see
     /// `fields`.
-    pub derived: crate::ingest::read::Derived,
+    pub derived: crate::ingest::read::FromFile,
     /// The tags its file gives it, such as torchless, shown in the tag
     /// field but not to be removed.
     pub fixed: &'a [crate::build::tag::Tag],

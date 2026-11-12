@@ -31,7 +31,7 @@ impl Analysis {
 /// `category::Behaviour::reads` says, takes from them in place of
 /// typed details.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Derived {
+pub struct FromFile {
     /// A's bit count, four for each block of a signal-strength input.
     pub width: Option<i64>,
     /// The way A's bits run.
@@ -42,43 +42,43 @@ pub struct Derived {
 
 /// What `category` reads from a build with `interface`: nothing for a
 /// category that reads nothing from its file; see [`read_from_file`].
-pub fn derived(category: &str, interface: &Interface) -> Derived {
+pub fn derived(category: &str, interface: &Interface) -> FromFile {
     match category::behaviour(category).reads {
         category::Reads::Output => read_from_output(interface),
         category::Reads::InputA => read_from_file(interface),
-        category::Reads::Nothing => Derived::default(),
+        category::Reads::Nothing => FromFile::default(),
     }
 }
 
 /// What a counter or shift register reads from a build with `interface`:
 /// its width and the way its bits run from its widest output, the value
 /// it holds.
-fn read_from_output(interface: &Interface) -> Derived {
+fn read_from_output(interface: &Interface) -> FromFile {
     let held = interface
         .outputs
         .iter()
         .filter(|port| !port.status())
         .max_by_key(|port| port.bits.len());
     match held {
-        Some(port) => Derived {
+        Some(port) => FromFile {
             width: i64::try_from(port.bits.len()).ok(),
             orientation: interface::orientation(port),
             encoding: Some(Encoding::Binary),
         },
-        None => Derived::default(),
+        None => FromFile::default(),
     }
 }
 
 /// What a category that reads its builds' files, such as adder, reads
 /// from one with `interface`: its width, orientation, and encoding from
 /// its A, the unsigned first operand; nothing without one.
-pub fn read_from_file(interface: &Interface) -> Derived {
+pub fn read_from_file(interface: &Interface) -> FromFile {
     let a = interface
         .inputs
         .iter()
         .find(|port| !port.labelled && port.a());
     match a {
-        Some(a) => Derived {
+        Some(a) => FromFile {
             width: i64::try_from(
                 a.bits.len() * if a.signal_strength { 4 } else { 1 },
             )
@@ -90,7 +90,7 @@ pub fn read_from_file(interface: &Interface) -> Derived {
                 Encoding::Binary
             }),
         },
-        None => Derived::default(),
+        None => FromFile::default(),
     }
 }
 
