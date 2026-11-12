@@ -302,21 +302,45 @@ pub async fn set_current_roles<'e, E: SqliteExecutor<'e>>(
     Ok(())
 }
 
-/// The build and version whose file has the hash `sha256`, if any is
-/// stored: each file is stored once, but in a restored version, which
-/// shares its file with the version it restores.
+/// The build on the site, and its version, whose file has the hash
+/// `sha256`, if any has: no two builds on the site hold one file, and a
+/// build holds it once, but in a restored version, which shares its file
+/// with the version it restores. A deleted build holds nothing back: its
+/// file is kept for an admin to restore it, and may be uploaded again.
 pub async fn holder<'e, E: SqliteExecutor<'e>>(
     db: E,
     sha256: &str,
 ) -> Result<Option<(String, i64)>, sqlx::Error> {
     Ok(sqlx::query!(
         "SELECT build_id, version FROM build_version
-         WHERE sha256 = ? ORDER BY restores IS NOT NULL, version",
+         JOIN build ON build.id = build_id
+         WHERE sha256 = ? AND build.deleted_at IS NULL
+         ORDER BY restores IS NOT NULL, version",
         sha256
     )
     .fetch_optional(db)
     .await?
     .map(|row| (row.build_id, row.version)))
+}
+
+/// The build on the site that holds a file deleted build `id` holds too,
+/// as one uploaded again since it was deleted, if any does: the two can't
+/// both be on the site.
+pub async fn held_again(
+    db: &SqlitePool,
+    id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar!(
+        "SELECT other.build_id FROM build_version AS own
+         JOIN build_version AS other
+            ON other.sha256 = own.sha256 AND other.build_id <> own.build_id
+         JOIN build ON build.id = other.build_id
+         WHERE own.build_id = ? AND build.deleted_at IS NULL
+         LIMIT 1",
+        id
+    )
+    .fetch_optional(db)
+    .await
 }
 
 /// Records a new build's file as its first version.

@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT other.build_id FROM build_version AS own\n         JOIN build_version AS other\n            ON other.sha256 = own.sha256 AND other.build_id <> own.build_id\n         JOIN build ON build.id = other.build_id\n         WHERE own.build_id = ? AND build.deleted_at IS NULL\n         LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "build_id",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "177499a4f74e33b4d89ebcc4329474e5c6695c33d10bc30bcd8db280093f92fc"
+}
