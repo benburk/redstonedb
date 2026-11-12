@@ -22,8 +22,6 @@ pub struct Specs {
     pub at_least: Option<i64>,
     /// For a monostable, the ticks its pulse lasts.
     pub pulse: Option<i64>,
-    /// For a memory, how many bytes it holds.
-    pub bytes: Option<i64>,
     /// The design within its category, such as `carry_lookahead`; `None`
     /// for none.
     pub design: Option<String>,
@@ -37,8 +35,6 @@ impl Specs {
     pub fn of(&self, measure: Measure) -> Option<i64> {
         match measure {
             Measure::Width => self.width,
-            Measure::Bytes => self.bytes,
-            Measure::Throughput => self.throughput,
             Measure::AtLeast => self.at_least,
             Measure::Pulse => self.pulse,
         }

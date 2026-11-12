@@ -9,7 +9,7 @@ use crate::{
     interface::{self, Interface},
     simulate::{
         Broken,
-        bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
     },
 };
@@ -76,7 +76,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let widths = bench.widths(interface);
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || multiplier_cases(&widths))),
+        cases: Box::new(move || multiplier_cases(&widths)),
         kinds: vec![Kind::new(pattern, product)],
         by_digit: false,
     })

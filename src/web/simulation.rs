@@ -218,7 +218,7 @@ async fn stored_file(
 }
 
 /// The test the form's category calls for on `data`, at the width it
-/// reads from the file: only a blessed category's, see
+/// reads from the file: only a standard category's, see
 /// `category::Facts::listed_as`, as only such a build goes on the list.
 fn test(
     pairs: &[(String, String)],
@@ -228,7 +228,7 @@ fn test(
     let categories = Category::all();
     let Some(category) = Category::find(&categories, &form.category)
         .map(|c| c.name.as_str())
-        .filter(|c| crate::category::blessed(c))
+        .filter(|c| crate::category::listed(c))
     else {
         return Ok(None);
     };
@@ -346,7 +346,7 @@ async fn recognized(
     data: &[u8],
     category: &str,
 ) -> Option<Result<Recognition, String>> {
-    if !category::blessed(category) || category == "hex_adder" {
+    if !category::listed(category) || category == "hex_adder" {
         return None;
     }
     let (data, meant) = (data.to_vec(), category.to_owned());

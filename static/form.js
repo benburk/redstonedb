@@ -15,7 +15,7 @@ const namedCategory = (options, text) => {
 
 // Category fields: the category is typed, with a menu of the standard ones
 // under their sections, and the fields follow the one it names, by label or
-// name in any capitals. A blessed category, one probing recognizes, has
+// name in any capitals. A standard category, one probing recognizes, has
 // every measured detail worked out from its file and by the simulation: its
 // width, orientation, and stacking show what was found, locked. Any other name puts the build off the list, described by
 // hand; that waits until the box is left, so the fields do not jump while a
@@ -362,7 +362,7 @@ for (const form of document.querySelectorAll("form[data-simulate]")) {
     synced.indeterminate = !timing;
     synced.checked = timing?.dataset.synced === "true";
   };
-  // A blessed build's stacking is the simulation's, which the field shows
+  // A recognized build's stacking is the simulation's, which the field shows
   // once it has run.
   const derivedStacking = form.querySelector("[data-derived-stacking]");
   const found = (fresh) => {

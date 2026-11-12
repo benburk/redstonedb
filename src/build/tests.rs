@@ -36,7 +36,6 @@ fn cla() -> Build {
         built_on: Some("2014-09-06".to_owned()),
         flags: Vec::new(),
         description: None,
-        given_name: None,
         unverified: None,
         status: Status::default(),
         operands: Operands::Split,
@@ -253,44 +252,10 @@ fn a_multiplier_is_named_by_its_operands_and_product() {
 }
 
 #[test]
-fn a_memory_names_its_capacity_and_stacks_multiply_it() {
-    let specs = Specs {
-        bytes: Some(32),
-        ..plain()
-    };
-    let ram = of("ram", specs);
-    assert_eq!(ram.name(), "8-bit 32-byte RAM");
-    let up = StackDirection {
-        west: 0,
-        up: 3,
-        max_copies: None,
-        faces: None,
-        pitch: None,
-    };
-    let stacked = ram.stacked(&[(up, 4)], [19, 11, 72]);
-    assert_eq!(stacked.specs.bytes, Some(128));
-    assert_eq!(
-        stacked.specs.width,
-        Some(8),
-        "copies up add words, not bits"
-    );
-}
-
-#[test]
 fn a_category_label_keeps_its_symbols_out_of_the_filename() {
     let s = of("inc_dec", plain());
     assert_eq!(s.name(), "8-bit Inc/Dec");
     assert_eq!(s.filename(), "8_bit_Inc_Dec.schem");
-}
-
-#[test]
-fn a_design_keeps_its_label() {
-    let specs = Specs {
-        design: Some("lfsr".to_owned()),
-        ..cla().specs
-    };
-    let s = of("rng", specs);
-    assert_eq!(s.name(), "8-bit LFSR RNG");
 }
 
 #[test]
@@ -305,14 +270,7 @@ fn a_threshold_names_its_k_after_its_width() {
 }
 
 #[test]
-fn a_serial_build_leads_with_its_throughput_and_others_do_not() {
-    let specs = Specs {
-        width: None,
-        throughput: Some(2),
-        ..plain()
-    };
-    let serial = of("serial_adder", specs);
-    assert_eq!(serial.name(), "2-tick Serial Adder");
+fn a_builds_throughput_does_not_lead_its_name() {
     let mut adder = cla();
     adder.specs.throughput = Some(3);
     assert_eq!(adder.name(), "8-bit Carry Lookahead Adder");
@@ -366,8 +324,8 @@ fn a_stack_grows_by_its_step_however_much_copies_overlap() {
 
 #[test]
 fn a_category_keeps_its_label() {
-    let s = of("ram", plain());
-    assert_eq!(s.name(), "8-bit RAM");
+    let s = of("alu", plain());
+    assert_eq!(s.name(), "8-bit ALU");
 }
 
 #[test]

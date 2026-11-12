@@ -39,11 +39,9 @@ fn given(category: &str) -> Details {
             width: Some(8),
             orientation: Orientation::Horizontal,
             encoding: Some(Encoding::Binary),
-            bytes: Some(32),
             at_least: Some(3),
             ..Specs::default()
         },
-        given_name: Some(" Bus Crossing ".to_owned()),
         ..Details::default()
     }
 }
@@ -69,19 +67,6 @@ async fn check_file(
     details::check(db, details, build, false)
         .await
         .expect("the database answers")
-}
-
-/// Only a blessed category, one probing recognizes, goes on the list; a
-/// build given any other listed one is asked for a name of its own.
-#[tokio::test]
-async fn only_a_blessed_category_goes_on_the_list() {
-    let db = common::database().await;
-    for category in ["Bussing", "ram", "binary_to_bcd"] {
-        let refused = check(&db, given(category)).await.err().unwrap();
-        assert!(refused.contains("go on the list so far"), "{refused}");
-        assert!(refused.contains("category of its own"), "{refused}");
-    }
-    assert!(check(&db, given("adder")).await.is_ok());
 }
 
 #[tokio::test]

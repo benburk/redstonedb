@@ -267,12 +267,7 @@ impl Ruler {
 /// The bits a build holds, as its cells count: a memory's bytes' bits,
 /// else its width, else one.
 fn bits(s: &Build) -> i64 {
-    s.specs
-        .bytes
-        .map(|bytes| bytes * 8)
-        .or(s.specs.width)
-        .unwrap_or(1)
-        .max(1)
+    s.specs.width.unwrap_or(1).max(1)
 }
 
 /// What a leaderboard's address asks for, such as
@@ -1772,7 +1767,6 @@ mod tests {
             built_on: None,
             flags: Vec::new(),
             description: None,
-            given_name: None,
             unverified: None,
             status: crate::models::schematic::Status::default(),
             operands: crate::models::schematic::Operands::Split,
@@ -1842,34 +1836,6 @@ mod tests {
         assert_eq!(board.design, None);
         assert!(board.all_designs);
         assert_eq!(board.builds.len(), 6);
-    }
-
-    #[test]
-    fn memories_compete_only_at_one_capacity() {
-        let ram = |id: &str, bytes: Option<i64>| {
-            let mut ram = build(id, 8, None, Some(4), 100);
-            ram.specs.bytes = bytes;
-            ram
-        };
-        let rams = [
-            ram("a", Some(32)),
-            ram("b", Some(32)),
-            ram("c", Some(256)),
-            ram("d", None),
-        ];
-        let all: Vec<&Build> = rams.iter().collect();
-        let board =
-            board(&all, &Wanted::default(), &[Measure::Width, Measure::Bytes]);
-        assert_eq!(board.splits[1].chosen, Some(32));
-        assert_eq!(
-            board.splits[1]
-                .choices
-                .iter()
-                .map(|c| c.value)
-                .collect::<Vec<_>>(),
-            [32, 256]
-        );
-        assert_eq!(board.builds.len(), 2);
     }
 
     #[test]

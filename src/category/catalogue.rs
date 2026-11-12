@@ -26,10 +26,6 @@ named_values! {
     Measure {
         /// Bits, as in `8-bit`.
         Width = "width", "Width";
-        /// A memory's capacity, as in `32-byte`.
-        Bytes = "bytes", "Capacity";
-        /// A serial build's ticks from one bit to the next, as in `2-tick`.
-        Throughput = "throughput", "Throughput";
         /// A threshold's k, the fewest inputs on that turn it on, as in `At
         /// Least 3`.
         AtLeast = "at_least", "At least";
@@ -45,8 +41,7 @@ impl Measure {
     pub fn lead(self, n: i64) -> String {
         match self {
             Measure::Width => format!("{n}-bit"),
-            Measure::Bytes => format!("{n}-byte"),
-            Measure::Throughput | Measure::Pulse => format!("{n}-tick"),
+            Measure::Pulse => format!("{n}-tick"),
             Measure::AtLeast => format!("At Least {n}"),
         }
     }
@@ -58,8 +53,7 @@ impl Measure {
         };
         match self {
             Measure::Width => count("bit", "bits"),
-            Measure::Bytes => count("byte", "bytes"),
-            Measure::Throughput | Measure::Pulse => count("tick", "ticks"),
+            Measure::Pulse => count("tick", "ticks"),
             Measure::AtLeast => format!("at least {n} on"),
         }
     }
@@ -68,8 +62,7 @@ impl Measure {
     pub fn term(self, n: i64) -> String {
         match self {
             Measure::Width => format!("{n}b"),
-            Measure::Bytes => format!("{n}-byte"),
-            Measure::Throughput | Measure::Pulse => format!("{n}t"),
+            Measure::Pulse => format!("{n}t"),
             Measure::AtLeast => format!("at least {n}"),
         }
     }
@@ -94,8 +87,6 @@ named_values! {
         Logic = "logic", "Logic";
         Gates = "gates", "Gates";
         Conversion = "conversion", "Conversion";
-        Display = "display", "Display";
-        Wiring = "wiring", "Wiring";
     }
 }
 
@@ -115,8 +106,6 @@ pub struct Category {
     pub label: String,
     /// The label for many builds, such as `Adders` or `RAM`.
     pub plural: String,
-    /// Whether each build gives its own name, as bussing does.
-    pub named: bool,
     /// The section it sits in; `None` for Other, with the
     /// categories off the list.
     pub section: Option<Section>,
@@ -144,7 +133,6 @@ impl Category {
             name: facts.name.to_owned(),
             label: facts.label.to_owned(),
             plural: kind.plural(),
-            named: facts.named,
             section: Some(facts.section),
             logic: facts.logic,
             measures: facts.measures.to_vec(),
@@ -182,7 +170,6 @@ impl Category {
             name: name.to_owned(),
             label: words(name),
             plural: words(name),
-            named: false,
             section: None,
             logic: None,
             measures: Vec::new(),
@@ -197,14 +184,12 @@ pub struct Design {
     pub name: &'static str,
     /// The usual short name, such as `CLA`.
     pub abbreviation: Option<&'static str>,
-    /// How people read it, such as `LFSR`; `None` for the name's words.
-    pub label: Option<&'static str>,
 }
 
 impl Design {
     /// Such as `Carry Lookahead (CLA)`.
     pub fn label(&self) -> String {
-        let words = self.label.map_or_else(|| words(self.name), str::to_owned);
+        let words = words(self.name);
         match self.abbreviation {
             Some(short) => format!("{words} ({short})"),
             None => words,
@@ -328,7 +313,7 @@ pub fn check_category(
     }
     // A build of a category the site recognizes builds of goes under it,
     // recognized or not, rather than under a name made from it.
-    if let Some(kind) = made_from(category).filter(|kind| kind.blessed()) {
+    if let Some(kind) = made_from(category) {
         return Err(format!(
             "Choose {} as the category, rather than a name made from it.",
             kind.label()

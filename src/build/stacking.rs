@@ -2,7 +2,7 @@
 //! wider builds they stack into.
 
 use super::{Build, File, Specs};
-use crate::{category::Measure, stack::StackDirection};
+use crate::stack::StackDirection;
 
 /// A stackable build stacked into a wider one: `copies` of it make a build
 /// `width` bits wide, whose timing was measured so, as it competes on that
@@ -71,17 +71,13 @@ impl Build {
             })
             .map(|(_, n)| count(n))
             .product();
-        let all: i64 = copies.iter().map(|(_, n)| count(n)).product();
         let specs = &self.specs;
         Build {
             specs: Specs {
                 width: specs.width.map(|w| w * factor),
-                bytes: specs.bytes.map(|b| b.saturating_mul(all)),
                 latency: None,
                 synchronized: None,
-                throughput: specs
-                    .throughput
-                    .filter(|_| self.has(Measure::Throughput)),
+                throughput: None,
                 ..specs.clone()
             },
             file: File {

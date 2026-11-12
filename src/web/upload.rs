@@ -528,10 +528,6 @@ async fn publish_checked(
             given.unverified = Some(why.clone());
             &upload.original
         }
-        Kept::OffList(name) => {
-            given.category.clone_from(name);
-            &upload.original
-        }
         Kept::Original => &upload.original,
     };
     let build = details::Candidate::of(prepared);

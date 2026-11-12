@@ -47,9 +47,7 @@ impl Build {
         if subtracts {
             return "Subtractor".to_owned();
         }
-        self.given_name
-            .clone()
-            .unwrap_or_else(|| self.category_label())
+        self.category_label()
     }
 
     /// Its category's measures that lead a name, such as `8-bit` and
@@ -116,12 +114,7 @@ impl Build {
     /// The design in words, such as `Carry Lookahead`; `None` for no
     /// design.
     pub fn design_label(&self) -> Option<String> {
-        self.specs.design.as_ref().map(|design| {
-            match self.listed_design().and_then(|listed| listed.label) {
-                Some(label) => label.to_owned(),
-                None => category::words(design),
-            }
-        })
+        self.specs.design.as_deref().map(category::words)
     }
 
     /// The download filename: the build's name with an underscore for each

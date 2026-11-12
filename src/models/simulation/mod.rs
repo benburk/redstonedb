@@ -578,7 +578,7 @@ async fn timed(
 }
 
 /// For a recognized build whose test passes, as once it is uploaded: for
-/// a blessed build, see `category::Facts::listed_as`, its unused blocks taken
+/// a recognized build, see `category::Facts::listed_as`, its unused blocks taken
 /// out, as a new version once compiling it shows the circuit unchanged;
 /// then its needs kept, as [`keep_needs`] keeps them. Any other build is
 /// left as it came.
@@ -595,7 +595,7 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
     // When taking them out would change its circuit, which the proof by
     // compiling it shows, the blocks found unused are not, so it keeps
     // them.
-    let pruned = if category::blessed(&s.category) {
+    let pruned = if category::listed(&s.category) {
         roles::prune(&data, &s.stacking, s.buses()).unwrap_or_else(|err| {
             tracing::warn!(id, "keeping its blocks: {err:#}");
             None

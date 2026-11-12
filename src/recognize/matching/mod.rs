@@ -652,13 +652,9 @@ fn values(
 /// The place probing tries `kind` at, as a tie between kinds goes to the
 /// one it tries first.
 fn kind_order(kind: Kind) -> u16 {
-    let kind = match kind.facts().probe {
-        Probing::As(other) => other,
-        _ => kind,
-    };
-    match kind.facts().probe {
+    match kind.probed_as().facts().probe {
         Probing::Tried { order, .. } => order,
-        _ => u16::MAX,
+        Probing::As(_) => u16::MAX,
     }
 }
 

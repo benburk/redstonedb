@@ -3,9 +3,9 @@
 //! one, whether guessing does, what is read from their files, which of
 //! their lines may go unsigned, and how their copies stack. Each kind's
 //! facts are one row of one table, so adding a category is a row there,
-//! with its test when it has one. A build may also name a category off
-//! the list, in the same form, which the code knows nothing about: it gets
-//! the default [`Behaviour`], nothing special.
+//! with its test. A build may also name a category off the list, in the
+//! same form, which the code knows nothing about: it gets the default
+//! [`Behaviour`], nothing special.
 
 mod adder;
 mod alu;
@@ -86,19 +86,6 @@ pub enum Kind {
     Counter,
     ShiftRegister,
     TFlipFlop,
-    BcdToBinary,
-    BinaryToBcd,
-    Bussing,
-    CarrySaveAdder,
-    Dataloop,
-    Display,
-    Divider,
-    LineDrawer,
-    NandNorGate,
-    Ram,
-    Rng,
-    SerialAdder,
-    SerialWriteMemory,
 }
 
 /// What the code knows of one standard category: its row in the table.
@@ -116,16 +103,13 @@ pub struct Facts {
     /// The label for many builds, such as `ALUs`; `None` for the label
     /// with an `s`.
     pub plural: Option<&'static str>,
-    /// Whether each build gives its own name, as bussing's do: a build
-    /// named Bus Crossing shows as, say, 8-bit Bus Crossing.
-    pub named: bool,
     /// The heading it sits under, as the home page and the menu of
     /// categories group them.
     pub section: Section,
     /// Its builds' usual logic; `None` for none.
     pub logic: Option<Logic>,
     /// The numbers its builds are named and ranked by, in order, such as
-    /// width then capacity for a memory, or throughput for a serial adder.
+    /// width then the fewest inputs on for a threshold.
     pub measures: &'static [Measure],
     /// The ways its builds may work, alphabetically, which all do its one
     /// job, so compete on one leaderboard; a build of none has no design.
@@ -134,14 +118,14 @@ pub struct Facts {
     pub flags: &'static [Flag],
     /// Other words search takes for it, alphabetically, such as `inc`.
     pub aliases: &'static [&'static str],
-    /// For a blessed category, how the kinds of build that go on the list
-    /// name it among them, such as `comparators`, which several share;
-    /// `None` for any other. A blessed category's build is recognized by
-    /// probing its levers and outputs, whatever colours they sit on, then
-    /// given the roles found and standardized, and loses its unused blocks
-    /// when uploaded, as a new version once the circuit is shown unchanged.
-    /// Every other build keeps the blocks it came with.
-    pub listed_as: Option<&'static str>,
+    /// How the list of what the site recognizes names it, such as
+    /// `comparators`, which several kinds share. A build of a standard
+    /// category is recognized by probing its levers and outputs, whatever
+    /// colours they sit on, then given the roles found and standardized,
+    /// and loses its unused blocks when uploaded, as a new version once
+    /// the circuit is shown unchanged. A build of a category of its
+    /// author's own keeps the blocks it came with.
+    pub listed_as: &'static str,
     /// Whether and when probing tries it.
     pub probe: Probing,
     /// Whether and when guessing tries it.
@@ -164,9 +148,6 @@ pub struct Facts {
 /// first kind it holds as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Probing {
-    /// Never: it is no blessed category, so nothing it is meant as is
-    /// probed.
-    Not,
     /// In `order`, the lowest first, by `how`. Gates go first, as a 1-bit
     /// XOR is a sum without a carry, an inverter's bit, and a 1-bit AND a
     /// product of one bit each, a 1-bit XNOR an equality, and a 1-bit
@@ -218,8 +199,6 @@ pub enum Line {
 /// Whether and when [`guess`] tries a kind's test.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Guess {
-    /// Never: it has no test.
-    Not,
     /// Its test is tried, a tie going to the lowest `order`. An adder goes
     /// first. An inverter comes before an incrementer, as a 1-bit
     /// incrementer without a carry out is A xor its line, as a 1-bit
@@ -243,7 +222,7 @@ impl Kind {
         &table::TABLE[self as usize]
     }
 
-    /// Every kind, in the table's order: the blessed categories as the
+    /// Every kind, in the table's order: the standard categories as the
     /// list names them, then the rest.
     pub fn all() -> impl Iterator<Item = Kind> {
         table::TABLE.iter().map(|facts| facts.kind)
@@ -305,9 +284,14 @@ impl Kind {
         self.facts().digit_inputs
     }
 
-    /// Whether it is a blessed category; see `Facts::listed_as`.
-    pub fn blessed(self) -> bool {
-        self.facts().listed_as.is_some()
+    /// The kind whose probe finds it: its own, or the one its row names,
+    /// as an adder's finds a subtractor.
+    #[must_use]
+    pub fn probed_as(self) -> Kind {
+        match self.facts().probe {
+            Probing::As(other) => other,
+            Probing::Tried { .. } => self,
+        }
     }
 
     /// A build of it in a sentence, such as `an equality comparator`.
@@ -363,7 +347,7 @@ impl Kind {
     /// adders, …, and T flip-flops`.
     pub fn listed() -> String {
         let mut kinds: Vec<&str> = Vec::new();
-        for listed in table::TABLE.iter().filter_map(|f| f.listed_as) {
+        for listed in table::TABLE.iter().map(|f| f.listed_as) {
             if kinds.last() != Some(&listed) {
                 kinds.push(listed);
             }
@@ -446,10 +430,10 @@ pub fn behaviour(category: &str) -> Behaviour {
     Behaviour::of(Kind::named(category))
 }
 
-/// Whether the category named `category` is a blessed one; see
-/// `Facts::listed_as`.
-pub fn blessed(category: &str) -> bool {
-    Kind::named(category).is_some_and(Kind::blessed)
+/// Whether the category named `category` is a standard one, whose builds
+/// the site recognizes, rather than one of its author's own.
+pub fn listed(category: &str) -> bool {
+    Kind::named(category).is_some()
 }
 
 #[cfg(test)]
@@ -462,7 +446,6 @@ mod tests {
             assert_eq!(test.kind().test(), Some(test));
             assert_eq!(behaviour(test.name()).test, Some(test));
         }
-        assert_eq!(behaviour("ram").test, None);
         assert_eq!(behaviour("piston_door"), Behaviour::default());
     }
 
@@ -481,7 +464,7 @@ mod tests {
     #[test]
     fn the_list_names_each_kind_once() {
         let listed: Vec<&str> =
-            Kind::all().filter_map(|k| k.facts().listed_as).collect();
+            Kind::all().map(|k| k.facts().listed_as).collect();
         let mut seen: Vec<&str> = Vec::new();
         for name in listed {
             if seen.last() != Some(&name) {
@@ -501,29 +484,17 @@ mod tests {
                 assert!(matches!(other.facts().probe, Probing::Tried { .. }));
             }
             match facts.guess {
-                Guess::Not => assert_eq!(kind.test(), None, "{kind:?}"),
                 Guess::Tried(_) => assert!(kind.test().is_some()),
                 Guess::ByRunOf(other) => {
                     assert!(matches!(other.facts().guess, Guess::Tried(_)));
                 }
             }
         }
-        // None is left out for want of a test.
         let probes = Kind::all()
             .filter(|k| matches!(k.facts().probe, Probing::Tried { .. }));
         assert_eq!(Kind::probed().len(), probes.count());
         let guesses =
             Kind::all().filter(|k| matches!(k.facts().guess, Guess::Tried(_)));
         assert_eq!(Kind::guessed().len(), guesses.count());
-    }
-
-    /// Only a blessed category is probed, and every one is found by
-    /// probing or meant as one.
-    #[test]
-    fn probing_finds_the_blessed_categories() {
-        for kind in Kind::all() {
-            let probed = kind.facts().probe != Probing::Not;
-            assert_eq!(probed, kind.blessed());
-        }
     }
 }

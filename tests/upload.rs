@@ -61,22 +61,6 @@ async fn an_unrecognized_build_keeps_its_own_blocks_unverified() {
     assert!(why.contains("cases wrong: A="), "{why}");
 }
 
-/// The site lists RAM but recognizes none yet, so one goes up as built
-/// under a category of its own, named for it.
-#[tokio::test]
-async fn a_build_of_a_category_not_recognized_yet_goes_off_the_list() {
-    let categories = Category::all();
-    let upload = Upload::read(&common::fixture("cca-16-raw")).unwrap();
-    let Ok(Kept::OffList(name)) =
-        import::kept(&categories, "ram", &upload).await.unwrap()
-    else {
-        panic!("a RAM went on the list");
-    };
-    assert!(name.ends_with(" ram"), "{name}");
-    let slug = app::models::tag::name(&name);
-    assert!(app::category::check_category(&slug, None).is_ok(), "{slug}");
-}
-
 #[tokio::test]
 async fn a_category_no_test_recognizes_keeps_the_build_as_built() {
     let categories = Category::all();

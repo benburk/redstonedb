@@ -10,7 +10,7 @@ use crate::{
     interface::{self, Interface},
     simulate::{
         Broken, Stacker,
-        bench::{Bench, Case, Cases, Kind, Spec, mask},
+        bench::{Bench, Case, Kind, Spec, mask},
         broken,
         circuit::output_bits,
     },
@@ -36,7 +36,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let pattern = format!("A xor {}", interface.inputs[line].name);
     Ok(Spec {
         bench: Bench::new(vec![a, line], outputs, &pattern),
-        cases: Cases::Combinations(Box::new(move || {
+        cases: Box::new(move || {
             let (values, paired) = byte_cases(width);
             let cases = [0, 1]
                 .into_iter()
@@ -45,7 +45,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
                 })
                 .collect();
             (cases, 2 * paired)
-        })),
+        }),
         kinds: vec![Kind::new(&pattern, move |case| {
             case[0] ^ if case[1] == 1 { mask(width) } else { 0 }
         })],

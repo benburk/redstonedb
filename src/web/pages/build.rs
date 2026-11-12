@@ -520,7 +520,7 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
                     @let source = match measure {
                         Measure::Width => sources.width,
                         Measure::Pulse => sources.pulse,
-                        _ => Source::Given,
+                        Measure::AtLeast => Source::Given,
                     };
                     (fact(measure.label(), s.specs.of(measure).map_or_else(unknown, |n| {
                         sourced(search_link(&measure.words(n), &measure.term(n)), source, sources)
@@ -635,9 +635,8 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
                 @if let Some(group) = group {
                     (field("Groups", html! { (group) " bits" }))
                 }
-                // A serial build's throughput is among its measures.
-                @if !s.has(Measure::Throughput) && let Some(t) = s.specs.throughput {
-                    (field("Throughput", sourced(search_link(&Measure::Throughput.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
+                @if let Some(t) = s.specs.throughput {
+                    (field("Throughput", sourced(search_link(&Measure::Pulse.words(t), &format!("throughput:{t}")), sources.throughput, sources)))
                 }
                 @if let Some(synced) = s.specs.synchronized {
                     (field("Synced", sourced(flag(synced, Some(if synced { tag::SYNCED } else { tag::UNSYNCED })), sources.timing, sources)))

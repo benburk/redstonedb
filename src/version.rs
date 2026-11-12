@@ -244,7 +244,7 @@ async fn checked(
     // repeaters and comparators facing air.
     if s.file.conventional {
         // Dust on top of an input is a fault only on a data input, which
-        // probing a blessed build checks.
+        // probing a recognized build checks.
         let current = inspect::inspect(&current);
         let had: Vec<&str> =
             current.faults().map(|problem| problem.rule).collect();

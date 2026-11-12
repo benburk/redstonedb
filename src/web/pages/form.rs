@@ -62,7 +62,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                             div id={ "category-group-" (key) } role="presentation"
                                 class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { (heading) }
                             @for category in members {
-                                @let blessed = category::blessed(&category.name);
+                                @let blessed = category::listed(&category.name);
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name)
@@ -107,7 +107,7 @@ pub(super) fn fields(
 ) -> Markup {
     html! {
         (category_fields(f, choices))
-        // A blessed category's, found in the file, shown as the field it
+        // A standard category's, found in the file, shown as the field it
         // is typed in otherwise, but locked.
         @if let Some(width) = derived.width {
             div class="field" data-derived-width hidden {
@@ -204,8 +204,8 @@ fn logic_field(f: &Form, choices: &Choices) -> Markup {
     let usual = Category::find(&choices.categories, &f.category)
         .and_then(|c| c.logic)
         .map_or("unknown", Logic::name);
-    // A blessed category's builds are found to hold state or not.
-    let evaluated = category::blessed(&f.category);
+    // A standard category's builds are found to hold state or not.
+    let evaluated = category::listed(&f.category);
     html! {
         label class="field" data-logic-field hidden[evaluated] {
             span { "Stateless" }
@@ -289,7 +289,7 @@ fn stacking_fields(f: &Form) -> Markup {
         .chain(std::iter::repeat(&blank))
         .take(f.stack_rows.len().max(2));
     html! {
-        // For a blessed category, the simulation stacks copies and decides,
+        // For a standard category, the simulation stacks copies and decides,
         // so the rows give way to a note.
         div class="field" data-derived-stacking hidden {
             span { "Stacking" (found_mark("measured", false)) }

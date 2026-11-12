@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "UPDATE build SET category = ?, built_on = ?,\n                description = ?, at_least = ?, unverified = NULL,\n                edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')\n             WHERE id = ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "d9629b20291a932acb37d17af97fc9c512a9533431f58282d2d0e8954741238a"
+}

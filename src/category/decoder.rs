@@ -11,7 +11,7 @@ use crate::{
     interface::Interface,
     simulate::{
         Broken,
-        bench::{Bench, Cases, Kind, Spec, mask},
+        bench::{Bench, Kind, Spec, mask},
         broken,
     },
 };
@@ -50,9 +50,9 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let all = mask(out_bits);
     Ok(Spec {
         bench: Bench::new(vec![a], vec![out], OFF),
-        cases: Cases::Combinations(Box::new(move || {
+        cases: Box::new(move || {
             ((0..1 << width).map(|a| [a, 0, 0]).collect(), 0)
-        })),
+        }),
         kinds: vec![Kind::new(OFF, move |case| !(1 << case[0]) & all)],
         by_digit: false,
     })

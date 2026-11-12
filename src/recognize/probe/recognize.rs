@@ -1,5 +1,5 @@
 //! Recognizing a build by probing: the file made simulatable, inspected,
-//! and probed as each blessed category in turn until one holds, each
+//! and probed as each standard category in turn until one holds, each
 //! category's probe named by its kind, its signs taken out but those its
 //! test reads; and, when none holds, the fault to show and the file
 //! carrying the closest try's roles.
@@ -121,7 +121,6 @@ fn recognize_laid(
         match kind.facts().probe {
             Probing::As(other) => Some(other),
             Probing::Tried { .. } => Some(kind),
-            Probing::Not => None,
         }
     });
     // An upload's roles are what probing finds, never what it came with.
@@ -356,10 +355,7 @@ fn unaligned(
     report: &inspect::Report,
     meant: Option<Kind>,
 ) -> anyhow::Result<Option<(matching::Match, Vec<u8>)>> {
-    let probed_as = |kind: Kind| match kind.facts().probe {
-        Probing::As(other) => other,
-        _ => kind,
-    };
+    let probed_as = Kind::probed_as;
     let Some(found) = matching::closest(blocks, report) else {
         return Ok(None);
     };
@@ -391,7 +387,6 @@ pub fn kept_roles(
     let kind = match kind.facts().probe {
         Probing::As(other) => other,
         Probing::Tried { .. } => kind,
-        Probing::Not => return Ok(None),
     };
     let probed = Kind::probed();
     let Some(&(kind, how, test)) = probed.iter().find(|(k, ..)| *k == kind)

@@ -9,7 +9,7 @@ use crate::{
     schem::lines::Role,
     simulate::{
         Broken, Reading, Run, Value,
-        bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
+        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
     },
 };
@@ -211,9 +211,7 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
         .collect();
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || {
-            cases(width, carry_in, piece)
-        })),
+        cases: Box::new(move || cases(width, carry_in, piece)),
         kinds,
         by_digit: hex,
     })
@@ -244,9 +242,7 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     let carry_in = carry_in.is_some();
     Ok(Spec {
         bench: Bench::new(inputs, vec![out], &pattern),
-        cases: Cases::Combinations(Box::new(move || {
-            adder_cases(width, carry_in, 8)
-        })),
+        cases: Box::new(move || adder_cases(width, carry_in, 8)),
         kinds: vec![Kind::new(&pattern, move |case| {
             (case[0] + case[1] + case[2]) >> width & 1
         })],
@@ -267,9 +263,7 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
     let width = interface.inputs[a].bits.len();
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![out], "A > B"),
-        cases: Cases::Combinations(Box::new(move || {
-            adder_cases(width, false, 8)
-        })),
+        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![
             Kind::new("A > B", |case| Value::from(case[0] > case[1]))
                 .reading(Reading::GreaterThan { signed: false }),
@@ -292,9 +286,7 @@ pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
     let width = interface.inputs[a].bits.len();
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![out], "A = B"),
-        cases: Cases::Combinations(Box::new(move || {
-            adder_cases(width, false, 8)
-        })),
+        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![Kind::new("A = B", |case| Value::from(case[0] == case[1]))],
         by_digit: false,
     })

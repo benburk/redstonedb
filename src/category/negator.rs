@@ -9,7 +9,7 @@ use crate::{
     interface::{self, Interface},
     simulate::{
         Broken,
-        bench::{Bench, Cases, Kind, Spec, mask},
+        bench::{Bench, Kind, Spec, mask},
         broken,
         circuit::output_bits,
     },
@@ -61,9 +61,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let widths = bench.widths(interface);
     Ok(Spec {
         bench,
-        cases: Cases::Combinations(Box::new(move || {
-            incrementer_cases(&widths)
-        })),
+        cases: Box::new(move || incrementer_cases(&widths)),
         kinds: vec![Kind::new(&pattern, move |case| {
             if negated || case[1] == 1 {
                 case[0].wrapping_neg() & mask(width)

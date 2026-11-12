@@ -485,7 +485,7 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
     );
     html! {
         form id="details-form" action=(action) method="post" enctype="multipart/form-data"
-            data-step data-step-page data-simulate=(simulate) data-listed-kinds=(crate::category::Kind::listed())
+            data-step data-step-page data-simulate=(simulate)
             data-unverified[unverified]
             data-verdict=(verdict(page).0) class="flex flex-col gap-4" {
             h2 class=(SECTION_TITLE) { "Details" }
