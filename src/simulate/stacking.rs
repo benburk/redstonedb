@@ -128,10 +128,6 @@ pub enum Stacking {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         words: Option<Apart>,
     },
-    /// Copies side by side each doing their own work, as decoders' were
-    /// once found to; decoders no longer stack, but a report kept from
-    /// before may say so.
-    Separate { ways: Vec<Apart> },
     /// They make no working build of its kind, as an adder whose carries do
     /// not chain or a register with no step that works, with the step
     /// tried last when there was one.
@@ -193,7 +189,7 @@ impl Stacking {
                     .chain(words.iter().map(|words| words.direction(None)))
                     .collect()
             }
-            Stacking::Separate { .. } | Stacking::Not { .. } => Vec::new(),
+            Stacking::Not { .. } => Vec::new(),
         }
     }
 }

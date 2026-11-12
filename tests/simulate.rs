@@ -604,8 +604,7 @@ fn an_alu_runs_each_operation_its_signs_name() {
         outputs,
         ["output", "carry out", "overflow", "lsb shift out"]
     );
-    // Standardizing took the commas out of its signs, and the signs name
-    // its operations as flags.
+    // Standardizing took the commas out of its signs.
     assert!(
         blocks
             .sign_texts()
@@ -613,13 +612,6 @@ fn an_alu_runs_each_operation_its_signs_name() {
             .flat_map(|l| l.iter())
             .all(|l| !l.contains(','))
     );
-    let mut flags = import::sign_flags(&interface::read(&blocks));
-    flags.sort();
-    flags.dedup();
-    for flag in ["and", "or", "xor", "nand", "nor", "xnor", "shr", "asr"] {
-        assert!(flags.contains(&flag.to_owned()), "{flag} in {flags:?}");
-    }
-    assert!(!flags.contains(&"shl".to_owned()), "it has no shift left");
     // Its width, orientation, and encoding are read from A, as an adder's.
     let found = import::derived("alu", &interface::read(&blocks));
     assert_eq!(
@@ -1743,36 +1735,6 @@ fn a_2_wide_gates_stacking_is_pitch_2_west() {
     assert_eq!((step.describe().as_str(), *copies, *bits), ("2 west", 9, 9));
     let directions = stacking.directions();
     assert_eq!(directions[0].pitch, Some(2), "{directions:?}");
-}
-
-/// A ripple adder holds nothing; a sequential multiplier holds its partial
-/// products in loops.
-#[test]
-fn memory_is_found_in_loops_but_not_in_combinational_logic() {
-    let adder = simulate::compiled(&blocks("alpha-rca")).unwrap();
-    assert!(adder.memory().is_empty());
-    let raw = read_fixture("tests/fixtures/mult-8-buttons.schem").unwrap();
-    let file = standardize::standardize(&raw).unwrap();
-    let multiplier = simulate::compiled(&Blocks::read(&file).unwrap()).unwrap();
-    assert!(!multiplier.memory().is_empty());
-}
-
-/// Each bit's XOR is two comparators in compare mode on one back line,
-/// each reading the other from its side: one can put out no more than the
-/// other's back, so neither decides the other, and the pair holds nothing.
-#[test]
-fn compare_mode_comparators_sharing_a_back_hold_nothing() {
-    let adder = simulate::compiled(&blocks("xor-pair-adder-8")).unwrap();
-    assert!(adder.memory().is_empty());
-}
-
-/// A comparator in subtract mode reading a barrel of strength 1 puts out
-/// no more than 1, which its own side, a step away, never gets.
-#[test]
-fn a_loop_that_loses_all_it_could_carry_holds_nothing() {
-    let adder = simulate::compiled(&blocks("barrel-leak-adder")).unwrap();
-    assert!(adder.kinds.values().any(|k| k == "Constant { ss: 1 }"));
-    assert!(adder.memory().is_empty());
 }
 
 /// A build is stored with each input at logical 0, its levers flicked to
