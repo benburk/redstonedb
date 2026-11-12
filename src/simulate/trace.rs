@@ -1,7 +1,6 @@
-//! A logic analyzer: a build's circuit traced tick by tick through a change
-//! of its inputs, each component's strength at every tick and what set each
-//! change off; and many changes swept, for when each output settles, which
-//! of its bits glitch, and the build's races.
+//! A build's circuit traced tick by tick through a change of its inputs:
+//! each component's strength at every tick, when each output settles,
+//! which of its bits glitch, and the change's races.
 //!
 //! A race is a component that runs a tick on a tick on which an input of
 //! its own changes, that input's update running at the same priority: which
@@ -13,18 +12,15 @@
 //! records, whichever way its own run went, by working out what the
 //! component comes to with its rivals gone first and with them after.
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    time::Instant,
-};
+use std::collections::{BTreeMap, HashMap};
 
 use anyhow::{Result, bail};
 use mchprs_blocks::blocks::ComparatorMode;
 use mchprs_redpiler::compile_graph::{LinkType, NodeType};
 
 use super::{
-    Value, bench,
-    circuit::{self, Carried, Circuit, MAX_TICKS, input_bits, output_bits},
+    Value,
+    circuit::{self, Carried, Circuit, MAX_TICKS, output_bits},
 };
 use crate::{
     recognize::interface::Interface,
@@ -59,19 +55,6 @@ pub enum Part {
 }
 
 impl Part {
-    /// Its name, such as `comparator`.
-    pub fn name(self) -> &'static str {
-        match self {
-            Part::Repeater { .. } => "repeater",
-            Part::Torch => "torch",
-            Part::Comparator { .. } => "comparator",
-            Part::Switch { button: false } => "lever",
-            Part::Switch { button: true } => "button",
-            Part::Constant(_) => "container",
-            Part::Other(name) => name,
-        }
-    }
-
     /// Whether it runs ticks, as a repeater, torch, or comparator does,
     /// changing only as one runs.
     pub fn ticks(self) -> bool {
@@ -253,11 +236,6 @@ impl Graph {
         Ok(Graph { nodes })
     }
 
-    /// The node at `at`.
-    pub fn find(&self, at: Pos) -> Option<usize> {
-        self.nodes.binary_search_by_key(&at, |node| node.at).ok()
-    }
-
     /// The nodes powering node `node`, its back's and then its sides'.
     pub fn sources(&self, node: usize) -> impl Iterator<Item = usize> + '_ {
         let node = &self.nodes[node];
@@ -311,15 +289,6 @@ pub struct Trace {
     /// block, as the site times it: the ticks the repeater or comparator on
     /// its block takes to carry it out left out.
     pub outputs: Vec<Vec<Value>>,
-}
-
-/// One node changing what it gives out, on one tick.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Change {
-    pub tick: i32,
-    pub node: usize,
-    pub was: u8,
-    pub now: u8,
 }
 
 /// A race: a node running a tick that its rivals' updates, running at its
@@ -383,53 +352,6 @@ impl Trace {
     pub fn bit_changes(&self, port: usize, bit: usize) -> Vec<i32> {
         let at = |tick| self.output(port, tick) >> bit & 1;
         (0..self.ticks()).filter(|&t| at(t) != at(t - 1)).collect()
-    }
-
-    /// Every change of every node, by tick, in the order of the graph.
-    pub fn changes(&self) -> Vec<Change> {
-        let nodes = self.before.len();
-        (0..self.ticks())
-            .flat_map(|tick| (0..nodes).map(move |node| (tick, node)))
-            .filter(|&(tick, node)| self.changed(node, tick))
-            .map(|(tick, node)| Change {
-                tick,
-                node,
-                was: self.strength(node, tick - 1),
-                now: self.strength(node, tick),
-            })
-            .collect()
-    }
-
-    /// The changes that set off `change`: those of its node's inputs on the
-    /// latest tick, its own less its delay or earlier, on which any
-    /// changed. None for a switch's, which the trace makes.
-    pub fn causes(&self, graph: &Graph, change: &Change) -> Vec<Change> {
-        let node = &graph.nodes[change.node];
-        if !node.part.ticks() {
-            return Vec::new();
-        }
-        let mut sources: Vec<usize> = graph
-            .sources(change.node)
-            .filter(|&s| s != change.node)
-            .collect();
-        sources.sort_unstable();
-        sources.dedup();
-        (0..=change.tick - node.part.delay())
-            .rev()
-            .map(|tick| {
-                sources
-                    .iter()
-                    .filter(|&&s| self.changed(s, tick))
-                    .map(|&s| Change {
-                        tick,
-                        node: s,
-                        was: self.strength(s, tick - 1),
-                        now: self.strength(s, tick),
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .find(|found| !found.is_empty())
-            .unwrap_or_default()
     }
 
     /// Whether node `node` runs a tick on `tick`: it changed then, or it
@@ -692,11 +614,6 @@ impl Tracer {
         })
     }
 
-    /// The width of each input, in bits.
-    pub fn input_widths(&self) -> Vec<usize> {
-        self.interface.inputs.iter().map(input_bits).collect()
-    }
-
     /// The width of each output, in bits.
     pub fn output_widths(&self) -> Vec<usize> {
         self.interface
@@ -783,156 +700,9 @@ impl Tracer {
     }
 }
 
-/// One change of a build's inputs to sweep.
+/// One change of a build's inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Case {
     pub from: Vec<Value>,
     pub to: Vec<Value>,
-}
-
-/// Many changes of a build's inputs traced, every input switching at once.
-#[derive(Debug, Clone, Default)]
-pub struct Sweep {
-    /// How many changes it ran.
-    pub cases: usize,
-    /// For each output, how it settled.
-    pub outputs: Vec<Settling>,
-    /// Each race coming first in a change, by its node and rivals, with how
-    /// many changes it came up in and the first, most often first.
-    pub races: Vec<Seen>,
-}
-
-/// How one output settled over a sweep.
-#[derive(Debug, Clone, Default)]
-pub struct Settling {
-    /// How many of the changes it changed in it settled by each tick in.
-    pub settled: BTreeMap<i32, usize>,
-    /// Its slowest change, and the tick it settled by.
-    pub slowest: Option<(i32, Case)>,
-    /// Each bit that glitched, changing more than once in a change, with
-    /// how many changes it did in and the first.
-    pub glitches: BTreeMap<usize, (usize, Case)>,
-}
-
-/// A race as a sweep came on it.
-#[derive(Debug, Clone)]
-pub struct Seen {
-    /// The first time it came up.
-    pub race: Race,
-    pub case: Case,
-    /// How many changes it came up in.
-    pub count: usize,
-}
-
-/// The changes to sweep for a build whose inputs are `widths` bits wide:
-/// each input alone from all off to each of its values, or to its test
-/// patterns when it is wider than 10 bits, and `random` changes from one
-/// set of values to another at random, the same each time.
-pub fn cases(widths: &[usize], random: usize) -> Vec<Case> {
-    let zero = vec![0; widths.len()];
-    let mut cases = Vec::new();
-    for (port, &width) in widths.iter().enumerate() {
-        let values: Vec<Value> = if width <= 10 {
-            (1..1 << width).collect()
-        } else {
-            bench::patterns(width)
-                .into_iter()
-                .filter(|&v| v != 0)
-                .collect()
-        };
-        for value in values {
-            let mut to = zero.clone();
-            to[port] = value;
-            cases.push(Case {
-                from: zero.clone(),
-                to,
-            });
-        }
-    }
-    let mut state = 0x9e37_79b9_7f4a_7c15_u64;
-    let mut next = |width: usize| {
-        let mut draw = || {
-            state ^= state << 13;
-            state ^= state >> 7;
-            state ^= state << 17;
-            state
-        };
-        let value = Value::from(draw()) << 64 | Value::from(draw());
-        value & bench::mask(width)
-    };
-    for _ in 0..random {
-        let from = widths.iter().map(|&w| next(w)).collect();
-        let to = widths.iter().map(|&w| next(w)).collect();
-        cases.push(Case { from, to });
-    }
-    cases
-}
-
-/// Traces each of `cases` through `tracer`, each input switching on its
-/// tick of `at`, as a build's timing switches them, until `until` passes, and gathers how each output settles and the
-/// races that come first in each change: a later one, of a node a race
-/// before set changing, is likely its doing.
-pub fn sweep(
-    tracer: &mut Tracer,
-    cases: &[Case],
-    at: &[i32],
-    until: Option<Instant>,
-) -> Result<Sweep> {
-    let widths = tracer.output_widths();
-    let mut sweep = Sweep {
-        cases: 0,
-        outputs: vec![Settling::default(); widths.len()],
-        races: Vec::new(),
-    };
-    let mut seen: BTreeMap<(usize, Vec<usize>, bool), usize> = BTreeMap::new();
-    for case in cases {
-        if until.is_some_and(|until| Instant::now() > until) {
-            break;
-        }
-        sweep.cases += 1;
-        let trace = tracer.run(&case.from, &case.to, at)?;
-        for (port, &width) in widths.iter().enumerate() {
-            let settling = &mut sweep.outputs[port];
-            let Some(&(settled, _)) = trace.output_steps(port).last() else {
-                continue;
-            };
-            *settling.settled.entry(settled).or_default() += 1;
-            if settling.slowest.as_ref().is_none_or(|(s, _)| settled > *s) {
-                settling.slowest = Some((settled, case.clone()));
-            }
-            for bit in 0..width {
-                if trace.bit_changes(port, bit).len() > 1 {
-                    settling
-                        .glitches
-                        .entry(bit)
-                        .or_insert_with(|| (0, case.clone()))
-                        .0 += 1;
-                }
-            }
-        }
-        let races = trace.races(&tracer.graph);
-        let first = races.first().map_or(0, |race| race.tick);
-        let mut counted = Vec::new();
-        for race in races.into_iter().take_while(|race| race.tick == first) {
-            let key = (race.node, race.rivals.clone(), race.pulse);
-            if counted.contains(&key) {
-                continue;
-            }
-            counted.push(key.clone());
-            if let Some(&i) = seen.get(&key) {
-                sweep.races[i].count += 1;
-            } else {
-                seen.insert(key, sweep.races.len());
-                sweep.races.push(Seen {
-                    race,
-                    case: case.clone(),
-                    count: 1,
-                });
-            }
-        }
-    }
-    sweep
-        .races
-        .sort_by_key(|seen| std::cmp::Reverse(seen.count));
-    Ok(sweep)
 }

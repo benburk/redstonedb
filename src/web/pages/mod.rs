@@ -79,7 +79,7 @@ pub use settings::{
 };
 pub use similar::{Found, similar_dialog, similar_page, similar_results};
 pub use simulation::{simulation_results, timing_section};
-pub use trace::{glitch_trace, trace_page};
+pub use trace::glitch_trace;
 pub use upload::{
     analysis_steps, analyzing, checking_version, upload, version_steps,
 };

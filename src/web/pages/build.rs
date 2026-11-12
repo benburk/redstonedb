@@ -120,10 +120,6 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 // page with the menu at its end; beside the title once
                 // there is room.
                 div class="ml-auto flex w-full items-center gap-2 sm:w-auto" {
-                    // Any build its test ran on can be traced tick by tick.
-                    @if matches!(report, Some(Report::Ran(_))) {
-                        a href={ (path) "/trace" } class="btn btn-quiet" { (icon(icons::ACTIVITY, "size-4")) "Trace" }
-                    }
                     @if viewer.is_some() {
                         button type="button" commandfor="download" command="show-modal" class="btn btn-primary flex-1 sm:flex-none" { "Download" }
                         (download_dialog(s, colours))

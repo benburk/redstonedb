@@ -12,7 +12,7 @@ use maud::{Markup, html};
 use crate::{
     models::schematic::{Schematic, StackDirection},
     recognize::fault,
-    simulate::{BitCount, Report, Run, Stacking, Wrong},
+    simulate::{BitCount, Report, Run, Stacking},
 };
 
 use super::{
@@ -104,8 +104,8 @@ pub struct Known<'a> {
     pub s: Subject<'a>,
     pub file: &'a Result<FileRead, String>,
     pub report: Option<&'a Report>,
-    /// Its logic analyzer, which its timing's glitches and its wrong cases
-    /// link to; `None` for a build not yet stored.
+    /// Where its traced glitch is asked for, under `/glitch`; `None` for a
+    /// build not yet stored.
     pub trace: Option<&'a str>,
     /// Where the details form asks for its timing, when it is measured
     /// once the page has loaded rather than stored.
@@ -511,7 +511,7 @@ fn test_stage(known: &Known) -> Stage {
                 @if !run.faults.is_empty() {
                     (cell_faults(run))
                 } @else {
-                    (truth_table(run, known.trace))
+                    (truth_table(run))
                 }
             },
         ),
@@ -629,25 +629,9 @@ fn bit_counts(run: &Run) -> Vec<BitCount> {
         .collect()
 }
 
-/// The change from every input off to `wrong`'s inputs, traced tick by
-/// tick in the logic analyzer at `trace`.
-fn case_link(trace: &str, run: &Run, wrong: &Wrong) -> String {
-    let pairs: Vec<(String, String)> = run
-        .inputs
-        .iter()
-        .zip(&wrong.inputs)
-        .map(|(line, value)| (format!("to.{}", line.name), value.to_string()))
-        .collect();
-    format!(
-        "{trace}?{}",
-        serde_urlencoded::to_string(pairs).unwrap_or_default()
-    )
-}
-
 /// The first wrong cases as a truth table: a column for each input, then
-/// each output expected and got, the bits that differ marked, each case
-/// a link to trace it from every input off.
-fn truth_table(run: &Run, trace: Option<&str>) -> Markup {
+/// each output expected and got, the bits that differ marked.
+fn truth_table(run: &Run) -> Markup {
     let ops = run.examples.iter().any(|wrong| wrong.op.is_some());
     html! {
         h3 class="mt-5 mb-2 font-semibold" { "First wrong cases" }
@@ -663,7 +647,6 @@ fn truth_table(run: &Run, trace: Option<&str>) -> Markup {
                             th scope="col" class={ (TABLE_HEAD) " border-l border-line pl-4" } { (line.name) " expected" }
                             th scope="col" class=(TABLE_HEAD) { "got" }
                         }
-                        th scope="col" class=(TABLE_HEAD) { span class="sr-only" { "Trace" } }
                     }
                 }
                 tbody {
@@ -677,11 +660,6 @@ fn truth_table(run: &Run, trace: Option<&str>) -> Markup {
                                 td class={ (TABLE_CELL) " border-l border-line pl-4" } { (shown(expected, expected, line.bits)) }
                                 td class=(TABLE_CELL) { (shown(got, expected, line.bits)) }
                             }
-                            td class=(TABLE_CELL) {
-                                @if let (false, Some(trace)) = (ops, trace) {
-                                    a href=(case_link(trace, run, wrong)) class="whitespace-nowrap" { "Trace" }
-                                }
-                            }
                         }
                     }
                 }
@@ -692,7 +670,7 @@ fn truth_table(run: &Run, trace: Option<&str>) -> Markup {
 
 /// When its outputs settle, measured once its test has run, right or
 /// wrong: a warning when they settle on different ticks or glitch, the
-/// glitch drawn by its logic analyzer.
+/// glitch drawn as it runs.
 fn timing_stage(known: &Known) -> Stage {
     let timing = match known.report {
         Some(Report::Ran(run)) => run.timing.as_ref(),

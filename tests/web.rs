@@ -378,57 +378,19 @@ async fn second_version(db: &SqlitePool, id: &str) -> [i32; 3] {
     pos
 }
 
-/// The logic analyzer traces the change the query names, or with none the
-/// one its sweep found most worth seeing, and says what it cannot trace;
-/// a build its test ran on links to it, and shows its glitch traced.
+/// Once a build's test has run, its page shows its glitch traced in its
+/// Timing section.
 #[tokio::test]
-async fn anyone_may_trace_a_build() {
+async fn a_tested_build_shows_its_glitch_traced() {
     let site = Site::start().await;
     let owner = common::sign_in(&site.db, "1", "steve").await;
     let id = site.adder(&owner).await;
 
-    let page = site.get(&format!("/schematics/{id}/trace"), None).await;
-    assert_eq!(page.status(), StatusCode::OK);
-    let page = page.text().await.unwrap();
-    assert!(
-        page.contains("Logic analyzer") && page.contains("<svg"),
-        "{page}"
-    );
-    // Parts are named only by their places, which say nothing a reader
-    // can find them by, so no list of their changes is shown.
-    assert!(!page.contains("changes-heading"), "{page}");
-
-    let traced = site
-        .get(&format!("/schematics/{id}/trace?to.A=1"), None)
-        .await;
-    let traced = traced.text().await.unwrap();
-    assert!(traced.contains(r#"name="to.A" value="1""#), "{traced}");
-
-    let wrong = site
-        .get(&format!("/schematics/{id}/trace?to.Q=1"), None)
-        .await;
-    let wrong = wrong.text().await.unwrap();
-    assert!(wrong.contains("The build has no input named Q."), "{wrong}");
-
-    // Once its test has run, its page has the button, and its glitch is
-    // traced in its Timing section.
-    let build = site.get(&format!("/schematics/{id}"), None).await;
-    assert!(
-        !build
-            .text()
-            .await
-            .unwrap()
-            .contains(&format!("{id}/trace\""))
-    );
     app::models::simulation::complete(&site.db, &id)
         .await
         .unwrap();
     let build = site.get(&format!("/schematics/{id}"), None).await;
     let build = build.text().await.unwrap();
-    assert!(
-        build.contains(&format!(r#"href="/schematics/{id}/trace""#)),
-        "{build}"
-    );
     assert!(
         build
             .contains(&format!(r#"fx-action="/schematics/{id}/trace/glitch""#)),
