@@ -24,8 +24,10 @@ fn cla() -> Build {
         stacking: Vec::new(),
         widened: Vec::new(),
         stacked_from: None,
-        authors: vec!["embizone".to_owned()],
-        contributors: Vec::new(),
+        credits: Credits {
+            authors: vec!["embizone".to_owned()],
+            ..Credits::default()
+        },
         built_on: Some("2014-09-06".to_owned()),
         imported_by: None,
         conventional: true,
@@ -392,7 +394,7 @@ fn a_category_off_the_list_is_capitalized() {
 #[test]
 fn unknown_parts_are_left_out() {
     let s = Build {
-        authors: Vec::new(),
+        credits: Credits::default(),
         built_on: None,
         ..of("adder", Specs::default())
     };

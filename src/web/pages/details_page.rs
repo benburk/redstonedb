@@ -316,7 +316,7 @@ fn checks(page: &DetailsPage) -> Markup {
             (check("similar", State::Warn, &html! {
                 "Nearly the same as "
                 a href={ "/schematics/" (other.id) } { (other.title()) }
-                @if !other.authors.is_empty() { " by " (other.authors.join(", ")) }
+                @if !other.credits.authors.is_empty() { " by " (other.credits.authors.join(", ")) }
                 ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
                 a href={ "/schematics/" (other.id) "/versions/new" } { "upload it as a new version" }
                 " instead; if it builds on it, say so in the description."

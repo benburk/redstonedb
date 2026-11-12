@@ -133,7 +133,8 @@ pub(super) fn record_table(
     let named = player.is_some();
     let holder = |record: &Record<'_>| -> String {
         let theirs = record.holders.iter().find(|s| {
-            s.authors
+            s.credits
+                .authors
                 .iter()
                 .any(|b| player.is_some_and(|p| b.eq_ignore_ascii_case(p)))
         });
@@ -670,9 +671,9 @@ fn ranking(
                                         (width / from.max(1)) " copies of a " (from) "-bit build, stacked"
                                     }
                                 }
-                                @if !s.authors.is_empty() {
+                                @if !s.credits.authors.is_empty() {
                                     div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta" {
-                                        @for name in &s.authors {
+                                        @for name in &s.credits.authors {
                                             (super::person_link(name, &super::player_href(name)))
                                         }
                                     }

@@ -866,7 +866,7 @@ pub fn most_built(builds: &[Build]) -> Vec<Standing> {
 
 /// A build's authors, as people to count.
 fn credited(s: &Build) -> impl Iterator<Item = (String, Option<String>)> + '_ {
-    s.authors.iter().map(|name| (name.clone(), None))
+    s.credits.authors.iter().map(|name| (name.clone(), None))
 }
 
 /// People by how many builds they put on the site: an upload counts for
@@ -1345,7 +1345,9 @@ fn shown_once(found: Vec<Found>) -> Vec<Found> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::schematic::{Encoding, Specs, StackDirection, Widened};
+    use crate::models::schematic::{
+        Credits, Encoding, Specs, StackDirection, Widened,
+    };
 
     /// A board's address reads back as it was written, with each measure
     /// under its own name.
@@ -1746,8 +1748,7 @@ mod tests {
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
-            authors: Vec::new(),
-            contributors: Vec::new(),
+            credits: Credits::default(),
             built_on: None,
             imported_by: None,
             conventional: true,
@@ -1912,7 +1913,10 @@ mod tests {
     /// The builds of the tests below, each by one author.
     fn credited_adders() -> Vec<Build> {
         let by = |name: &str, s: Build| Build {
-            authors: vec![name.to_owned()],
+            credits: Credits {
+                authors: vec![name.to_owned()],
+                ..Credits::default()
+            },
             ..s
         };
         vec![
@@ -2009,12 +2013,18 @@ mod tests {
     fn people_count_whatever_their_case() {
         let builds = [
             Build {
-                authors: vec!["embizone".to_owned()],
+                credits: Credits {
+                    authors: vec!["embizone".to_owned()],
+                    ..Credits::default()
+                },
                 imported_by: Some("embizone".to_owned()),
                 ..build("a", 8, None, None, 1)
             },
             Build {
-                authors: vec!["EmbiZone".to_owned(), "alex".to_owned()],
+                credits: Credits {
+                    authors: vec!["EmbiZone".to_owned(), "alex".to_owned()],
+                    ..Credits::default()
+                },
                 uploader: Some("lookaside".to_owned()),
                 uploader_name: Some("EMBIZONE".to_owned()),
                 ..build("b", 8, None, None, 1)

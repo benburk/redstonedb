@@ -726,13 +726,13 @@ fn credits(s: &Build) -> Markup {
         section aria-labelledby="credits-heading" {
             h2 id="credits-heading" class={ (SECTION_TITLE) " mb-2" } { "Credits" }
             dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
-                (field(&plural("Author", &s.authors), if s.authors.is_empty() {
+                (field(&plural("Author", &s.credits.authors), if s.credits.authors.is_empty() {
                     html! { span class="text-muted" { "unknown" } }
                 } else {
-                    name_badges(&s.authors)
+                    name_badges(&s.credits.authors)
                 }))
-                @if !s.contributors.is_empty() {
-                    (field(&plural("Contributor", &s.contributors), name_badges(&s.contributors)))
+                @if !s.credits.contributors.is_empty() {
+                    (field(&plural("Contributor", &s.credits.contributors), name_badges(&s.credits.contributors)))
                 }
                 @if let Some(built) = &s.built_on {
                     (field("Built", long_date(built)))
@@ -1099,7 +1099,7 @@ fn similar_section(similar: &[(Build, u32)]) -> Markup {
                         span {
                             a href={ "/schematics/" (other.id) } { (other.title()) }
                             span class="text-muted" {
-                                @if !other.authors.is_empty() { " by " (other.authors.join(", ")) }
+                                @if !other.credits.authors.is_empty() { " by " (other.credits.authors.join(", ")) }
                                 ", " (size(other))
                             }
                         }
@@ -1116,10 +1116,10 @@ fn similar_section(similar: &[(Build, u32)]) -> Markup {
 /// stacks, the oldest release it works in, and whether it is verified as
 /// the line under it; and its picture.
 fn preview(s: &Build) -> super::Preview {
-    let by = if s.authors.is_empty() {
+    let by = if s.credits.authors.is_empty() {
         String::new()
     } else {
-        format!(" by {}", s.authors.join(", "))
+        format!(" by {}", s.credits.authors.join(", "))
     };
     let title = format!(
         "{}{by} · {} H×W×D, {} blocks",

@@ -143,7 +143,10 @@ impl User {
     pub fn built(&self, s: &Build) -> bool {
         self.minecraft_verified
             && self.minecraft_name.as_deref().is_some_and(|own| {
-                s.authors.iter().any(|name| name.eq_ignore_ascii_case(own))
+                s.credits
+                    .authors
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(own))
             })
     }
 

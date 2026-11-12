@@ -10,7 +10,7 @@ use crate::{
     details::Details,
     import::{self, Analysis, FileFacts},
     models::{
-        schematic::{self, Build, Orientation, Specs, StackDirection},
+        schematic::{self, Build, Credits, Orientation, Specs, StackDirection},
         tag,
         user::User,
     },
@@ -237,8 +237,8 @@ impl Form {
             } else {
                 s.stacking.iter().map(StackRow::of).collect()
             },
-            authors: s.authors.clone(),
-            contributors: s.contributors.clone(),
+            authors: s.credits.authors.clone(),
+            contributors: s.credits.contributors.clone(),
             tags: s
                 .tags
                 .iter()
@@ -356,8 +356,10 @@ impl Form {
             },
             built_on: text(&self.built_on),
             description: text(&self.description),
-            authors: self.authors.clone(),
-            contributors: self.contributors.clone(),
+            credits: Credits {
+                authors: self.authors.clone(),
+                contributors: self.contributors.clone(),
+            },
             stacking: self.stacking()?,
             tags: self.tags.clone(),
             ..Details::default()
