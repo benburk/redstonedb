@@ -160,19 +160,32 @@ pub(super) async fn refresh_one(
 
 /// Finds build `id`'s lines' roles again, probing its current file as its
 /// category, as an upload's are found, and keeps them when probing finds
-/// it one; says when it doesn't, its roles kept as they were.
+/// it one, or when the nearest reading's test ran and got cases wrong, so
+/// its fault is told on the lines it has, as an upload's is; says when
+/// neither, its roles kept as they were.
 async fn reprobe(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
     let data = version::current_file(db, id)
         .await?
         .context("schematic vanished")?;
     let category = s.category.clone();
+    let probed = data.clone();
     let found = tokio::task::spawn_blocking(move || {
-        app::recognize::probe::recognize_as(&data, Some(&category))
+        app::recognize::probe::recognize_as(&probed, Some(&category))
     })
     .await??;
-    if found.found.is_some() {
+    // Unrecognized, its file is the nearest reading's, carrying the roles
+    // its test ran on, or else its own file as it was.
+    if found.found.is_some() || found.file != data {
         version::set_current_roles(db, id, &found.file).await?;
+        if found.found.is_none() {
+            println!(
+                "{}  {}: not found as its category, its roles kept as its \
+                 nearest reading's",
+                &id[..8],
+                s.filename()
+            );
+        }
     } else {
         println!(
             "{}  {}: not found as its category, its roles kept",
