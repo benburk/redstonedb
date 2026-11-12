@@ -17,10 +17,15 @@ fn cla() -> Build {
             design: Some("carry_lookahead".to_owned()),
             ..Specs::default()
         },
-        torches: None,
-        works_from: None,
-        works_from_by: None,
-        size: (19, 11, 18),
+        file: File {
+            size: (19, 11, 18),
+            conventional: true,
+            ..File::default()
+        },
+        entry: Entry {
+            public: true,
+            ..Entry::default()
+        },
         stacking: Vec::new(),
         widened: Vec::new(),
         stacked_from: None,
@@ -29,21 +34,9 @@ fn cla() -> Build {
             ..Credits::default()
         },
         built_on: Some("2014-09-06".to_owned()),
-        imported_by: None,
-        conventional: true,
-        keeps_paste: false,
         flags: Vec::new(),
         description: None,
         given_name: None,
-        uploader: None,
-        uploader_name: None,
-        sha256: String::new(),
-        added_at: String::new(),
-        edited_at: None,
-        downloads: 0,
-        favorites: 0,
-        public: true,
-        deleted: false,
         unverified: None,
         status: Status::default(),
         operands: Operands::Split,
@@ -112,7 +105,7 @@ fn a_build_s_design_orientation_and_flags_are_among_its_tags() {
             "badge-found"
         ]
     );
-    s.conventional = false;
+    s.file.conventional = false;
     let given: Vec<&str> = s.every_tag()[1..4].iter().map(Tag::class).collect();
     assert_eq!(given, ["badge-other", "badge-other", "badge-other"]);
 }
@@ -144,7 +137,7 @@ fn a_build_stands_by_its_stored_result() {
 fn a_passing_build_kept_as_built_lists_but_does_not_rank() {
     let mut s = cla();
     s.status = Status::Passing;
-    s.conventional = false;
+    s.file.conventional = false;
     s.unverified = Some("Couldn't read its inputs and outputs".to_owned());
     assert!(s.verified());
     assert!(!s.ranks());
@@ -212,7 +205,7 @@ fn only_a_mod_a_confirmed_author_or_the_uploader_may_edit() {
     assert!(!user(None, false, Role::User).may_edit(&cla));
     assert!(user(None, false, Role::Mod).may_edit(&cla));
     let mut uploaded = cla;
-    uploaded.uploader = Some("someone".to_owned());
+    uploaded.entry.uploader = Some("someone".to_owned());
     assert!(user(None, false, Role::User).may_edit(&uploaded));
 }
 
@@ -352,17 +345,13 @@ fn a_stack_grows_by_its_step_however_much_copies_overlap() {
         pitch: None,
     };
     // Copies 2 up a box 6 high overlap by 4, so each adds 2 high.
-    let vertical = Build {
-        size: (5, 6, 6),
-        stacking: vec![way(0, 2, 0)],
-        ..cla()
-    };
+    let mut vertical = cla();
+    vertical.file.size = (5, 6, 6);
+    vertical.stacking = vec![way(0, 2, 0)];
     assert_eq!(vertical.per_copy(), Some((5, 2, 6)));
-    let horizontal = Build {
-        size: (7, 2, 6),
-        stacking: vec![way(5, 0, 0)],
-        ..cla()
-    };
+    let mut horizontal = cla();
+    horizontal.file.size = (7, 2, 6);
+    horizontal.stacking = vec![way(5, 0, 0)];
     assert_eq!(horizontal.per_copy(), Some((5, 2, 6)));
     let diagonal = Build {
         stacking: vec![way(1, 1, 0)],

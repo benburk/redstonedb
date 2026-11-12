@@ -122,7 +122,7 @@ fn tiles<'a>(
         builds
             .iter()
             .copied()
-            .max_by(|a, b| a.added_at.cmp(&b.added_at))
+            .max_by(|a, b| a.entry.added_at.cmp(&b.entry.added_at))
     };
     let mut tiles: Vec<pages::Tile> = categories
         .iter()
@@ -170,7 +170,7 @@ fn recent(all: &[Build]) -> Vec<(&Build, usize)> {
         *named.entry(s.name()).or_default() += 1;
     }
     let mut newest: Vec<&Build> = all.iter().collect();
-    newest.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    newest.sort_by(|a, b| b.entry.added_at.cmp(&a.entry.added_at));
     let mut seen = HashSet::new();
     newest
         .into_iter()
@@ -277,9 +277,11 @@ fn order(shown: &mut [Build], sort: &Sort) {
     shown.sort_by(|a, b| {
         for &(field, descending) in &sort.0 {
             let ordering = match field {
-                SortField::AddedAt => a.added_at.cmp(&b.added_at),
+                SortField::AddedAt => a.entry.added_at.cmp(&b.entry.added_at),
                 SortField::Volume => a.volume().cmp(&b.volume()),
-                SortField::Downloads => a.downloads.cmp(&b.downloads),
+                SortField::Downloads => {
+                    a.entry.downloads.cmp(&b.entry.downloads)
+                }
                 SortField::Latency => {
                     match (a.specs.latency, b.specs.latency) {
                         (Some(x), Some(y)) => x.cmp(&y),
@@ -298,7 +300,7 @@ fn order(shown: &mut [Build], sort: &Sort) {
                 return ordering;
             }
         }
-        b.added_at.cmp(&a.added_at)
+        b.entry.added_at.cmp(&a.entry.added_at)
     });
 }
 

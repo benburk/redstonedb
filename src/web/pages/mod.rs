@@ -324,7 +324,7 @@ fn volume(s: &Build) -> String {
 
 /// Height × width × depth, as the build looks from the south.
 fn size(s: &Build) -> String {
-    let (x, y, z) = s.size;
+    let (x, y, z) = s.file.size;
     format!("{y}×{x}×{z}")
 }
 

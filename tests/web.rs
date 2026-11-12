@@ -187,7 +187,10 @@ async fn each_download_is_logged_with_who_took_it() {
         ]
     );
     let s = schematic::get(&site.db, &id).await.unwrap().unwrap();
-    assert_eq!(s.downloads, 1, "the counter counts the current file alone");
+    assert_eq!(
+        s.entry.downloads, 1,
+        "the counter counts the current file alone"
+    );
 }
 
 /// Build `id`'s logged downloads, oldest first: who, which version, what.

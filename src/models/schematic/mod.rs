@@ -8,8 +8,8 @@ mod write;
 // Until the queries move to a store of their own, the build's types are
 // still reached through here, as they were.
 pub use crate::build::{
-    Build, Credits, Encoding, Faces, Logic, Operands, Orientation, PITCHES,
-    Specs, StackDirection, Status, Widened, classes, file_stem,
+    Build, Credits, Encoding, Entry, Faces, File, Logic, Operands, Orientation,
+    PITCHES, Specs, StackDirection, Status, Widened, classes, file_stem,
 };
 pub use load::{
     all, all_people, get, get_many, get_many_with_deleted, ids_with_prefix,

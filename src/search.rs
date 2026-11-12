@@ -298,9 +298,9 @@ fn facts(s: &Build) -> Vec<String> {
     let people = s.credits.authors.iter().chain(&s.credits.contributors);
     facts.extend(
         people
-            .chain(&s.imported_by)
-            .chain(&s.uploader)
-            .chain(&s.uploader_name)
+            .chain(&s.entry.imported_by)
+            .chain(&s.entry.uploader)
+            .chain(&s.entry.uploader_name)
             .map(person),
     );
     let roles = [
@@ -310,10 +310,11 @@ fn facts(s: &Build) -> Vec<String> {
         ("contributor", s.credits.contributors.iter().collect()),
         (
             "importer",
-            s.imported_by
+            s.entry
+                .imported_by
                 .iter()
-                .chain(&s.uploader)
-                .chain(&s.uploader_name)
+                .chain(&s.entry.uploader)
+                .chain(&s.entry.uploader_name)
                 .collect(),
         ),
     ];
@@ -324,7 +325,7 @@ fn facts(s: &Build) -> Vec<String> {
                 .map(|name| format!("{role}:{}", person(name))),
         );
     }
-    if !s.conventional {
+    if !s.file.conventional {
         facts.push("unconventional".to_owned());
     }
     // Its design by its own label, and no design as `other`, which is no
@@ -393,7 +394,7 @@ fn timing(s: &Build) -> Vec<&'static str> {
 
 /// The releases a build works in, as `version:1.12` names them.
 fn versions(s: &Build) -> Vec<String> {
-    let Some(from) = &s.works_from else {
+    let Some(from) = &s.file.works_from else {
         return Vec::new();
     };
     crate::schem::works_from::known()
@@ -407,7 +408,7 @@ fn versions(s: &Build) -> Vec<String> {
 pub(crate) mod tests {
     use super::*;
     use crate::models::{
-        schematic::{Credits, Encoding, Orientation, Specs},
+        schematic::{Credits, Encoding, Entry, File, Orientation, Specs},
         tag::Tag,
     };
 
@@ -427,10 +428,15 @@ pub(crate) mod tests {
                 encoding: Some(Encoding::Binary),
                 ..Specs::default()
             },
-            torches: None,
-            works_from: None,
-            works_from_by: None,
-            size: (1, 1, 1),
+            file: File {
+                size: (1, 1, 1),
+                conventional: true,
+                ..File::default()
+            },
+            entry: Entry {
+                public: true,
+                ..Entry::default()
+            },
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
@@ -439,21 +445,9 @@ pub(crate) mod tests {
                 ..Credits::default()
             },
             built_on: None,
-            imported_by: None,
-            conventional: true,
-            keeps_paste: false,
             flags: Vec::new(),
             description: None,
             given_name: None,
-            uploader: None,
-            uploader_name: None,
-            sha256: String::new(),
-            added_at: String::new(),
-            edited_at: None,
-            downloads: 0,
-            favorites: 0,
-            public: true,
-            deleted: false,
             unverified: None,
             status: crate::models::schematic::Status::default(),
             operands: crate::models::schematic::Operands::Split,
@@ -631,10 +625,8 @@ pub(crate) mod tests {
 
     #[test]
     fn a_build_is_found_in_every_release_it_works_in() {
-        let s = Build {
-            works_from: Some("1.5".to_owned()),
-            ..schematic("adder", Orientation::Horizontal, &[])
-        };
+        let mut s = schematic("adder", Orientation::Horizontal, &[]);
+        s.file.works_from = Some("1.5".to_owned());
         assert!(find("version:1.5", &s));
         assert!(find("version:1.12", &s));
         assert!(!find("version:1.4.2", &s));

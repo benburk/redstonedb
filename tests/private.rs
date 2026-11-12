@@ -36,7 +36,7 @@ async fn a_private_build_is_listed_only_for_its_uploader_and_admins() {
 
     let id = store(&db, "alpha-rca", &owner).await;
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert!(s.public, "a build is public unless made private");
+    assert!(s.entry.public, "a build is public unless made private");
     assert!(s.listed_to(None));
 
     schematic::set_public(&db, &id, false).await.unwrap();
@@ -80,7 +80,7 @@ async fn favourites_are_each_accounts_own() {
     // Its cards and page count each account that favourited it once.
     assert_eq!(schematic::favorite_count(&db, &id).await.unwrap(), 1);
     let s = schematic::get(&db, &id).await.unwrap().unwrap();
-    assert_eq!(s.favorites, 1);
+    assert_eq!(s.entry.favorites, 1);
     assert_eq!(
         schematic::favorites(&db, alex.id).await.unwrap(),
         std::slice::from_ref(&id)

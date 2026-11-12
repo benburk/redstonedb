@@ -52,14 +52,16 @@ pub async fn thumbnail(
     // their colours and, for a recognized build, its building blocks the
     // palette's. A build kept as built is drawn as its author made it.
     let chosen = match &viewer {
-        Some(user) if s.conventional => palette::of(&state.db, user.id).await?,
+        Some(user) if s.file.conventional => {
+            palette::of(&state.db, user.id).await?
+        }
         _ => None,
     };
     let painted = chosen.is_some();
     let palette = chosen.unwrap_or_default();
     // Kept by what is drawn, so a build whose needs are kept later, its
     // file the same, is drawn again in its theme's building blocks.
-    let (data, key) = if s.conventional {
+    let (data, key) = if s.file.conventional {
         let needs = palette::needs(&state.db, &id).await?;
         let painted = palette::apply(&data, needs.as_ref(), &palette)?;
         let key = import::sha256(&painted);
@@ -150,7 +152,7 @@ fn read_for_page(s: &Build, data: &[u8], blocks: &Blocks) -> Analysis {
         && let Ok(standard) = import::prepare_for(
             data,
             import::Purpose::Standard {
-                keep_paste: s.keeps_paste,
+                keep_paste: s.file.keeps_paste,
             },
         )
     {

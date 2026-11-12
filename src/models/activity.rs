@@ -307,7 +307,7 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
         ),
         (
             "visibility",
-            Some(if s.public { "public" } else { "private" }.to_owned()),
+            Some(if s.entry.public { "public" } else { "private" }.to_owned()),
         ),
     ]
 }

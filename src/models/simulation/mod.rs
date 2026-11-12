@@ -179,7 +179,7 @@ pub fn test_for(s: &Build) -> Option<Test> {
 /// [`complete`]; nothing is run to find out.
 pub async fn current(db: &SqlitePool, s: &Build) -> Result<Option<Report>> {
     match test_for(s) {
-        Some(test) => stored(db, &s.id, &s.sha256, test).await,
+        Some(test) => stored(db, &s.id, &s.file.sha256, test).await,
         None => Ok(None),
     }
 }
@@ -213,7 +213,8 @@ pub async fn refresh(
     let s = schematic::get(db, id).await?.context("no such schematic")?;
     let data = current_file(db, &s).await?;
     if !again {
-        adopt(db, id, (&data, &s.sha256), (&s.stacking, buses(&s))).await?;
+        adopt(db, id, (&data, &s.file.sha256), (&s.stacking, buses(&s)))
+            .await?;
     }
     if s.evaluated() {
         return refresh_evaluated(db, &s, data, again).await;
@@ -222,7 +223,7 @@ pub async fn refresh(
         return refresh_off_list(db, &s, &data, meant, again).await;
     }
     let mut derived = Derived::of(&s);
-    if s.conventional {
+    if s.file.conventional {
         derived.read(&s.category, &Blocks::read(&data)?);
     }
     let test = Test::of(&s.category, derived.specs.width);
@@ -232,7 +233,7 @@ pub async fn refresh(
             let kept = if again {
                 None
             } else {
-                stored(db, id, &s.sha256, test).await?
+                stored(db, id, &s.file.sha256, test).await?
             };
             if let Some(report) = kept {
                 Some(report)
@@ -250,7 +251,7 @@ pub async fn refresh(
     let (data, sha256) = match (&ran, &report) {
         (Some((_, report)), _) => at_zero(db, &s, data, report).await?,
         (None, Some(report)) => reused_at_zero(db, &s, data, report).await?,
-        (None, None) => (data, s.sha256.clone()),
+        (None, None) => (data, s.file.sha256.clone()),
     };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, &s).await?;
@@ -306,13 +307,13 @@ async fn at_zero(
     data: Vec<u8>,
     report: &Report,
 ) -> Result<(Vec<u8>, String)> {
-    let kept = |data| Ok((data, s.sha256.clone()));
-    if !report.passed() || !s.conventional {
+    let kept = |data| Ok((data, s.file.sha256.clone()));
+    if !report.passed() || !s.file.conventional {
         return kept(data);
     }
     let category = stands_in(s).unwrap_or(&s.category).to_owned();
     let inverted = report.inverted().to_vec();
-    let (conventional, keeps_paste) = (s.conventional, s.keeps_paste);
+    let (conventional, keeps_paste) = (s.file.conventional, s.file.keeps_paste);
     let was = data.clone();
     let fixed = tokio::task::spawn_blocking(move || {
         let fixed = crate::schem::standardize::levers_at_zero(
@@ -349,7 +350,7 @@ async fn at_zero(
         return kept(data);
     }
     match fixed {
-        Ok(Some(prepared)) if prepared.sha256 != s.sha256 => {
+        Ok(Some(prepared)) if prepared.sha256 != s.file.sha256 => {
             version::replace(db, &s.id, &prepared, version::Replacing::InPlace)
                 .await?;
             Ok((prepared.data, prepared.sha256))
@@ -369,7 +370,7 @@ async fn reused_at_zero(
     report: &Report,
 ) -> Result<(Vec<u8>, String)> {
     let (data, sha256) = at_zero(db, s, data, report).await?;
-    if sha256 != s.sha256 {
+    if sha256 != s.file.sha256 {
         adopt(db, &s.id, (&data, &sha256), (&s.stacking, buses(s))).await?;
     }
     Ok((data, sha256))
@@ -397,7 +398,7 @@ async fn refresh_off_list(
     let standard = import::prepare_for(
         data,
         import::Purpose::Standard {
-            keep_paste: s.keeps_paste,
+            keep_paste: s.file.keeps_paste,
         },
     );
     let report = match standard {
@@ -416,7 +417,7 @@ async fn refresh_off_list(
             reason: format!("Couldn't standardize it: {err:#}."),
         },
     };
-    set(db, &s.id, test, (s.sha256.as_str(), None), &report).await?;
+    set(db, &s.id, test, (s.file.sha256.as_str(), None), &report).await?;
     Ok(Some(report))
 }
 
@@ -441,7 +442,7 @@ async fn refresh_evaluated(
         return Ok(Some(report));
     }
     // One evaluated as it was uploaded is taken, or waited on.
-    let ahead = match taken_ahead(&s.sha256) {
+    let ahead = match taken_ahead(&s.file.sha256) {
         Some(cell) => cell
             .get_or_init(|| evaluated(data.clone(), &TIMING))
             .await
@@ -477,7 +478,7 @@ async fn refresh_evaluated(
     let derived = Derived::evaluated(s, &e);
     let (data, sha256) = match &report {
         Some(report) => at_zero(db, s, data, report).await?,
-        None => (data, s.sha256.clone()),
+        None => (data, s.file.sha256.clone()),
     };
     let mut tx = db.begin().await?;
     derived.save(&mut tx, s).await?;
@@ -558,7 +559,7 @@ async fn keep_measures(
         verdict: verdict.to_owned(),
         latency: s.specs.latency,
         throughput: s.specs.throughput,
-        size: [s.size.0, s.size.1, s.size.2],
+        size: [s.file.size.0, s.file.size.1, s.file.size.2],
         pitch: s.stacking.iter().filter_map(|d| d.pitch).min(),
     };
     version::set_measures(db, id, &measures).await?;
@@ -597,7 +598,7 @@ async fn timed(
     derived.decide(&s, &report);
     let mut tx = db.begin().await?;
     if let Some((test, key)) = measured {
-        let file = (s.sha256.as_str(), key.as_deref());
+        let file = (s.file.sha256.as_str(), key.as_deref());
         set(&mut *tx, id, test, file, &report).await?;
     }
     derived.save(&mut tx, &s).await?;

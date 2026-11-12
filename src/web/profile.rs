@@ -79,7 +79,7 @@ async fn show_profile(
     let own = viewer.is_some_and(|viewer| viewer.id == account.id);
     let mut all = schematic::visible(&state.db, viewer).await?;
     // Newest first, as on the home page.
-    all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    all.sort_by(|a, b| b.entry.added_at.cmp(&a.entry.added_at));
     // Credits are in-game names, so they match the profile's Minecraft
     // name, whatever its case.
     let credited = |names: &[String]| {
@@ -121,7 +121,7 @@ async fn show_profile(
         lists.push(pages::ProfileList {
             name: "private",
             label: "Private",
-            builds: pick(&|s| uploaded(s) && !s.public),
+            builds: pick(&|s| uploaded(s) && !s.entry.public),
         });
         // Most lately favourited first.
         let ids = schematic::favorites(&state.db, account.id).await?;

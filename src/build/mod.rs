@@ -3,7 +3,9 @@
 //! Loading and storing builds is `models::schematic`.
 
 mod credits;
+mod entry;
 mod facts;
+mod file;
 mod name;
 mod specs;
 mod stacking;
@@ -13,7 +15,9 @@ mod tags;
 mod tests;
 
 pub use credits::Credits;
+pub use entry::Entry;
 pub use facts::{Encoding, Logic, Orientation};
+pub use file::File;
 pub use name::file_stem;
 pub use specs::Specs;
 pub use stacking::{Faces, PITCHES, StackDirection, Widened, classes};
@@ -27,24 +31,12 @@ use crate::{
 /// A stored build's details. Its file stays in the database until
 /// [`crate::models::version::current_file`] fetches it.
 #[derive(Debug, Clone)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "a row of facts, each yes or no on its own"
-)]
 pub struct Build {
     pub id: String,
     pub category: String,
     pub specs: Specs,
-    /// How many redstone torches its file has; `None` until counted.
-    pub torches: Option<i64>,
-    /// The oldest Minecraft release it works in, such as `1.5`; `None`
-    /// until its file is read.
-    pub works_from: Option<String>,
-    /// The component or mechanic that sets `works_from`, such as
-    /// `comparator`; `None` for a build of nothing newer than Alpha.
-    pub works_from_by: Option<String>,
-    /// The build's box less any outer layer holding only its interface.
-    pub size: (i64, i64, i64),
+    pub file: File,
+    pub entry: Entry,
     /// Empty for a build that does not stack.
     pub stacking: Vec<StackDirection>,
     /// Its copies stacked into wider builds, at each standard width they
@@ -53,12 +45,6 @@ pub struct Build {
     /// For a leaderboard's entry of copies of a build stacked to a wider
     /// width, the build's own width; see `Build::widened_to`.
     pub stacked_from: Option<i64>,
-    /// Whether the build follows the building conventions, so the
-    /// interface reader applies to it.
-    pub conventional: bool,
-    /// Whether its file keeps where its uploader's `//paste` put it, which
-    /// a new version or a reread file keeps too.
-    pub keeps_paste: bool,
     /// The name the build was given, for a category that takes one, such
     /// as `Bus Crossing` under bussing.
     pub given_name: Option<String>,
@@ -67,31 +53,9 @@ pub struct Build {
     pub flags: Vec<Flag>,
     /// Free text about the build, such as how to use it.
     pub description: Option<String>,
-    /// The username of the account that uploaded it through the site.
-    pub uploader: Option<String>,
-    /// That account as people know it: its Minecraft name, else its
-    /// username.
-    pub uploader_name: Option<String>,
     pub credits: Credits,
+    /// When it was built, a date such as `2024-02-02`.
     pub built_on: Option<String>,
-    /// The in-game name of whoever imported the build.
-    pub imported_by: Option<String>,
-    /// Of its current file, so a URL derived from the file can name its
-    /// version, and a simulation result can be matched to it.
-    pub sha256: String,
-    pub added_at: String,
-    /// When a person last changed its details; `None` if never.
-    pub edited_at: Option<String>,
-    /// How many times it has been downloaded.
-    pub downloads: i64,
-    /// How many people have favourited it.
-    pub favorites: i64,
-    /// Whether it is listed for everyone; a private build is listed only
-    /// for its uploader and admins, though anyone with its link sees it.
-    pub public: bool,
-    /// Whether it was deleted, kept for an admin to restore; only the
-    /// moderation log loads one.
-    pub deleted: bool,
     /// Why a build of a category the site recognizes builds of is not
     /// recognized as one, as `details::unrecognized` says; `None` for one
     /// that is, or any other build. Such a build is kept as built.
@@ -140,7 +104,7 @@ impl Build {
             None
         } else if self.unaligned {
             Some("unaligned buses".to_owned())
-        } else if !self.conventional {
+        } else if !self.file.conventional {
             Some("kept as built".to_owned())
         } else {
             self.unverified.clone()
@@ -182,7 +146,7 @@ impl Build {
     /// Whether `evaluate` works out its every measured detail: a
     /// conventional build of a category it does so for, recognized as one.
     pub fn evaluated(&self) -> bool {
-        self.conventional
+        self.file.conventional
             && self.unverified.is_none()
             && crate::category::behaviour(&self.category).evaluated
     }
@@ -225,7 +189,7 @@ impl Build {
         &self,
         viewer: Option<&crate::models::user::User>,
     ) -> bool {
-        self.public
+        self.entry.public
             || viewer.is_some_and(|user| user.is_admin() || user.uploaded(self))
     }
 }

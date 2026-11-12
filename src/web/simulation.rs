@@ -246,7 +246,7 @@ async fn stored_result(
     test: Test,
 ) -> Result<Option<Report>, AppError> {
     let Some(s) = s else { return Ok(None) };
-    Ok(simulation::stored(&state.db, &s.id, &s.sha256, test).await?)
+    Ok(simulation::stored(&state.db, &s.id, &s.file.sha256, test).await?)
 }
 
 /// The details form's checks: the same stages a build's page shows, its

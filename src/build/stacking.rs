@@ -2,7 +2,7 @@
 //! along, the box within it later copies repeat, and the wider builds its
 //! copies make.
 
-use super::{Build, Orientation, Specs};
+use super::{Build, File, Orientation, Specs};
 use crate::category::Measure;
 
 /// One direction a stackable build repeats along. Each copy sits `west`
@@ -227,13 +227,13 @@ impl Build {
     /// what each copy adds, since its copies may overlap; else its whole
     /// box.
     pub fn volume(&self) -> i64 {
-        let (x, y, z) = self.per_copy().unwrap_or(self.size);
+        let (x, y, z) = self.per_copy().unwrap_or(self.file.size);
         x * y * z
     }
 
     /// The number of blocks inside the build's bounding box.
     pub fn box_volume(&self) -> i64 {
-        let (x, y, z) = self.size;
+        let (x, y, z) = self.file.size;
         x * y * z
     }
 
@@ -245,7 +245,7 @@ impl Build {
         if self.stacking.is_empty() {
             return None;
         }
-        let (mut x, mut y, z) = self.size;
+        let (mut x, mut y, z) = self.file.size;
         for d in &self.stacking {
             match (d.west, d.up) {
                 (west, 0) => x = west,
@@ -288,7 +288,10 @@ impl Build {
                     .filter(|_| self.has(Measure::Throughput)),
                 ..specs.clone()
             },
-            size: (size[0].into(), size[1].into(), size[2].into()),
+            file: File {
+                size: (size[0].into(), size[1].into(), size[2].into()),
+                ..self.file.clone()
+            },
             ..self.clone()
         }
     }
@@ -305,7 +308,7 @@ impl Build {
             .iter()
             .find(|d| d.adds_bits(self.specs.orientation))?;
         let more = w.copies - 1;
-        let (x, y, z) = self.size;
+        let (x, y, z) = self.file.size;
         let size = (x + along.west * more, y + along.up * more, z);
         let stacking = self
             .stacking
@@ -331,7 +334,10 @@ impl Build {
                 throughput: w.throughput,
                 ..self.specs.clone()
             },
-            size,
+            file: File {
+                size,
+                ..self.file.clone()
+            },
             stacking,
             widened: Vec::new(),
             stacked_from: self.specs.width,

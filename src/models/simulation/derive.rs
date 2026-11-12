@@ -169,7 +169,7 @@ impl Derived {
             self.stacking = Vec::new();
             return;
         }
-        if !s.conventional || policy == category::Stacking::Given {
+        if !s.file.conventional || policy == category::Stacking::Given {
             return;
         }
         if let Some(stacking) = &run.stacking {

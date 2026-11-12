@@ -89,11 +89,11 @@ impl<'a> Subject<'a> {
     /// Stored build `s`.
     pub fn of(s: &'a Build) -> Subject<'a> {
         Subject {
-            size: s.size,
+            size: s.file.size,
             category: &s.category,
             unranked: s.unranked(),
             unaligned: s.unaligned,
-            conventional: s.conventional,
+            conventional: s.file.conventional,
             unverified: s.unverified.as_deref(),
         }
     }

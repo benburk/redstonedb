@@ -246,7 +246,7 @@ impl Ruler {
                 bits: 1,
             };
         };
-        let (mut x, mut y, z) = s.size;
+        let (mut x, mut y, z) = s.file.size;
         for way in s.stacking.iter().filter(|way| way.pitch.is_some()) {
             match (way.west, way.up) {
                 (step, 0) if west => x = step,
@@ -773,7 +773,7 @@ pub fn fastest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
         .filter(|s| s.specs.latency.is_some())
         .collect();
     let key = |s: &Build| (s.specs.latency, ruler.size(s));
-    timed.sort_by_key(|s| (key(s), s.added_at.clone()));
+    timed.sort_by_key(|s| (key(s), s.entry.added_at.clone()));
     placed(&timed, key)
 }
 
@@ -782,7 +782,7 @@ pub fn fastest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
 pub fn smallest<'a>(builds: &[&'a Build], ruler: Ruler) -> Vec<Placed<'a>> {
     let mut sorted = builds.to_vec();
     let key = |s: &Build| (ruler.size(s), s.specs.latency.unwrap_or(i64::MAX));
-    sorted.sort_by_key(|s| (key(s), s.added_at.clone()));
+    sorted.sort_by_key(|s| (key(s), s.entry.added_at.clone()));
     placed(&sorted, key)
 }
 
@@ -874,7 +874,11 @@ fn credited(s: &Build) -> impl Iterator<Item = (String, Option<String>)> + '_ {
 /// the in-game name of whoever imported it.
 pub fn most_added(builds: &[Build]) -> Vec<Standing> {
     tally(builds.iter().filter_map(|s| {
-        match (&s.uploader, &s.uploader_name, &s.imported_by) {
+        match (
+            &s.entry.uploader,
+            &s.entry.uploader_name,
+            &s.entry.imported_by,
+        ) {
             (Some(account), Some(name), _) => {
                 Some((name.clone(), Some(account.clone())))
             }
@@ -1346,7 +1350,7 @@ fn shown_once(found: Vec<Found>) -> Vec<Found> {
 mod tests {
     use super::*;
     use crate::models::schematic::{
-        Credits, Encoding, Specs, StackDirection, Widened,
+        Credits, Encoding, Entry, File, Specs, StackDirection, Widened,
     };
 
     /// A board's address reads back as it was written, with each measure
@@ -1438,7 +1442,7 @@ mod tests {
     ) -> Build {
         Build {
             category: "xor_gate".to_owned(),
-            size,
+            file: sized(size),
             stacking: ways
                 .iter()
                 .map(|&(west, up, pitch)| StackDirection {
@@ -1551,7 +1555,7 @@ mod tests {
     fn a_merged_record_is_named_by_its_stacking_then_design_then_ticks() {
         // Copies 2 apart, each as big as its box.
         let stacking = |s: Build| Build {
-            size: (2, 5, s.size.0 / 10),
+            file: sized((2, 5, s.file.size.0 / 10)),
             stacking: vec![StackDirection {
                 west: 2,
                 up: 0,
@@ -1610,7 +1614,7 @@ mod tests {
             let mut register = build(id, bits, None, Some(4), 0);
             register.category = "register".to_owned();
             register.specs.logic = Some(Logic::Stateful);
-            register.size = size;
+            register.file.size = size;
             register
         };
         let registers = [
@@ -1715,12 +1719,21 @@ mod tests {
         // Nor does it make the register stackable on its boards.
         assert!(!ranked_tags(&register).iter().any(|t| t.name == "stackable"));
         // A stacking its author gave says nothing of words.
-        register.conventional = false;
+        register.file.conventional = false;
         assert!(
             !register.every_tag().iter().any(|tag| {
                 crate::models::tag::is_word_stackable(&tag.name)
             })
         );
+    }
+
+    /// A conventional build's file facts, its box of `size`.
+    fn sized(size: (i64, i64, i64)) -> File {
+        File {
+            size,
+            conventional: true,
+            ..File::default()
+        }
     }
 
     fn build(
@@ -1741,30 +1754,20 @@ mod tests {
                 design: design.map(str::to_owned),
                 ..Specs::default()
             },
-            torches: None,
-            works_from: None,
-            works_from_by: None,
-            size: (volume, 1, 1),
+            file: sized((volume, 1, 1)),
+            entry: Entry {
+                added_at: id.to_owned(),
+                public: true,
+                ..Entry::default()
+            },
             stacking: Vec::new(),
             widened: Vec::new(),
             stacked_from: None,
             credits: Credits::default(),
             built_on: None,
-            imported_by: None,
-            conventional: true,
-            keeps_paste: false,
             flags: Vec::new(),
             description: None,
             given_name: None,
-            uploader: None,
-            uploader_name: None,
-            sha256: String::new(),
-            added_at: id.to_owned(),
-            edited_at: None,
-            downloads: 0,
-            favorites: 0,
-            public: true,
-            deleted: false,
             unverified: None,
             status: crate::models::schematic::Status::default(),
             operands: crate::models::schematic::Operands::Split,
@@ -2011,25 +2014,18 @@ mod tests {
 
     #[test]
     fn people_count_whatever_their_case() {
-        let builds = [
-            Build {
-                credits: Credits {
-                    authors: vec!["embizone".to_owned()],
-                    ..Credits::default()
-                },
-                imported_by: Some("embizone".to_owned()),
-                ..build("a", 8, None, None, 1)
-            },
-            Build {
-                credits: Credits {
-                    authors: vec!["EmbiZone".to_owned(), "alex".to_owned()],
-                    ..Credits::default()
-                },
-                uploader: Some("lookaside".to_owned()),
-                uploader_name: Some("EMBIZONE".to_owned()),
-                ..build("b", 8, None, None, 1)
-            },
-        ];
+        let by = |id: &str, authors: &[&str]| {
+            let mut s = build(id, 8, None, None, 1);
+            s.credits.authors =
+                authors.iter().map(|&name| name.to_owned()).collect();
+            s
+        };
+        let mut imported = by("a", &["embizone"]);
+        imported.entry.imported_by = Some("embizone".to_owned());
+        let mut uploaded = by("b", &["EmbiZone", "alex"]);
+        uploaded.entry.uploader = Some("lookaside".to_owned());
+        uploaded.entry.uploader_name = Some("EMBIZONE".to_owned());
+        let builds = [imported, uploaded];
         let built: Vec<(String, usize)> = most_built(&builds)
             .into_iter()
             .map(|s| (s.name, s.count))
@@ -2062,7 +2058,7 @@ mod tests {
                 synchronized: Some(false),
                 throughput: Some(19),
             }],
-            size: (3, 4, 5),
+            file: sized((3, 4, 5)),
             ..build("s", 1, Some("ripple_carry"), Some(6), 60)
         };
         let adders =
@@ -2079,7 +2075,7 @@ mod tests {
         let stack = fastest[0].1;
         assert_eq!(stack.stacked_from, Some(1));
         assert_eq!(stack.specs.latency, Some(20));
-        assert_eq!(stack.size, (3 + 2 * 7, 4, 5));
+        assert_eq!(stack.file.size, (3 + 2 * 7, 4, 5));
         assert_eq!(stack.volume(), 2 * 8 * 4 * 5);
     }
 
