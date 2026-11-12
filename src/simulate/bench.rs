@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 
 use super::{
     BitCount, Reading, Run, Signal, Timing, Value, Wrong,
-    circuit::{Circuit, input_bits, output_bits},
+    circuit::{Circuit, bit_labels, input_bits, output_bits},
     timing,
 };
 use crate::{interface::Interface, schem::Blocks};
@@ -94,6 +94,21 @@ impl Bench {
             care: Value::MAX,
             press: None,
             invertible: true,
+        }
+    }
+
+    /// A bench driving `inputs` and reading `outputs` with `held` set once
+    /// and held through every case, as the lines choosing an ALU's
+    /// operation are: each is set as given, so none is tried inverted.
+    pub fn held(
+        inputs: Vec<usize>,
+        outputs: Vec<usize>,
+        held: Vec<(usize, Value)>,
+    ) -> Self {
+        Bench {
+            held,
+            invertible: false,
+            ..Bench::new(inputs, outputs, "")
         }
     }
 
@@ -193,11 +208,9 @@ impl Spec {
                 let selected = if every { 0 } else { cases.len() as u64 };
                 (cases, every, selected)
             }
-            Cases::Combinations(_) if quick => {
-                let (cases, count) = paired(&widths);
-                (cases, false, count)
+            Cases::Combinations(structured) => {
+                chosen(&widths, quick, structured)
             }
-            Cases::Combinations(structured) => cases(&widths, structured),
         };
         let got = observe(blocks, interface, &self.bench, &cases, None)?;
         let run = best(interface, &self.bench, &self.kinds, &cases, &got)
@@ -358,6 +371,32 @@ pub(crate) fn cases(
     (every, true, 0)
 }
 
+/// The cases a test runs on inputs of `widths`: with `quick` a few telling
+/// ones, as [`paired`] gives them, else as [`cases`] does; with whether
+/// they are every one and how many pair the test patterns.
+pub(crate) fn chosen(
+    widths: &[usize],
+    quick: bool,
+    structured: impl FnOnce() -> (Vec<Case>, u64),
+) -> (Vec<Case>, bool, u64) {
+    if quick {
+        let (cases, count) = paired(widths);
+        (cases, false, count)
+    } else {
+        cases(widths, structured)
+    }
+}
+
+/// The control lines `on` as a few words, such as `subtract + carry in
+/// on`, or `no lines on`.
+pub(crate) fn lines_on(on: &[&str]) -> String {
+    if on.is_empty() {
+        "no lines on".to_owned()
+    } else {
+        format!("{} on", on.join(" + "))
+    }
+}
+
 /// Every pairing of a few telling values of each input's width, a 1-bit one
 /// taking 0 and 1, with how many there are: a quick look, enough to tell
 /// an adder from a multiplier, even for a build slow to run.
@@ -416,6 +455,21 @@ fn telling(width: usize) -> Vec<Value> {
 }
 
 impl Run {
+    /// The runs of one build's operations as one run, its pattern naming
+    /// each of `labels`; `None` for no runs.
+    pub(crate) fn merged(
+        runs: impl IntoIterator<Item = Run>,
+        labels: &[&str],
+    ) -> Option<Run> {
+        let mut runs = runs.into_iter();
+        let mut merged = runs.next()?;
+        for run in runs {
+            merged.absorb(run);
+        }
+        merged.pattern = labels.join(", ");
+        Some(merged)
+    }
+
     /// Takes in `other`'s cases, as another operation of the same build,
     /// keeping the first five wrong cases of all.
     pub(crate) fn absorb(&mut self, other: Run) {
@@ -624,13 +678,12 @@ pub(crate) fn remembers(
     cases.truncate(32);
     let history = observe(blocks, interface, bench, &cases, None)?;
     let rest = Bench {
-        inputs: bench.inputs.clone(),
-        outputs: bench.outputs.clone(),
-        pattern: String::new(),
-        held: bench.held.clone(),
         care: bench.care,
-        press: None,
-        invertible: false,
+        ..Bench::held(
+            bench.inputs.clone(),
+            bench.outputs.clone(),
+            bench.held.clone(),
+        )
     };
     for (case, &was) in cases.iter().zip(&history) {
         let fresh = observe(blocks, interface, &rest, &[*case], None)?;
@@ -651,15 +704,7 @@ pub(crate) fn remembers_any(
     settings: impl IntoIterator<Item = Vec<(usize, Value)>>,
 ) -> Result<bool> {
     for held in settings {
-        let bench = Bench {
-            inputs: inputs.to_vec(),
-            outputs: outputs.to_vec(),
-            pattern: String::new(),
-            held,
-            care: Value::MAX,
-            press: None,
-            invertible: false,
-        };
+        let bench = Bench::held(inputs.to_vec(), outputs.to_vec(), held);
         if remembers(blocks, interface, &bench)? {
             return Ok(true);
         }
@@ -730,14 +775,7 @@ pub(crate) fn judge(
     let labels: Vec<String> = bench
         .outputs
         .iter()
-        .flat_map(|&i| {
-            let port = &interface.outputs[i];
-            let bits = output_bits(interface, port);
-            (0..bits).map(move |bit| match bits {
-                1 => port.name.clone(),
-                _ => format!("{} bit {bit}", port.name),
-            })
-        })
+        .flat_map(|&i| bit_labels(interface, &interface.outputs[i]))
         .collect();
     // Counted only once cases are wrong, so a pass costs nothing more.
     let bit_counts = if wrong == 0 {

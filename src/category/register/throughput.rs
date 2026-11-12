@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::{
     Kind, Line, Register, STRIDE, Shape,
-    check::{buses, check_on, ports},
+    check::{buses, check_on, ports, set_reads},
 };
 use crate::{
     interface,
@@ -427,19 +427,8 @@ fn drive(
     write: Option<Line>,
     read: Option<Line>,
 ) {
-    for &port in &register.controls {
-        let mut value = 0;
-        for line in register.reads.iter().filter(|line| line.port == port) {
-            let on = read.is_some_and(|read| read.is(line));
-            if on != line.active_low {
-                value |= 1 << line.bit;
-            }
-        }
-        if let Some(write) = write.filter(|write| write.port == port) {
-            value |= 1 << write.bit;
-        }
-        circuit.set(port, value);
-    }
+    let on: Vec<Line> = read.into_iter().chain(write).collect();
+    set_reads(circuit, register, &on);
 }
 
 /// A register's stream: an access every `period` ticks, each write

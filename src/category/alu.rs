@@ -36,7 +36,7 @@ use crate::{
     schem::Blocks,
     simulate::{
         Broken, Run, Timing, Value,
-        bench::{self, Bench, Case, cases, mask, observe, paired, sweep},
+        bench::{self, Bench, Case, mask, observe, paired, sweep},
         broken,
         circuit::{input_bits, output_bits},
         rng::Rng,
@@ -271,18 +271,14 @@ impl Looks<'_> {
     fn look(&mut self, levers: u64) -> Result<&[Value]> {
         if !self.seen.contains_key(&levers) {
             let alu = self.alu;
-            let bench = Bench {
-                inputs: vec![alu.a, alu.b],
-                outputs: alu.data.clone(),
-                pattern: String::new(),
-                held: (0..alu.lines.len())
+            let bench = Bench::held(
+                vec![alu.a, alu.b],
+                alu.data.clone(),
+                (0..alu.lines.len())
                     .map(|k| (alu.lines[k].0, Value::from(levers >> k & 1)))
                     .chain(alu.carry_in.map(|port| (port, 0)))
                     .collect(),
-                care: Value::MAX,
-                press: None,
-                invertible: false,
-            };
+            );
             let got = observe(
                 self.blocks,
                 self.interface,
@@ -529,15 +525,8 @@ fn selections(
         if found.iter().any(|s| s.held == held) {
             continue;
         }
-        let bench = Bench {
-            inputs: vec![alu.a, alu.b],
-            outputs: alu.data.clone(),
-            pattern: String::new(),
-            held: held.clone(),
-            care: Value::MAX,
-            press: None,
-            invertible: false,
-        };
+        let bench =
+            Bench::held(vec![alu.a, alu.b], alu.data.clone(), held.clone());
         let got = observe(blocks, interface, &bench, &telling, None)?;
         let right = |op: Op| {
             telling
@@ -566,15 +555,10 @@ fn selections(
                 .filter(|(k, _)| combination >> k & 1 == 1)
                 .map(|(_, &(port, _))| interface.inputs[port].name.as_str())
                 .collect();
-            let lines = if on.is_empty() {
-                "no lines on".to_owned()
-            } else {
-                format!("{} on", on.join(" + "))
-            };
             found.push(Selection {
                 op,
                 held,
-                label: format!("{op} ({lines})"),
+                label: format!("{op} ({})", bench::lines_on(&on)),
             });
         }
     }
@@ -596,15 +580,9 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     for selection in &found {
         runs.push(check_one(blocks, &interface, &alu, selection, quick)?);
     }
-    let mut merged = runs.remove(0);
-    for run in runs {
-        merged.absorb(run);
-    }
-    merged.pattern = found
-        .iter()
-        .map(|s| s.label.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
+    let labels: Vec<&str> = found.iter().map(|s| s.label.as_str()).collect();
+    let mut merged = Run::merged(runs, &labels)
+        .ok_or_else(|| Broken("no operation to check".to_owned()))?;
     merged.inverted = alu.inverted_lines(&interface);
     Ok(merged)
 }
@@ -659,26 +637,17 @@ fn check_one(
         }
     }
     let bench = Bench {
-        inputs,
-        outputs,
         pattern: selection.label.clone(),
-        held,
         care,
-        press: None,
-        invertible: false,
+        ..Bench::held(inputs, outputs, held)
     };
     let widths: Vec<usize> = if carry {
         vec![width, width, 1]
     } else {
         vec![width, width]
     };
-    let (cases, exhaustive, patterns) = if quick {
-        let (telling, _) = paired(&widths);
-        let count = telling.len() as u64;
-        (telling, false, count)
-    } else {
-        cases(&widths, || adder_cases(width, carry, 8))
-    };
+    let (cases, exhaustive, patterns) =
+        bench::chosen(&widths, quick, || adder_cases(width, carry, 8));
     let data_bits = alu.data_bits;
     let carry_inverted = Value::from(carry && alu.carry_inverted);
     let expected = |case: &Case| {

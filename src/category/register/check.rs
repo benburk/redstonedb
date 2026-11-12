@@ -13,7 +13,7 @@ use crate::{
         Action, Broken, CellControls, Reading, Run, Signal, Value, Wrong,
         bench::{mask, patterns},
         broken,
-        circuit::{Circuit, output_bits},
+        circuit::{Circuit, bit_labels, output_bits},
     },
 };
 
@@ -672,13 +672,9 @@ impl Tally {
         let bits = buses
             .iter()
             .map(|&bus| {
-                let port = &interface.outputs[bus];
-                let width = output_bits(interface, port);
-                (0..width)
-                    .map(|bit| match width {
-                        1 => (port.name.clone(), 0),
-                        _ => (format!("{} bit {bit}", port.name), 0),
-                    })
+                bit_labels(interface, &interface.outputs[bus])
+                    .into_iter()
+                    .map(|label| (label, 0))
                     .collect()
             })
             .collect();

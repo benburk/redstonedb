@@ -254,19 +254,15 @@ fn selections(
         let mut right = [0usize; Shift::ALL.len()];
         let mut tried = 0;
         for n in shifter.amounts() {
-            let bench = Bench {
-                inputs: vec![shifter.a],
-                outputs: vec![shifter.output],
-                pattern: String::new(),
-                held: modes
+            let bench = Bench::held(
+                vec![shifter.a],
+                vec![shifter.output],
+                modes
                     .iter()
                     .copied()
                     .chain(shifter.amount_lines(n))
                     .collect(),
-                care: Value::MAX,
-                press: None,
-                invertible: false,
-            };
+            );
             let got = observe(blocks, interface, &bench, &telling, None)?;
             for (case, &got) in telling.iter().zip(&got) {
                 tried += 1;
@@ -288,11 +284,7 @@ fn selections(
             .filter(|&&(_, on)| on == 1)
             .map(|&(port, _)| interface.inputs[port].name.as_str())
             .collect();
-        let lines = if on.is_empty() {
-            "no lines on".to_owned()
-        } else {
-            format!("{} on", on.join(" + "))
-        };
+        let lines = bench::lines_on(&on);
         let shift = Shift::ALL[k];
         found.push(Selection {
             shift,
@@ -342,7 +334,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     let interface = crate::interface::read(blocks);
     let shifter = ports(&interface)?;
     let found = selections(blocks, &interface, &shifter)?;
-    let mut merged: Option<Run> = None;
+    let mut runs = Vec::new();
     for Setting {
         shift: k,
         amount: n,
@@ -351,29 +343,19 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     {
         let selection = &found[k];
         let bench = Bench {
-            inputs: vec![shifter.a],
-            outputs: vec![shifter.output],
             pattern: selection.label.clone(),
-            held,
-            care: Value::MAX,
-            press: None,
-            invertible: false,
+            ..Bench::held(vec![shifter.a], vec![shifter.output], held)
         };
         let widths = [shifter.width];
-        let (cases, exhaustive, patterns) = if quick {
-            let (telling, _) = bench::paired(&widths);
-            let count = telling.len() as u64;
-            (telling, false, count)
-        } else {
-            bench::cases(&widths, || {
+        let (cases, exhaustive, patterns) =
+            bench::chosen(&widths, quick, || {
                 (
                     (0..1 << shifter.width.min(16))
                         .map(|a| [a, 0, 0])
                         .collect(),
                     0,
                 )
-            })
-        };
+            });
         let (shift, width) = (selection.shift, shifter.width);
         let mut run =
             sweep(blocks, &interface, &bench, &cases, None, move |case| {
@@ -383,19 +365,11 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
         for wrong in &mut run.examples {
             wrong.op = Some(format!("{}, n = {n}", selection.label));
         }
-        match &mut merged {
-            Some(all) => all.absorb(run),
-            None => merged = Some(run),
-        }
+        runs.push(run);
     }
-    let mut merged =
-        merged.ok_or_else(|| Broken("no shift to check".to_owned()))?;
-    merged.pattern = found
-        .iter()
-        .map(|s| s.label.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    Ok(merged)
+    let labels: Vec<&str> = found.iter().map(|s| s.label.as_str()).collect();
+    Run::merged(runs, &labels)
+        .ok_or_else(|| Broken("no shift to check".to_owned()).into())
 }
 
 /// The flags the barrel shifter in `blocks` shows: `bidirectional` when it

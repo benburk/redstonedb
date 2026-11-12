@@ -748,6 +748,18 @@ pub(crate) fn output_bits(interface: &Interface, port: &Port) -> usize {
     port.bits.len() * if digits { 4 } else { 1 }
 }
 
+/// Each bit of output `port` by name, lowest first: the port's name, and
+/// the bit's place in it when it has more than one, such as `output bit 3`.
+pub(crate) fn bit_labels(interface: &Interface, port: &Port) -> Vec<String> {
+    let bits = output_bits(interface, port);
+    (0..bits)
+        .map(|bit| match bits {
+            1 => port.name.clone(),
+            _ => format!("{} bit {bit}", port.name),
+        })
+        .collect()
+}
+
 /// A driver for each digit of signal-strength input `port`: an analog lever
 /// behind the build's own comparator for it, the one with nothing behind
 /// it that the rule for inputs reads, see [`repeater_outputs::driving`].

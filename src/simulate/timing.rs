@@ -103,6 +103,43 @@ pub struct Timing {
     pub free_running: Option<i32>,
 }
 
+/// Runs `circuit` until nothing changes, and gives the ticks each bit of
+/// each value `read` reads changed on, the values of `widths` bits, counted
+/// from the tick it was left at. `after` ends what is said of a circuit
+/// still changing `MAX_TICKS` later, such as `a read`.
+pub(crate) fn watch(
+    circuit: &mut Circuit,
+    widths: &[usize],
+    after: &str,
+    read: impl Fn(&Circuit) -> Vec<Value>,
+) -> Result<Vec<Vec<Vec<i32>>>> {
+    let mut before = read(circuit);
+    let mut changes: Vec<Vec<Vec<i32>>> = widths
+        .iter()
+        .map(|&width| vec![Vec::new(); width])
+        .collect();
+    let mut tick = 0;
+    while circuit.step() {
+        tick += 1;
+        if tick > MAX_TICKS.cast_signed() {
+            bail!("It was still changing {MAX_TICKS} ticks after {after}.");
+        }
+        let now = read(circuit);
+        for (ticks, (&old, &new)) in
+            changes.iter_mut().zip(before.iter().zip(&now))
+        {
+            let flipped = old ^ new;
+            for (bit, ticks) in ticks.iter_mut().enumerate() {
+                if flipped >> bit & 1 == 1 {
+                    ticks.push(tick);
+                }
+            }
+        }
+        before = now;
+    }
+    Ok(changes)
+}
+
 /// Of `sorted` ticks, lowest first, the one `share` in a hundred of them
 /// come by, as the median is the one half do; 0 for none.
 pub(crate) fn percentile(sorted: &[i32], share: usize) -> i32 {
@@ -879,24 +916,8 @@ fn output_timings(
         .iter()
         .zip(&together.outputs)
         .enumerate()
-        .map(|(o, (port, stats))| OutputTiming {
-            name: port.name.clone(),
-            status: port.status(),
-            latency: stats.latency().unwrap_or(0),
-            first_change: stats.first_change().unwrap_or(0),
-            carried: carried.port(o),
-            glitches: stats.glitches,
-            staggered: stats.staggered,
-            glitch: stats.glitch.as_ref().map(|(_, glitch)| glitch.clone()),
-            bits: stats
-                .bits
-                .iter()
-                .map(|bit| BitTiming {
-                    first_change: bit.first.unwrap_or(0),
-                    latency: bit.last.unwrap_or(0),
-                    glitches: bit.glitches,
-                })
-                .collect(),
+        .map(|(o, (port, stats))| {
+            stats.timing(&port.name, port.status(), carried.port(o))
         })
         .collect()
 }
@@ -1386,32 +1407,20 @@ fn transition(
     // The tick each data output moved settled by, which must agree.
     let mut data_settled = Vec::new();
     for (o, (output, bits)) in stats.outputs.iter_mut().zip(&seen).enumerate() {
-        let moved: Vec<&(u32, i32, i32)> =
-            bits.iter().filter(|b| b.0 > 0).collect();
-        if moved.is_empty() {
+        let Some((glitched, last)) = output.record(bits) else {
             continue;
-        }
-        for (bit, &(count, first, last)) in output.bits.iter_mut().zip(bits) {
-            if count > 0 {
-                bit.record(first, last, count > 1);
-            }
-        }
-        let last = moved.iter().map(|b| b.2).max().unwrap_or(0);
-        if moved.iter().any(|b| b.0 > 1) {
-            output.glitches += 1;
-            if let Some((number, from, values)) = case
-                && output.glitch.as_ref().is_none_or(|(n, _)| number < *n)
-            {
-                let glitch = Glitch {
-                    from: from.to_vec(),
-                    case: values.to_vec(),
-                    before: before[o],
-                    steps: carried.arrived_steps(o, before[o], &steps[o]),
-                };
-                output.glitch = Some((number, glitch));
-            }
-        } else if moved.iter().any(|b| b.2 != last) {
-            output.staggered += 1;
+        };
+        if glitched
+            && let Some((number, from, values)) = case
+            && output.glitch.as_ref().is_none_or(|(n, _)| number < *n)
+        {
+            let glitch = Glitch {
+                from: from.to_vec(),
+                case: values.to_vec(),
+                before: before[o],
+                steps: carried.arrived_steps(o, before[o], &steps[o]),
+            };
+            output.glitch = Some((number, glitch));
         }
         if !stats.status[o] {
             data_settled.push(last);
@@ -1439,10 +1448,13 @@ struct Stats {
     changes: u64,
 }
 
-struct OutputStats {
+/// One output's changes over every change of the inputs timed.
+pub(crate) struct OutputStats {
     bits: Vec<BitStats>,
-    glitches: u64,
-    staggered: u64,
+    /// Changes in which a bit changed more than once.
+    pub(crate) glitches: u64,
+    /// Changes in which its bits each changed once but on different ticks.
+    pub(crate) staggered: u64,
     /// The first glitch from all off, by its case's number.
     glitch: Option<(u64, Glitch)>,
 }
@@ -1463,6 +1475,84 @@ impl BitStats {
 }
 
 impl OutputStats {
+    /// An output of `width` bits, nothing yet changed.
+    pub(crate) fn new(width: usize) -> Self {
+        OutputStats {
+            bits: vec![BitStats::default(); width],
+            glitches: 0,
+            staggered: 0,
+            glitch: None,
+        }
+    }
+
+    /// Counts one change of the inputs: for each bit, how many times it
+    /// changed and the first and last tick it did. A bit changing more
+    /// than once is a glitch; else bits settling on different ticks are
+    /// staggered. Whether it glitched, and the tick it settled by; `None`
+    /// when no bit moved.
+    fn record(&mut self, bits: &[(u32, i32, i32)]) -> Option<(bool, i32)> {
+        let moved = || bits.iter().filter(|&&(count, ..)| count > 0);
+        let settled = moved().map(|&(_, _, last)| last).max()?;
+        for (bit, &(count, first, last)) in self.bits.iter_mut().zip(bits) {
+            if count > 0 {
+                bit.record(first, last, count > 1);
+            }
+        }
+        let glitched = moved().any(|&(count, ..)| count > 1);
+        if glitched {
+            self.glitches += 1;
+        } else if moved().any(|&(_, _, last)| last != settled) {
+            self.staggered += 1;
+        }
+        Some((glitched, settled))
+    }
+
+    /// Counts one change of the inputs from each bit's ticks, as they
+    /// arrived; the tick the output settled by, 0 when no bit moved.
+    pub(crate) fn add(&mut self, changes: &[Vec<i32>]) -> i32 {
+        let bits: Vec<(u32, i32, i32)> = changes
+            .iter()
+            .map(|ticks| match (ticks.first(), ticks.last()) {
+                (Some(&first), Some(&last)) => (
+                    u32::try_from(ticks.len()).unwrap_or(u32::MAX),
+                    first,
+                    last,
+                ),
+                _ => (0, 0, 0),
+            })
+            .collect();
+        self.record(&bits).map_or(0, |(_, settled)| settled)
+    }
+
+    /// Its timing as `name`, a status line or not, with the ticks
+    /// `carried` its repeaters or comparators take to carry it out.
+    pub(crate) fn timing(
+        &self,
+        name: &str,
+        status: bool,
+        carried: i32,
+    ) -> OutputTiming {
+        OutputTiming {
+            name: name.to_owned(),
+            status,
+            latency: self.latency().unwrap_or(0),
+            first_change: self.first_change().unwrap_or(0),
+            carried,
+            glitches: self.glitches,
+            staggered: self.staggered,
+            glitch: self.glitch.as_ref().map(|(_, glitch)| glitch.clone()),
+            bits: self
+                .bits
+                .iter()
+                .map(|bit| BitTiming {
+                    first_change: bit.first.unwrap_or(0),
+                    latency: bit.last.unwrap_or(0),
+                    glitches: bit.glitches,
+                })
+                .collect(),
+        }
+    }
+
     fn latency(&self) -> Option<i32> {
         self.bits.iter().filter_map(|bit| bit.last).max()
     }
@@ -1477,15 +1567,7 @@ impl Stats {
         Stats {
             status: status.to_vec(),
             apart: 0,
-            outputs: widths
-                .iter()
-                .map(|&width| OutputStats {
-                    bits: vec![BitStats::default(); width],
-                    glitches: 0,
-                    staggered: 0,
-                    glitch: None,
-                })
-                .collect(),
+            outputs: widths.iter().map(|&w| OutputStats::new(w)).collect(),
             settled: BTreeMap::new(),
             slowest: (0, Vec::new()),
             changes: 0,

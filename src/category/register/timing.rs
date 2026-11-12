@@ -20,7 +20,9 @@ use crate::{
         Value,
         bench::mask,
         circuit::{Carried, Circuit, MAX_TICKS, output_bits},
-        timing::{BitTiming, InputTiming, OutputTiming, Start, Takes, Timing},
+        timing::{
+            InputTiming, OutputStats, OutputTiming, Start, Takes, Timing,
+        },
     },
 };
 
@@ -45,8 +47,10 @@ pub fn time(
         .iter()
         .map(|&bus| output_bits(&interface, &interface.outputs[bus]))
         .collect();
-    let mut stats: Vec<BusStats> =
-        widths.iter().map(|&width| BusStats::new(width)).collect();
+    let mut stats: Vec<OutputStats> = widths
+        .iter()
+        .map(|&width| OutputStats::new(width))
+        .collect();
     let mut settled: Vec<(i32, Value)> = Vec::new();
     let all = mask(register.width);
     let takes = if takes_data_closing(&mut circuit, &register)? {
@@ -113,13 +117,7 @@ pub fn time(
             tick: Some(0),
             earliest: None,
         }],
-        outputs: stats
-            .into_iter()
-            .zip(&register.buses)
-            .map(|(bus, &port)| {
-                bus.timing(&interface.outputs[port].name, carried.port(port))
-            })
-            .collect(),
+        outputs: bus_timings(&stats, &register, &interface, &carried),
         synced,
         median,
         p99,
@@ -371,8 +369,10 @@ fn aligned(
         .iter()
         .map(|&bus| output_bits(interface, &interface.outputs[bus]))
         .collect();
-    let mut stats: Vec<BusStats> =
-        widths.iter().map(|&width| BusStats::new(width)).collect();
+    let mut stats: Vec<OutputStats> = widths
+        .iter()
+        .map(|&width| OutputStats::new(width))
+        .collect();
     let mut settled: Vec<(i32, Value)> = Vec::new();
     for cell in &register.cells {
         let Some(&read_line) = cell.reads.first() else {
@@ -434,13 +434,7 @@ fn aligned(
     }
     Ok(Timing {
         inputs,
-        outputs: stats
-            .into_iter()
-            .zip(&register.buses)
-            .map(|(bus, &port)| {
-                bus.timing(&named.outputs[port].name, carried.port(port))
-            })
-            .collect(),
+        outputs: bus_timings(&stats, register, named, carried),
         synced,
         median,
         p99,
@@ -453,6 +447,23 @@ fn aligned(
         takes: Takes::Open,
         ..Timing::default()
     })
+}
+
+/// Each bus's timing from `stats`, by the name `interface` gives it, with
+/// the ticks `carried` its repeaters or comparators take to carry it out.
+fn bus_timings(
+    stats: &[OutputStats],
+    register: &Register,
+    interface: &Interface,
+    carried: &Carried,
+) -> Vec<OutputTiming> {
+    stats
+        .iter()
+        .zip(&register.buses)
+        .map(|(bus, &port)| {
+            bus.timing(&interface.outputs[port].name, false, carried.port(port))
+        })
+        .collect()
 }
 
 /// Of reads that each settled on a tick with a value, the tick half of them
@@ -474,27 +485,10 @@ fn watch(
     circuit: &mut Circuit,
     register: &Register,
 ) -> Result<Vec<Vec<Vec<i32>>>> {
-    let mut before = buses(circuit, register);
-    let mut changes =
-        vec![vec![Vec::new(); register.width]; register.buses.len()];
-    let mut tick = 0;
-    while circuit.step() {
-        tick += 1;
-        if tick > MAX_TICKS {
-            bail!("It was still changing {MAX_TICKS} ticks after a read.");
-        }
-        let now = buses(circuit, register);
-        for (bus, (&old, &new)) in before.iter().zip(&now).enumerate() {
-            let flipped = old ^ new;
-            for (bit, ticks) in changes[bus].iter_mut().enumerate() {
-                if flipped >> bit & 1 == 1 {
-                    ticks.push(i32::try_from(tick).unwrap_or(i32::MAX));
-                }
-            }
-        }
-        before = now;
-    }
-    Ok(changes)
+    let widths = vec![register.width; register.buses.len()];
+    crate::simulate::timing::watch(circuit, &widths, "a read", |circuit| {
+        buses(circuit, register)
+    })
 }
 
 /// Opens `write` with `read`, if any, on: turns its lever on with the
@@ -770,87 +764,4 @@ fn write_latency(
 /// none.
 fn last(changes: &[Vec<i32>]) -> i32 {
     changes.iter().flatten().max().copied().unwrap_or(0)
-}
-
-/// One bus's changes over the reads timed.
-struct BusStats {
-    bits: Vec<BitTiming>,
-    /// Reads in which a bit changed more than once.
-    glitches: u64,
-    /// Reads in which its bits each changed once but on different ticks.
-    staggered: u64,
-    latency: i32,
-    first_change: i32,
-}
-
-impl BusStats {
-    fn new(width: usize) -> Self {
-        BusStats {
-            bits: vec![
-                BitTiming {
-                    first_change: i32::MAX,
-                    latency: 0,
-                    glitches: 0,
-                };
-                width
-            ],
-            glitches: 0,
-            staggered: 0,
-            latency: 0,
-            first_change: i32::MAX,
-        }
-    }
-
-    /// Adds one read's changes, each bit's ticks, as they arrived; the tick
-    /// the bus settled by.
-    fn add(&mut self, changes: &[Vec<i32>]) -> i32 {
-        let mut last = 0;
-        let mut once: Vec<i32> = Vec::new();
-        let mut glitched = false;
-        for (bit, ticks) in self.bits.iter_mut().zip(changes) {
-            let (Some(&first), Some(&end)) = (ticks.first(), ticks.last())
-            else {
-                continue;
-            };
-            bit.first_change = bit.first_change.min(first);
-            bit.latency = bit.latency.max(end);
-            if ticks.len() > 1 {
-                bit.glitches += 1;
-                glitched = true;
-            } else {
-                once.push(end);
-            }
-            self.first_change = self.first_change.min(first);
-            last = last.max(end);
-        }
-        self.latency = self.latency.max(last);
-        if glitched {
-            self.glitches += 1;
-        } else if once.iter().any(|&tick| Some(&tick) != once.first()) {
-            self.staggered += 1;
-        }
-        last
-    }
-
-    fn timing(self, name: &str, carried: i32) -> OutputTiming {
-        let unchanged = |tick: i32| if tick == i32::MAX { 0 } else { tick };
-        OutputTiming {
-            name: name.to_owned(),
-            status: false,
-            latency: self.latency,
-            first_change: unchanged(self.first_change),
-            carried,
-            glitches: self.glitches,
-            staggered: self.staggered,
-            glitch: None,
-            bits: self
-                .bits
-                .into_iter()
-                .map(|bit| BitTiming {
-                    first_change: unchanged(bit.first_change),
-                    ..bit
-                })
-                .collect(),
-        }
-    }
 }
