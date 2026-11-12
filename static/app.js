@@ -473,6 +473,17 @@ window.addEventListener("pageshow", (event) => {
   if (event.persisted && redraw === location.href) location.reload();
 });
 
+// A link back to the listing a build was found in goes back through the
+// history when that is where the page came from, keeping its place.
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("a[data-back]");
+  if (!link || event.button !== 0 || event.metaKey || event.ctrlKey) return;
+  if (link.href === document.referrer && history.length > 1) {
+    event.preventDefault();
+    history.back();
+  }
+});
+
 // A `<details>` the address points to, as a build's check a stage's link or
 // a form's answer names, opens, so the place gone to shows what is there.
 const openTarget = () => {
