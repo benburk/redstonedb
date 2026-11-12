@@ -14,27 +14,89 @@
 
 use std::fmt;
 
+pub use crate::interface::problem::Rule;
+
 /// Why a build cannot be what its category says, such as an adder whose
-/// operands differ in width. Unlike a block the simulator does not model,
+/// operands differ in width, with the rule that breaks when it is one
+/// with a fix of its own. Unlike a block the simulator does not model,
 /// this is the build's fault, so it counts as failing.
 #[derive(Debug)]
-pub(crate) struct Broken(pub(crate) String);
+pub(crate) struct Broken {
+    pub(crate) rule: Option<Rule>,
+    pub(crate) reason: String,
+}
+
+impl Broken {
+    pub(crate) fn new(reason: impl Into<String>) -> Self {
+        Broken {
+            rule: None,
+            reason: reason.into(),
+        }
+    }
+}
 
 impl fmt::Display for Broken {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.reason)
     }
 }
 
 impl std::error::Error for Broken {}
 
-/// Fails with `Broken` and a message formatted as `format!` does.
+/// Why a build could not be tested, though it may be what its category
+/// says, when the reason breaks a rule with a fix of its own; any other
+/// is a plain error.
+#[derive(Debug)]
+pub(crate) struct Untested {
+    pub(crate) rule: Rule,
+    pub(crate) reason: String,
+}
+
+impl fmt::Display for Untested {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(&self.reason)
+    }
+}
+
+impl std::error::Error for Untested {}
+
+/// The rule the error of a test that could not run says it breaks, if it
+/// names one.
+pub fn rule_of(err: &anyhow::Error) -> Option<Rule> {
+    match err.downcast_ref::<Broken>() {
+        Some(broken) => broken.rule,
+        None => err.downcast_ref::<Untested>().map(|untested| untested.rule),
+    }
+}
+
+/// Fails with `Broken` and a message formatted as `format!` does; after
+/// `rule: R;`, as breaking rule `R`.
 macro_rules! broken {
+    (rule: $rule:expr; $($arg:tt)*) => {
+        return Err($crate::simulate::Broken {
+            rule: Some($rule),
+            reason: format!($($arg)*),
+        }
+        .into())
+    };
     ($($arg:tt)*) => {
-        return Err(Broken(format!($($arg)*)).into())
+        return Err($crate::simulate::Broken::new(format!($($arg)*)).into())
     };
 }
 pub(crate) use broken;
+
+/// Fails with `Untested`, as breaking `rule`, and a message formatted as
+/// `format!` does.
+macro_rules! untested {
+    ($rule:expr; $($arg:tt)*) => {
+        return Err($crate::simulate::Untested {
+            rule: $rule,
+            reason: format!($($arg)*),
+        }
+        .into())
+    };
+}
+pub(crate) use untested;
 
 pub(crate) mod bench;
 pub(crate) mod circuit;

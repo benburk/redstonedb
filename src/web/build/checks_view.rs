@@ -11,7 +11,7 @@ use maud::{Markup, html};
 
 use crate::{
     build::Build,
-    recognize::fault,
+    interface::problem::{Problem, Rule, place},
     simulate::{BitCount, Report, Run, Stacking},
     stack::StackDirection,
     web::{
@@ -400,7 +400,7 @@ fn lines_table(run: &Run) -> Markup {
 /// its test got wrong, which the test shows: each kind of problem once,
 /// with every place it is, as `Lever at (5, 2, 3): touches repeater at (4,
 /// 2, 3)` five times over is one problem at five places.
-fn problems(known: &Known) -> Vec<Problem> {
+fn problems(known: &Known) -> Vec<Found> {
     let Ok(file) = known.file else {
         return Vec::new();
     };
@@ -408,74 +408,53 @@ fn problems(known: &Known) -> Vec<Problem> {
     let strength = file.strength_inputs
         && !crate::category::Kind::named(known.s.category)
             .is_some_and(crate::category::Kind::digit_inputs);
-    let strength =
-        strength.then(|| crate::recognize::fault::WITHOUT_LEVERS.to_owned());
-    let mut kinds: BTreeMap<String, Problem> = BTreeMap::new();
-    for said in strength.iter().chain(&file.unrecognized) {
-        if said.is_empty() || fault::wrong_outputs(said) {
+    let strength = strength.then(|| {
+        Problem::said(
+            Rule::WithoutLevers,
+            crate::recognize::fault::WITHOUT_LEVERS,
+        )
+    });
+    let mut kinds: BTreeMap<String, Found> = BTreeMap::new();
+    for problem in strength.iter().chain(&file.unrecognized) {
+        if problem.message.is_empty() || problem.rule == Rule::WrongCases {
             continue;
         }
-        let (kind, places) = placeless(said);
-        let problem = kinds.entry(kind.clone()).or_insert_with(|| Problem {
+        let kind = problem.kind();
+        let found = kinds.entry(kind.clone()).or_insert_with(|| Found {
             kind,
-            first: said.clone(),
+            rule: problem.rule,
             places: Vec::new(),
         });
-        if !places.is_empty() {
-            problem.places.push(places);
+        if !problem.places.is_empty() {
+            let places: Vec<String> =
+                problem.places.iter().copied().map(place).collect();
+            found.places.push(places.join(" → "));
         }
     }
     kinds.into_values().collect()
 }
 
-/// One kind of problem: as said with its places taken out, as first said,
-/// and each place it is.
-struct Problem {
+/// One kind of problem: as said with its places left out, the rule it
+/// breaks, and each place it is, the places one sentence names together.
+struct Found {
     kind: String,
-    first: String,
+    rule: Rule,
     places: Vec<String>,
 }
 
-/// `problem` with its places taken out, as the kind of problem it is, and
-/// its places: `Lever at (5, 2, 3): touches repeater at (4, 2, 3)` is
-/// `Lever at …: touches repeater at …` at `(5, 2, 3) → (4, 2, 3)`.
-fn placeless(problem: &str) -> (String, String) {
-    let mut kind = String::new();
-    let mut places = Vec::new();
-    let mut rest = problem;
-    while let Some(open) = rest.find('(') {
-        let Some(close) = rest[open..].find(')') else {
-            break;
-        };
-        let inner = &rest[open + 1..open + close];
-        if inner.split(',').all(|n| n.trim().parse::<i32>().is_ok())
-            && inner.contains(',')
-        {
-            kind.push_str(&rest[..open]);
-            kind.push('…');
-            places.push(&rest[open..=open + close]);
-        } else {
-            kind.push_str(&rest[..=open + close]);
-        }
-        rest = &rest[open + close + 1..];
-    }
-    kind.push_str(rest);
-    (kind, places.join(" → "))
-}
-
 /// Each kind of problem, how to fix it, and where it is.
-fn problems_table(problems: &[Problem]) -> Markup {
+fn problems_table(problems: &[Found]) -> Markup {
     html! {
         h3 class="mt-4 mb-2 font-semibold" { "Problems" }
         ul class="flex flex-col gap-3" {
             @for problem in problems {
                 li {
                     span class="block" { (problem.kind) }
-                    @if let Some(advice) = fault::advice(&problem.first) {
+                    @if let Some(advice) = problem.rule.advice() {
                         span class="block text-meta text-muted" {
                             "Fix: " (advice.fix)
-                            @if let Some(rule) = advice.rule {
-                                " " a href={ "/about/recognized#" (rule) } { "See the rule" }
+                            @if let Some(section) = advice.section {
+                                " " a href={ "/about/recognized#" (section) } { "See the rule" }
                             }
                         }
                     }

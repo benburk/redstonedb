@@ -21,7 +21,8 @@ use crate::{
     build::Build,
     category::{self, Category, Test},
     ingest::{details, jobs, prepare::Upload, results},
-    recognize::probe::Recognition,
+    interface::problem::{Problem, Rule},
+    recognize::{fault, probe::Recognition},
     simulate::Report,
     store::builds,
     web::{
@@ -139,7 +140,7 @@ impl Filing {
         let state = match self {
             Filing::Verified => "pass",
             Filing::Unverified(why) => {
-                details_view::failing_or_untested(&[why])
+                details_view::failing_or_untested(fault::wrong_outputs(why))
             }
         };
         html! { template data-filing=(state) {} }
@@ -379,7 +380,7 @@ async fn read_file(
         crate::schem::Blocks::read(data).map_err(|err| err.to_string())?;
     let problems = match &recognition {
         Some(Ok(r)) => r.problems.clone(),
-        Some(Err(err)) => vec![err.clone()],
+        Some(Err(err)) => vec![Problem::said(Rule::Other, err.clone())],
         None => Vec::new(),
     };
     let found = match recognition {

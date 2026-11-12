@@ -7,6 +7,7 @@
 //! here, which lays their lines out and runs their test. The roles found
 //! go with the file, see [`crate::schem::lines`], as the site's tests read
 //! them; no block changes colour.
+use crate::interface::problem::{Problem, Rule};
 use std::fmt;
 
 use crate::{
@@ -48,8 +49,11 @@ pub enum Fault {
     /// Its lines don't fit the kind's roles, or its file couldn't be read
     /// or given its roles, in these words.
     Unfit(String),
-    /// The kind's test couldn't run on the roles tried, for this reason.
-    NotRun(String),
+    /// As `Unfit`, breaking a rule with a fix of its own.
+    Breaks(Rule, String),
+    /// The kind's test couldn't run on the roles tried, for this reason,
+    /// which breaks this rule, when it names one.
+    NotRun(String, Option<Rule>),
     /// The kind's test ran on the roles `file` carries, getting `wrong` of
     /// its `cases` wrong: as near as a build comes to holding. `said` is
     /// that, with the first wrong case as evidence; see `Run::wrong_cases`.
@@ -112,18 +116,34 @@ impl Fault {
     pub fn file(&self) -> Option<&[u8]> {
         match self {
             Fault::Wrong { file, .. } => Some(file),
-            Fault::Unfit(_) | Fault::NotRun(_) => None,
+            Fault::Unfit(_) | Fault::Breaks(..) | Fault::NotRun(..) => None,
+        }
+    }
+}
+
+impl Fault {
+    /// The fault of a test that couldn't run, for `err`.
+    pub(crate) fn not_run(err: &anyhow::Error) -> Fault {
+        Fault::NotRun(err.to_string(), simulate::rule_of(err))
+    }
+
+    /// It as one of the build's problems, as the site shows them.
+    pub fn problem(&self) -> Problem {
+        match self {
+            Fault::Unfit(why) => Problem::said(Rule::Lines, why),
+            Fault::Breaks(rule, why) => Problem::said(*rule, why),
+            Fault::NotRun(reason, rule) => Problem::said(
+                rule.unwrap_or(Rule::Lines),
+                format!("Test couldn't run: {reason}"),
+            ),
+            Fault::Wrong { said, .. } => Problem::said(Rule::WrongCases, said),
         }
     }
 }
 
 impl fmt::Display for Fault {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Fault::Unfit(why) => f.write_str(why),
-            Fault::NotRun(reason) => write!(f, "Test couldn't run: {reason}"),
-            Fault::Wrong { said, .. } => f.write_str(said),
-        }
+        f.write_str(&self.problem().message)
     }
 }
 
@@ -144,14 +164,13 @@ fn try_roles(
         match test.quick(&coloured) {
             Ok(run) if run.wrong == 0 => {}
             Ok(run) => return Ok(Err(Fault::wrong(&run, &file))),
-            Err(err) => return Ok(Err(Fault::NotRun(err.to_string()))),
+            Err(err) => return Ok(Err(Fault::not_run(&err))),
         }
     }
-    Ok(match test.run(&coloured) {
-        simulate::Report::Ran(run) if run.wrong == 0 => Ok((file, *run)),
-        simulate::Report::Ran(run) => Err(Fault::wrong(&run, &file)),
-        simulate::Report::Broken { reason }
-        | simulate::Report::Skipped { reason } => Err(Fault::NotRun(reason)),
+    Ok(match test.check(&coloured, false) {
+        Ok(run) if run.wrong == 0 => Ok((file, run)),
+        Ok(run) => Err(Fault::wrong(&run, &file)),
+        Err(err) => Err(Fault::not_run(&err)),
     })
 }
 

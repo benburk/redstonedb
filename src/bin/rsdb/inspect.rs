@@ -111,8 +111,8 @@ pub(super) async fn inspect_command(
         let mut rules = BTreeSet::new();
         for problem in report.faults() {
             println!("  {}", problem.message);
-            *problems.entry(problem.rule).or_default() += 1;
-            rules.insert(problem.rule);
+            *problems.entry(problem.rule.name()).or_default() += 1;
+            rules.insert(problem.rule.name());
         }
         for rule in &rules {
             *stopped.entry(rule).or_default() += 1;
@@ -209,7 +209,7 @@ fn print_lines(
         None => println!("recognized: nothing holds"),
     }
     for problem in &recognition.problems {
-        println!("  {problem}");
+        println!("  {}", problem.message);
     }
     Ok(())
 }

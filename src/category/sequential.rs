@@ -20,6 +20,7 @@
 //! exactly [`PULSE`] ticks. Status lines, such as a shift out or a
 //! counter's carry out, are left out.
 
+use crate::simulate::{Rule, untested};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Result, bail};
@@ -29,7 +30,7 @@ use crate::{
     interface,
     schem::Blocks,
     simulate::{
-        Broken, Run, Signal, Value, Wrong,
+        Run, Signal, Value, Wrong,
         bench::{mask, patterns},
         broken,
         circuit::{Circuit, MAX_TICKS},
@@ -364,7 +365,10 @@ impl Machine<'_> {
                 self.set(way.pulse, false);
             }
             if tick > MAX_TICKS.cast_signed() {
-                bail!("It was still changing {MAX_TICKS} ticks after a pulse.");
+                untested!(
+                    Rule::StillChanging;
+                    "It was still changing {MAX_TICKS} ticks after a pulse."
+                );
             }
             let now = self.read();
             for (bit, changes) in ticks.iter_mut().enumerate() {

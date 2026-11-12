@@ -3,6 +3,7 @@
 //! reading it back, and, when a case comes out wrong, the faults that
 //! explain it.
 
+use crate::simulate::Rule;
 use anyhow::{Result, bail};
 
 use super::{Cell, Kind, Line, Read, Register, STRIDE, Shape};
@@ -10,7 +11,7 @@ use crate::{
     interface::{self, Interface},
     schem::Blocks,
     simulate::{
-        Action, Broken, CellControls, Reading, Run, Signal, Value, Wrong,
+        Action, CellControls, Reading, Run, Signal, Value, Wrong,
         bench::{mask, patterns},
         broken,
         circuit::{Circuit, bit_labels, output_bits},
@@ -381,15 +382,18 @@ pub(super) fn ports(
     let found = switches(&writes, &reads);
     if writes.is_empty() {
         broken!(
+            rule: Rule::WriteControls;
             "Control lines: expected a button writing each cell, found {found}."
         );
     }
     match kind {
         Kind::Register if reads.is_empty() => broken!(
+            rule: Rule::RegisterControls;
             "Control lines: expected a button writing each cell and a lever \
              reading it, found {found}."
         ),
         Kind::Buffer if !reads.is_empty() => broken!(
+            rule: Rule::BufferControls;
             "Control lines: expected only writes, as a buffer shows what it \
              holds, found {found}."
         ),

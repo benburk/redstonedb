@@ -10,7 +10,6 @@ use crate::{
     category::test::BySpec,
     interface::Interface,
     simulate::{
-        Broken,
         bench::{Bench, Kind, Spec, mask},
         broken,
     },

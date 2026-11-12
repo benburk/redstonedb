@@ -5,7 +5,10 @@
 
 use std::collections::HashMap;
 
-use crate::schem::{Blocks, Pos};
+use crate::{
+    interface::problem::Rule,
+    schem::{Blocks, Pos},
+};
 
 /// One example: what it is called, what its caption says, whether it keeps
 /// the rule, the rule's name in the check's report when it breaks it, and
@@ -14,7 +17,7 @@ pub struct Example {
     pub name: &'static str,
     pub caption: &'static str,
     pub kept: bool,
-    pub breaks: Option<&'static str>,
+    pub breaks: Option<Rule>,
     pub blocks: Vec<(Pos, &'static str)>,
 }
 
@@ -155,7 +158,7 @@ pub fn examples() -> Vec<Example> {
             name: "output-powering",
             caption: "A repeater powering a block, which carries the circuit on.",
             kept: false,
-            breaks: Some("no outputs"),
+            breaks: Some(Rule::NoOutputs),
             blocks: output(1, WHITE),
         },
         Example {
@@ -200,21 +203,22 @@ mod tests {
     fn every_example_shows_what_the_check_does() {
         for example in examples() {
             let report = inspect::inspect(&example.schematic());
-            let rules: Vec<&str> =
+            let rules: Vec<Rule> =
                 report.errors.iter().map(|p| p.rule).collect();
             if let Some(rule) = example.breaks {
                 assert!(rules.contains(&rule), "{}: {rules:?}", example.name);
             }
             if example.kept {
                 for rule in [
-                    "input block wiring",
-                    "no room for a repeater",
-                    "switch touches redstone",
+                    Rule::InputBlockWiring,
+                    Rule::NoRoomForRepeater,
+                    Rule::SwitchTouchesRedstone,
                 ] {
                     assert!(
                         !rules.contains(&rule),
-                        "{} breaks {rule}",
-                        example.name
+                        "{} breaks {}",
+                        example.name,
+                        rule.name()
                     );
                 }
             }
@@ -230,6 +234,23 @@ mod tests {
                 "{} has no picture",
                 example.name
             );
+        }
+    }
+
+    /// Every fault a pictured example that breaks a rule shows has advice
+    /// pointing to that rule's section.
+    #[test]
+    fn each_pictured_fault_has_advice() {
+        for example in examples().iter().filter(|e| e.breaks.is_some()) {
+            for problem in &inspect::inspect(&example.schematic()).errors {
+                let advice = problem.rule.advice();
+                assert!(
+                    advice.is_some_and(|advice| advice.section.is_some()),
+                    "{}: {}",
+                    example.name,
+                    problem.message
+                );
+            }
         }
     }
 

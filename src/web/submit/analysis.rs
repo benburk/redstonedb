@@ -21,6 +21,7 @@ use crate::{
         prepare::{self, Upload},
         version::Checked,
     },
+    interface::problem::{Problem, Rule},
     recognize::probe::{self, Recognition},
     web::app_state::AppState,
 };
@@ -194,7 +195,7 @@ pub fn start(
             .unwrap_or_else(|err| Recognition {
                 file: file.clone(),
                 found: None,
-                problems: vec![format!("{err:#}")],
+                problems: vec![Problem::said(Rule::Other, format!("{err:#}"))],
                 lines: String::new(),
             });
         set(Step::Preparing);

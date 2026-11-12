@@ -2,13 +2,13 @@
 //! giving −A in two's complement, or with a line, A while it is off and −A
 //! while it is on, on an output as wide as A.
 
+use crate::simulate::Rule;
 use anyhow::Result;
 
 use crate::{
     category::{incrementer::incrementer_cases, test::BySpec},
     interface::{self, Interface},
     simulate::{
-        Broken,
         bench::{Bench, Kind, Spec, mask},
         broken,
         circuit::output_bits,
@@ -31,6 +31,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     };
     if lines.len() > 1 {
         broken!(
+            rule: Rule::TooManyControlLines;
             "Too many control lines: {} (a negator takes at most one, its \
              negate).",
             lines.len()

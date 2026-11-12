@@ -9,7 +9,7 @@ use crate::{
     category::{Test, converters::byte_cases, test::BySpec},
     interface::{self, Interface},
     simulate::{
-        Broken, Stacker,
+        Stacker,
         bench::{Bench, Case, Kind, Spec, mask},
         broken,
         circuit::output_bits,

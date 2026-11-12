@@ -4,6 +4,7 @@
 //! through the register test.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
+use crate::interface::problem::Rule;
 use crate::{
     category::Test,
     interface::inspect::{self, Run},
@@ -62,9 +63,10 @@ pub fn register(
         })
         .collect();
     if buses.is_empty() {
-        return Err(Fault::Unfit(format!(
-            "Data bus: no line of {width} levers"
-        )));
+        return Err(Fault::Breaks(
+            Rule::Buses,
+            format!("Data bus: no line of {width} levers"),
+        ));
     }
     let mut why = Fault::Unfit(String::new());
     for bus in buses {

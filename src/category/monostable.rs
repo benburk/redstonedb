@@ -30,7 +30,7 @@ use crate::{
     interface::{self, Interface},
     schem::Blocks,
     simulate::{
-        Broken, Run, Signal, Value, Wrong,
+        Run, Signal, Value, Wrong,
         bench::mask,
         broken,
         circuit::Circuit,

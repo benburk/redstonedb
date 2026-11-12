@@ -2,6 +2,7 @@
 //! line that adds or subtracts it, or picks between adding and
 //! subtracting 1.
 
+use crate::simulate::Rule;
 use anyhow::Result;
 
 use crate::{
@@ -9,7 +10,7 @@ use crate::{
     interface::{self, Interface},
     schem::Blocks,
     simulate::{
-        Broken, Counts, Reading, Value,
+        Counts, Reading, Value,
         bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
     },
@@ -133,6 +134,7 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
     };
     if lines.len() > 1 {
         broken!(
+            rule: Rule::TooManyControlLines;
             "Too many control lines: {} (an incrementer takes one, such \
              as increment).",
             lines.len()

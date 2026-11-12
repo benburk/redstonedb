@@ -335,7 +335,9 @@ fn matching_agrees_with_probing() {
                 .unwrap()
                 .problems
                 .iter()
-                .any(|problem| problem.contains(" cases wrong"))
+                .any(|problem| {
+                    problem.rule == crate::interface::problem::Rule::WrongCases
+                })
         };
         let agrees =
             matched == probed || probed.is_none() && matched.is_some_and(buggy);

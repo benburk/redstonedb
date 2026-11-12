@@ -10,7 +10,7 @@ use crate::{
     category::test::BySpec,
     interface::{Interface, Port},
     simulate::{
-        Broken, Reading, Value,
+        Reading, Value,
         bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
         broken,
         circuit::output_bits,

@@ -1,6 +1,7 @@
 //! A build set up in a world for the simulator: its inputs driven by
 //! levers, buttons, or barrels, and its outputs read from their blocks.
 
+use crate::simulate::Rule;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     panic::AssertUnwindSafe,
@@ -20,7 +21,7 @@ use mchprs_redpiler::{
 };
 use mchprs_world::{World, testing::TestWorld};
 
-use super::{Broken, Value};
+use super::Value;
 use crate::{
     interface::{Interface, Port, repeater_outputs},
     schem::{self, Blocks, Direction, Pos},
@@ -362,8 +363,9 @@ impl Circuit {
         let mut ticks = 0;
         while self.pending() {
             if ticks == MAX_TICKS {
-                bail!(
-                    "It was still changing {MAX_TICKS} ticks after its \
+                untested!(
+                Rule::StillChanging;
+                "It was still changing {MAX_TICKS} ticks after its \
                      inputs changed."
                 );
             }
@@ -1086,7 +1088,8 @@ fn settle_world(world: &mut TestWorld, [x, y, z]: Pos) -> Result<()> {
     let mut ticks = 0;
     while !world.to_be_ticked.is_empty() {
         if ticks == MAX_TICKS {
-            bail!(
+            untested!(
+                Rule::StillChanging;
                 "It was still changing {MAX_TICKS} ticks after it was loaded."
             );
         }
@@ -1123,7 +1126,11 @@ fn at([x, y, z]: Pos) -> BlockPos {
 /// The levers driving `port`'s bits.
 fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
     if port.signal_strength {
-        bail!("Couldn't recognize input {} without levers.", port.name);
+        untested!(
+            Rule::WithoutLevers;
+            "Couldn't recognize input {} without levers.",
+            port.name
+        );
     }
     port.bits
         .iter()
@@ -1213,7 +1220,11 @@ fn block(state: &str) -> Result<Block> {
                 | "minecraft:air"
         );
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
-        bail!("Couldn't simulate its {}.", name.replace('_', " "));
+        untested!(
+            Rule::NotSimulated;
+            "Couldn't simulate its {}.",
+            name.replace('_', " ")
+        );
     };
     if let Some(properties) =
         state.split_once('[').and_then(|(_, p)| p.strip_suffix(']'))

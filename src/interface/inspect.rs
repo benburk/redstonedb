@@ -35,6 +35,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+pub use crate::interface::problem::{Problem, Rule, place};
 use crate::{
     interface::repeater_outputs,
     schem::{self, Blocks, Direction, Pos, Switch, block},
@@ -56,16 +57,6 @@ pub struct Report {
     /// The outputs, each by the block under its repeater or comparator,
     /// grouped into buses and lone lines.
     pub outputs: Vec<Run>,
-}
-
-/// Something only the author can put right.
-#[derive(Debug, Clone)]
-pub struct Problem {
-    /// A short name for the rule, to count problems by.
-    pub rule: &'static str,
-    /// The blocks at fault.
-    pub at: Vec<Pos>,
-    pub message: String,
 }
 
 /// Inputs or outputs in a line, evenly spaced, from one end to the other;
@@ -111,7 +102,7 @@ pub fn inspect(blocks: &Blocks) -> Report {
     );
     report.digits = digits(blocks, &mut report);
     if blocks.switches().is_empty() && report.digits.is_empty() {
-        problem(&mut report, "no inputs", Vec::new(), NO_INPUTS.to_owned());
+        problem(&mut report, Rule::NoInputs, Vec::new(), NO_INPUTS, &[]);
     }
     report.outputs = outputs(blocks, &mut report);
     let hard = inputs.iter().filter(|input| input.hard).count();
@@ -131,7 +122,7 @@ pub fn inspect(blocks: &Blocks) -> Report {
 fn held<T>(
     found: Vec<T>,
     at: impl Fn(&T) -> Pos,
-    (rule, what): (&'static str, impl Fn(&T) -> String),
+    (rule, what): (Rule, impl Fn(&T) -> String),
     report: &mut Report,
 ) -> Vec<T> {
     let (held, bottom): (Vec<T>, Vec<T>) =
@@ -141,11 +132,8 @@ fn held<T>(
             report,
             rule,
             vec![at(one)],
-            format!(
-                "{} at {}: nothing under it in the file",
-                what(one),
-                place(at(one))
-            ),
+            &format!("{} at {{}}: nothing under it in the file", what(one)),
+            &[at(one)],
         );
     }
     held
@@ -159,7 +147,7 @@ fn digits(blocks: &Blocks, report: &mut Report) -> Vec<Run> {
         repeater_outputs::strength_inputs(blocks),
         |input| input.at,
         (
-            "input at the bottom",
+            Rule::InputAtBottom,
             |_: &repeater_outputs::StrengthInput| "Input comparator".to_owned(),
         ),
         report,
@@ -173,17 +161,14 @@ fn digits(blocks: &Blocks, report: &mut Report) -> Vec<Run> {
 fn outputs(blocks: &Blocks, report: &mut Report) -> Vec<Run> {
     let found = repeater_outputs::find(blocks);
     if found.is_empty() {
-        problem(report, "no outputs", Vec::new(), NO_OUTPUTS.to_owned());
+        problem(report, Rule::NoOutputs, Vec::new(), NO_OUTPUTS, &[]);
     }
     let found = held(
         found,
         |output| output.at,
-        (
-            "output at the bottom",
-            |output: &repeater_outputs::Output| {
-                format!("Output {}", output.kind())
-            },
-        ),
+        (Rule::OutputAtBottom, |output: &repeater_outputs::Output| {
+            format!("Output {}", output.kind())
+        }),
         report,
     );
     under(repeater_outputs::lines(&found))
@@ -202,16 +187,6 @@ fn under(runs: Vec<Run>) -> Vec<Run> {
         })
         .collect()
 }
-
-/// The rule of a block behind a lever, where a bus's driver would feed the
-/// repeater put in its place: fine on a control line, which a lever or
-/// button drives, but not on a data input, which a bus may drive; no fault
-/// until probing tells them apart.
-pub const BLOCK_BEHIND: &str = "block behind a lever";
-
-/// The rules that are faults only on a data input, each problem's first
-/// block the input block.
-pub const DATA_ONLY: [&str; 1] = [BLOCK_BEHIND];
 
 impl Report {
     /// The inputs and outputs found, in short, as the upload page shows
@@ -245,44 +220,46 @@ impl Report {
     }
 
     /// Its faults but those only a data input's, which probing tells
-    /// apart; see `DATA_ONLY`.
+    /// apart; see [`Rule::data_only`].
     pub fn faults(&self) -> impl Iterator<Item = &Problem> {
         self.errors
             .iter()
-            .filter(|problem| !DATA_ONLY.contains(&problem.rule))
+            .filter(|problem| !problem.rule.data_only())
     }
 
-    /// Its problems that are faults only on a data input; see `DATA_ONLY`.
+    /// Its problems that are faults only on a data input, each one's first
+    /// block the input block.
     pub fn data_only(&self) -> impl Iterator<Item = &Problem> {
         self.errors
             .iter()
-            .filter(|problem| DATA_ONLY.contains(&problem.rule))
+            .filter(|problem| problem.rule.data_only())
     }
 
     /// Each fault on a block of `data`, the data inputs probing found, of
     /// a rule only a data input breaks.
-    pub fn data_faults(&self, data: &[Pos]) -> Vec<String> {
+    pub fn data_faults(&self, data: &[Pos]) -> Vec<Problem> {
         self.data_only()
             .filter(|problem| {
                 problem.at.first().is_some_and(|block| data.contains(block))
             })
-            .map(|problem| format!("{}, on a data input", problem.message))
+            .map(|problem| Problem {
+                message: format!("{}, on a data input", problem.message),
+                ..problem.clone()
+            })
             .collect()
     }
 }
 
+/// Records a problem that breaks `rule` at blocks `at`; each `{}` in
+/// `sentence` stands for one of `places`, in order.
 pub(crate) fn problem(
     report: &mut Report,
-    rule: &'static str,
+    rule: Rule,
     at: Vec<Pos>,
-    message: String,
+    sentence: &str,
+    places: &[Pos],
 ) {
-    report.errors.push(Problem { rule, at, message });
-}
-
-/// Where a block is, for a message: x, y, z from the file's corner.
-pub fn place(pos: Pos) -> String {
-    format!("({}, {}, {})", pos[0], pos[1], pos[2])
+    report.errors.push(Problem::new(rule, at, sentence, places));
 }
 
 pub(crate) fn short(blocks: &Blocks, pos: Pos) -> &str {
@@ -334,7 +311,6 @@ fn inputs(blocks: &Blocks, report: &mut Report) -> Vec<Input> {
 fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     let (lever, block) = (switch.pos, switch.block);
     let name = short(blocks, lever).to_owned();
-    let at = place(lever);
     if matches!(switch.side, Direction::Up | Direction::Down) {
         let where_ = if switch.side == Direction::Up {
             "top"
@@ -343,9 +319,10 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
         };
         problem(
             report,
-            "switch on top or bottom",
+            Rule::SwitchOnTopOrBottom,
             vec![lever],
-            format!("{} at {at}: on {where_} of block", noun(&name)),
+            &format!("{} at {{}}: on {where_} of block", noun(&name)),
+            &[lever],
         );
         return false;
     }
@@ -353,13 +330,14 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     if !block::holds_input(&block_name) {
         problem(
             report,
-            "input block not solid",
+            Rule::InputBlockNotSolid,
             vec![block],
-            format!(
-                "{} at {at}: on non-solid {}",
+            &format!(
+                "{} at {{}}: on non-solid {}",
                 noun(&name),
                 words(&block_name)
             ),
+            &[lever],
         );
         return false;
     }
@@ -371,7 +349,6 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
 fn lever_touches(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     let (lever, block) = (switch.pos, switch.block);
     let name = short(blocks, lever).to_owned();
-    let at = place(lever);
     // What the lever itself touches: it powers dust and components
     // beside it, not only its block.
     for side in Direction::ALL {
@@ -391,14 +368,14 @@ fn lever_touches(blocks: &Blocks, switch: &Switch, report: &mut Report) {
         ) {
             problem(
                 report,
-                "switch touches redstone",
+                Rule::SwitchTouchesRedstone,
                 vec![lever, next],
-                format!(
-                    "{} at {at}: touches {} at {}",
+                &format!(
+                    "{} at {{}}: touches {} at {{}}",
                     noun(&name),
-                    words(touched),
-                    place(next)
+                    words(touched)
                 ),
+                &[lever, next],
             );
         }
     }
@@ -461,18 +438,20 @@ fn input_block(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
         if let Some((at, what)) = fault {
             problem(
                 report,
-                "input block wiring",
+                Rule::InputBlockWiring,
                 at,
-                format!("Input at {}: {what}", place(block)),
+                &format!("Input at {{}}: {what}"),
+                &[block],
             );
         }
     }
     if drives == 0 {
         problem(
             report,
-            "input drives nothing",
+            Rule::InputDrivesNothing,
             vec![block],
-            format!("Input at {}: drives nothing", place(block)),
+            "Input at {}: drives nothing",
+            &[block],
         );
     }
     dust > 0
@@ -487,35 +466,36 @@ pub(crate) fn free_behind(blocks: &Blocks, switch: &Switch) -> bool {
 
 /// Room for a repeater in the switch's place, standing on a block, so a
 /// bus can drive the input; the spot behind it may be taken only on a
-/// control line, see `BLOCK_BEHIND`.
+/// control line, see [`Rule::BlockBehindLever`].
 fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     let lever = switch.pos;
     let name = short(blocks, lever).to_owned();
-    let at = place(lever);
     let below = short(blocks, schem::step(lever, Direction::Down));
     let behind = schem::step(lever, switch.side);
     let behind_name = short(blocks, behind);
     if !(below == "air" || block::holds_input(below)) {
         problem(
             report,
-            "no room for a repeater",
+            Rule::NoRoomForRepeater,
             vec![lever],
-            format!(
-                "{} at {at}: {} below blocks repeater",
+            &format!(
+                "{} at {{}}: {} below blocks repeater",
                 noun(&name),
                 words(below)
             ),
+            &[lever],
         );
     } else if !free_behind(blocks, switch) {
         problem(
             report,
-            BLOCK_BEHIND,
+            Rule::BlockBehindLever,
             vec![switch.block, lever, behind],
-            format!(
-                "{} at {at}: {} behind blocks repeater",
+            &format!(
+                "{} at {{}}: {} behind blocks repeater",
                 noun(&name),
                 words(behind_name)
             ),
+            &[lever],
         );
     }
 }
@@ -610,7 +590,7 @@ mod tests {
         inspect(&Blocks::from_grid([2, 3, 3], &states))
             .errors
             .into_iter()
-            .filter(|problem| problem.rule == "input block wiring")
+            .filter(|problem| problem.rule == Rule::InputBlockWiring)
             .map(|problem| problem.message)
             .collect()
     }
@@ -650,11 +630,16 @@ mod tests {
         .map(|(pos, state)| (pos, format!("minecraft:{state}")))
         .collect();
         let report = inspect(&Blocks::from_grid([1, 2, 4], &states));
-        let rules: Vec<&str> = report.faults().map(|p| p.rule).collect();
-        assert_eq!(rules, ["no outputs"]);
-        assert_eq!(report.data_faults(&[]), Vec::<String>::new());
+        let rules: Vec<Rule> = report.faults().map(|p| p.rule).collect();
+        assert_eq!(rules, [Rule::NoOutputs]);
+        assert_eq!(report.data_faults(&[]), []);
+        let said: Vec<String> = report
+            .data_faults(&[[0, 1, 1]])
+            .into_iter()
+            .map(|problem| problem.message)
+            .collect();
         assert_eq!(
-            report.data_faults(&[[0, 1, 1]]),
+            said,
             [
                 "Lever at (0, 1, 2): white concrete behind blocks repeater, \
                  on a data input"
@@ -727,7 +712,7 @@ mod tests {
         assert_eq!(report.digits.len(), 1);
         assert_eq!(report.digits[0].bits, [[0, 0, 2]]);
         assert!(report.inputs.is_empty());
-        assert!(!report.errors.iter().any(|p| p.rule == "no inputs"));
+        assert!(!report.errors.iter().any(|p| p.rule == Rule::NoInputs));
     }
 
     /// The owner's 8-digit hex adder, ported: its 16 digit inputs are
