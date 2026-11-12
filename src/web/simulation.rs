@@ -283,7 +283,11 @@ async fn cases(
     let categories = Category::all();
     let category = details::meant(&categories, &Form::read(pairs).category)
         .map_or_else(String::new, |c| c.name.clone());
-    let file = read_file(&data, &category).await;
+    let original = Some(form::first(pairs, "original"))
+        .filter(|o| !o.is_empty())
+        .and_then(|o| STANDARD.decode(o).ok());
+    let passes = report.as_ref().is_some_and(Report::passed);
+    let file = read_file(&data, &category, original, passes).await;
     let why = match &filing {
         Some(Filing::Unverified(why)) => Some(why.as_str()),
         _ => None,
@@ -319,33 +323,129 @@ async fn cases(
 
 /// The file `data` as the checks read it, as a build of `category`: its
 /// lines, its blocks, and, for a category the site recognizes, what keeps
-/// it from being one, as a stored build's page re-reads it.
+/// it from being one, as a stored build's page re-reads it; and what
+/// uploading it takes out or swaps, from `original`, the file as its
+/// author made it, when the form carries it, its unused blocks only when
+/// it `passes`.
 async fn read_file(
     data: &[u8],
     category: &str,
+    original: Option<Vec<u8>>,
+    passes: bool,
 ) -> Result<pages::FileRead, String> {
     let blocks =
         crate::schem::Blocks::read(data).map_err(|err| err.to_string())?;
     // Probing doesn't read hex inputs, so a hex adder's faults are its
     // test's.
-    let problems = if category::blessed(category) && category != "hex_adder" {
+    let recognition = if category::blessed(category) && category != "hex_adder"
+    {
         let (data, meant) = (data.to_vec(), category.to_owned());
-        tokio::task::spawn_blocking(move || {
-            crate::recognize::probe::recognize_as(&data, Some(&meant))
-        })
-        .await
-        .map_err(|err| err.to_string())?
-        .map_or_else(|err| vec![err.to_string()], |r| r.problems)
+        Some(
+            tokio::task::spawn_blocking(move || {
+                crate::recognize::probe::recognize_as(&data, Some(&meant))
+            })
+            .await
+            .map_err(|err| err.to_string())?,
+        )
     } else {
-        Vec::new()
+        None
     };
+    let problems = match &recognition {
+        Some(Ok(r)) => r.problems.clone(),
+        Some(Err(err)) => vec![err.to_string()],
+        None => Vec::new(),
+    };
+    let found = match recognition {
+        Some(Ok(r)) if r.found.is_some() => Some(r.file),
+        _ => None,
+    };
+    let kept = tokio::task::spawn_blocking({
+        let data = data.to_vec();
+        move || taken_out(&data, original.as_deref(), found.as_deref(), passes)
+    })
+    .await
+    .map_err(|err| err.to_string())?;
     Ok(pages::FileRead {
         analysis: crate::import::Analysis::of(&blocks, category),
         block_counts: crate::schem::standardize::block_counts(&blocks),
         unrecognized: problems,
         strength_inputs: crate::recognize::interface::takes_digits(&blocks),
         stacking: Vec::new(),
+        kept,
     })
+}
+
+/// What uploading `data` takes out or swaps, each a sentence: the blocks
+/// `original`, as its author made it, had swapped for barrels and its
+/// trapdoors taken out; and, as the site keeps it once recognized,
+/// `found`, its signs taken out, and its unused blocks when it `passes`.
+fn taken_out(
+    data: &[u8],
+    original: Option<&[u8]>,
+    found: Option<&[u8]>,
+    passes: bool,
+) -> Vec<String> {
+    use crate::schem::Blocks;
+    let count = |file: &[u8], is: &dyn Fn(&str) -> bool| {
+        Blocks::read(file).map_or(0, |blocks| {
+            blocks
+                .iter()
+                .filter(|(_, state)| is(crate::schem::short(state)))
+                .count()
+        })
+    };
+    let plural = |n: usize, one: &str, many: &str| {
+        if n == 1 {
+            format!("1 {one}")
+        } else {
+            format!("{n} {many}")
+        }
+    };
+    let mut said = Vec::new();
+    if let Some(original) = original {
+        let trapdoors = count(original, &|name| name.ends_with("_trapdoor"));
+        if trapdoors > 0 {
+            said.push(format!(
+                "{} taken out, which only showed an output flipping.",
+                plural(trapdoors, "trapdoor", "trapdoors")
+            ));
+        }
+        if let Ok(blocks) = Blocks::read(original) {
+            let swapped =
+                crate::schem::standardize::swappable(&blocks).stand_ins;
+            if !swapped.is_empty() {
+                let one = matches!(swapped.as_slice(), [(_, 1)]);
+                said.push(format!(
+                    "Swapped {} for {} giving the same signal strength.",
+                    pages::counted(&swapped),
+                    if one { "a barrel" } else { "barrels" }
+                ));
+            }
+        }
+    }
+    let Some(found) = found else {
+        return said;
+    };
+    let sign = |name: &str| name.ends_with("_sign");
+    let signs = count(data, &sign).saturating_sub(count(found, &sign));
+    if signs > 0 {
+        said.push(format!(
+            "{} taken out: the site names its lines itself.",
+            plural(signs, "sign", "signs")
+        ));
+    }
+    if passes {
+        let buses = crate::schem::stack::Buses::own();
+        if let Ok(Some(pruned)) =
+            crate::recognize::roles::prune(found, &[], buses)
+        {
+            said.push(format!(
+                "{} no part of its circuit uses taken out.",
+                plural(pruned.gone.len(), "block", "blocks")
+            ));
+        }
+    }
+    said
 }
 
 /// What takes the timing's place when there is none to show: nothing.

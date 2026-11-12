@@ -56,7 +56,8 @@ pub use build::{
 pub use checks::{Known, Subject, form_checks};
 pub use description::mentions;
 pub use details_page::{
-    DetailsPage, File, Reply, details_page, failing_or_untested, reason_items,
+    DetailsPage, File, Reply, counted, details_page, failing_or_untested,
+    reason_items,
 };
 pub use diff::diff_page;
 pub use form::Choices;
