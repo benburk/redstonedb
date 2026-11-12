@@ -4,6 +4,7 @@
 //! the carry alone.
 
 use crate::{
+    category::{Test, test::BySpec},
     interface::{Interface, Port, colour},
     schem::lines::Role,
     simulate::{
@@ -562,6 +563,25 @@ fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
     let paired = (cases.len() - bytes) as u64;
     (cases.cases, paired)
 }
+
+/// The adder's test, which a hex adder's, a subtractor's, and an inverted
+/// adder's builds get too: its kinds name the lines it reads inverted.
+pub(super) const ADDER: BySpec =
+    BySpec::stacked(|_, interface| adder(interface), super::stacks::adder)
+        .reading(|run| run.inverted = run.adder_variant().lines(run))
+        .patterned();
+
+/// A carry out's test: its copies chain as an adder's do.
+pub(super) const CARRY_OUT: BySpec = BySpec::stacked(
+    |_, interface| carry_out(interface),
+    |data| super::stacks::chained(data, Test::CarryOut),
+);
+
+pub(super) const GREATER_THAN: BySpec =
+    BySpec::spec(|_, interface| greater_than(interface));
+
+pub(super) const EQUALITY: BySpec =
+    BySpec::spec(|_, interface| equality(interface));
 
 #[cfg(test)]
 mod tests {

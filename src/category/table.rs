@@ -6,7 +6,9 @@
 use super::Logic;
 use super::{
     Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Line, Lines,
-    Measure, Probe, Probing, Reads, Section, Stacking, Test,
+    Measure, Probe, Probing, Reads, Section, Stacking, Test, adder, alu,
+    converters, decoder, gate, incrementer, inverter, monostable, multiplier,
+    negator, register, sequential, shifter,
 };
 
 /// What the code does with a category's builds when it does nothing
@@ -168,6 +170,7 @@ const ROW: Facts = Facts {
     guess: Guess::Not,
     role_words: &[],
     digit_inputs: false,
+    runs: None,
     behaviour: NOTHING,
 };
 
@@ -248,6 +251,7 @@ const ALU_FLAGS: &[Flag] = &[
 pub(super) const TABLE: [Facts; 49] = [
     Facts {
         kind: Kind::Adder,
+        runs: Some(&adder::ADDER),
         name: "adder",
         label: "Adder",
         noun: "adder",
@@ -326,6 +330,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Alu,
+        runs: Some(&alu::Operations),
         name: "alu",
         label: "ALU",
         noun: "ALU",
@@ -345,6 +350,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Multiplier,
+        runs: Some(&multiplier::MULTIPLIER),
         name: "multiplier",
         label: "Multiplier",
         noun: "multiplier",
@@ -369,6 +375,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Incrementer,
+        runs: Some(&incrementer::INCREMENTER),
         name: "incrementer",
         label: "Incrementer",
         noun: "incrementer",
@@ -390,6 +397,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::IncDec,
+        runs: Some(&incrementer::INC_DEC),
         name: "inc_dec",
         label: "Inc/Dec",
         noun: "inc/dec",
@@ -405,6 +413,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Decrementer,
+        runs: Some(&incrementer::DECREMENTER),
         name: "decrementer",
         label: "Decrementer",
         noun: "decrementer",
@@ -424,6 +433,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Equality,
+        runs: Some(&adder::EQUALITY),
         name: "equality",
         label: "Equality",
         noun: "equality comparator",
@@ -439,6 +449,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::GreaterThan,
+        runs: Some(&adder::GREATER_THAN),
         name: "greater_than",
         label: "Greater Than",
         noun: "greater-than comparator",
@@ -455,6 +466,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::CarryOut,
+        runs: Some(&adder::CARRY_OUT),
         name: "carry_out",
         label: "Carry Out",
         noun: "carry out",
@@ -479,6 +491,7 @@ pub(super) const TABLE: [Facts; 49] = [
     // Copies of these make no wider one, so they never stack.
     Facts {
         kind: Kind::AbsoluteValue,
+        runs: Some(&converters::ABSOLUTE_VALUE),
         name: "absolute_value",
         label: "Absolute Value",
         noun: "absolute value",
@@ -494,6 +507,7 @@ pub(super) const TABLE: [Facts; 49] = [
     // After an absolute value, which a 1-bit one, a wire, also is.
     Facts {
         kind: Kind::Negator,
+        runs: Some(&negator::NEGATOR),
         name: "negator",
         label: "Negator",
         noun: "negator",
@@ -513,6 +527,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Popcount,
+        runs: Some(&converters::POPCOUNT),
         name: "popcount",
         label: "Popcount",
         noun: "popcount",
@@ -526,6 +541,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Threshold,
+        runs: Some(&converters::THRESHOLD),
         name: "threshold",
         label: "Threshold",
         noun: "threshold",
@@ -541,6 +557,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Parity,
+        runs: Some(&converters::PARITY),
         name: "parity",
         label: "Parity",
         noun: "parity circuit",
@@ -556,6 +573,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::BinaryToHex,
+        runs: Some(&converters::BINARY_TO_HEX),
         name: "binary_to_hex",
         label: "Binary to Hex",
         noun: "binary to hex",
@@ -570,6 +588,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::HexToBinary,
+        runs: Some(&converters::HEX_TO_BINARY),
         name: "hex_to_binary",
         label: "Hex to Binary",
         noun: "hex to binary",
@@ -587,6 +606,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::XorGate,
+        runs: Some(&gate::XOR),
         name: "xor_gate",
         label: "XOR Gate",
         noun: "XOR gate",
@@ -601,6 +621,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::XnorGate,
+        runs: Some(&gate::XNOR),
         name: "xnor_gate",
         label: "XNOR Gate",
         noun: "XNOR gate",
@@ -615,6 +636,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::AndGate,
+        runs: Some(&gate::AND),
         name: "and_gate",
         label: "AND Gate",
         noun: "AND gate",
@@ -629,6 +651,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::NandGate,
+        runs: Some(&gate::NAND),
         name: "nand_gate",
         label: "NAND Gate",
         noun: "NAND gate",
@@ -643,6 +666,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::OrGate,
+        runs: Some(&gate::OR),
         name: "or_gate",
         label: "OR Gate",
         noun: "OR gate",
@@ -657,6 +681,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::NorGate,
+        runs: Some(&gate::NOR),
         name: "nor_gate",
         label: "NOR Gate",
         noun: "NOR gate",
@@ -671,6 +696,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::NandXnorGate,
+        runs: Some(&gate::NAND_XNOR_GATE),
         name: "nand_xnor_gate",
         label: "NAND+XNOR Gate",
         noun: "NAND+XNOR gate",
@@ -685,6 +711,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Inverter,
+        runs: Some(&inverter::INVERTER),
         name: "inverter",
         label: "Inverter",
         noun: "inverter",
@@ -708,6 +735,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Decoder,
+        runs: Some(&decoder::DECODER),
         name: "decoder",
         label: "Decoder",
         noun: "decoder",
@@ -723,6 +751,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::BarrelShifter,
+        runs: Some(&shifter::Shifts),
         name: "barrel_shifter",
         label: "Barrel Shifter",
         noun: "barrel shifter",
@@ -741,6 +770,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Monostable,
+        runs: Some(&monostable::Monostable { dual: false }),
         name: "monostable",
         label: "Monostable",
         noun: "monostable",
@@ -760,6 +790,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::DualEdgeMonostable,
+        runs: Some(&monostable::Monostable { dual: true }),
         name: "dual_edge_monostable",
         label: "Dual-Edge Monostable",
         noun: "dual-edge monostable",
@@ -776,6 +807,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Register,
+        runs: Some(&register::Kind::Register),
         name: "register",
         label: "Register",
         noun: "register",
@@ -796,6 +828,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Buffer,
+        runs: Some(&register::Kind::Buffer),
         name: "buffer",
         label: "Buffer",
         noun: "buffer",
@@ -815,6 +848,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::Counter,
+        runs: Some(&sequential::Kind::Counter),
         name: "counter",
         label: "Counter",
         noun: "counter",
@@ -832,6 +866,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::ShiftRegister,
+        runs: Some(&sequential::Kind::ShiftRegister),
         name: "shift_register",
         label: "Shift Register",
         noun: "shift register",
@@ -849,6 +884,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::TFlipFlop,
+        runs: Some(&sequential::Kind::TFlipFlop),
         name: "t_flip_flop",
         label: "T Flip-Flop",
         noun: "T flip-flop",
@@ -874,6 +910,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::BcdToBinary,
+        runs: Some(&converters::BCD_TO_BINARY),
         name: "bcd_to_binary",
         label: "BCD to Binary",
         noun: "bcd to binary",
@@ -887,6 +924,7 @@ pub(super) const TABLE: [Facts; 49] = [
     },
     Facts {
         kind: Kind::BinaryToBcd,
+        runs: Some(&converters::BINARY_TO_BCD),
         name: "binary_to_bcd",
         label: "Binary to BCD",
         noun: "binary to bcd",
@@ -1032,6 +1070,12 @@ const _: () = {
             "a row unnamed"
         );
         let tested = row.behaviour.test.is_some();
+        // The category a test is made for says how it runs, and no other.
+        let own = match row.behaviour.test {
+            Some(test) => test.kind() as usize == i,
+            None => false,
+        };
+        assert!(row.runs.is_some() == own, "a row's test runs elsewhere");
         if let Probing::Tried { .. } = row.probe {
             assert!(tested, "a kind probed with no test");
         }

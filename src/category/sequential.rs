@@ -25,7 +25,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, bail};
 
 use crate::{
-    category, interface,
+    category::{self, test::Runs},
+    interface,
     schem::Blocks,
     simulate::{
         Broken, Run, Signal, Value, Wrong,
@@ -1223,6 +1224,43 @@ impl Clocked {
             pulse: None,
             free_running: None,
         }
+    }
+}
+
+/// A counter's, a shift register's, or a T flip-flop's test: a value held
+/// and changed as control lines pulse, so passing it is holding state.
+impl Runs for Kind {
+    fn check(&self, blocks: &Blocks, _quick: bool) -> Result<Run> {
+        check(blocks, *self)
+    }
+
+    fn remembers(&self, _blocks: &Blocks) -> Result<Option<bool>> {
+        Ok(Some(true))
+    }
+
+    fn stacker<'a>(&self, data: &'a [u8]) -> Option<Stacker<'a>> {
+        match self {
+            Kind::TFlipFlop => toggle_stacker(data),
+            Kind::Counter | Kind::ShiftRegister => None,
+        }
+    }
+
+    fn throughput(
+        &self,
+        blocks: &Blocks,
+        _data: &[u8],
+        _timing: &Timing,
+    ) -> Result<Option<i32>> {
+        throughput(blocks, *self)
+    }
+
+    fn time(
+        &self,
+        blocks: &Blocks,
+        _patterned: bool,
+        cancel: &AtomicBool,
+    ) -> Result<Timing> {
+        time(blocks, *self, cancel)
     }
 }
 

@@ -5,8 +5,9 @@
 use anyhow::Result;
 
 use crate::{
-    category,
-    interface::Interface,
+    category::{self, Test, test::BySpec},
+    interface::{self, Interface},
+    schem::Blocks,
     simulate::{
         Broken, Counts, Reading, Value,
         bench::{Bench, Case, Cases, Distinct, Kind, Spec, mask, patterns},
@@ -185,6 +186,39 @@ pub(super) fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
     let paired = (cases.len() - before) as u64;
     (cases.cases, paired)
 }
+
+/// An incrementer's kind of test, counting `counts`: its unsigned line is
+/// named for its role, such as increment, so the cases read `A +
+/// increment`.
+fn counting(
+    kind: category::Kind,
+    counts: Counts,
+    blocks: &Blocks,
+    interface: &mut Interface,
+) -> Result<Spec> {
+    interface::name_lines(kind.lines(), blocks, interface);
+    spec(interface, Some(counts))
+}
+
+/// An incrementer's test: its copies chain, its carry out the next's
+/// increment.
+pub(super) const INCREMENTER: BySpec = BySpec::stacked(
+    |blocks, interface| {
+        counting(category::Kind::Incrementer, Counts::Up, blocks, interface)
+    },
+    |data| super::stacks::chained(data, Test::Incrementer),
+);
+
+pub(super) const DECREMENTER: BySpec = BySpec::stacked(
+    |blocks, interface| {
+        counting(category::Kind::Decrementer, Counts::Down, blocks, interface)
+    },
+    |data| super::stacks::chained(data, Test::Decrementer),
+);
+
+pub(super) const INC_DEC: BySpec = BySpec::spec(|blocks, interface| {
+    counting(category::Kind::IncDec, Counts::Either, blocks, interface)
+});
 
 #[cfg(test)]
 mod tests {
