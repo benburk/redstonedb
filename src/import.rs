@@ -105,28 +105,31 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
             keep_paste,
         } => (standardize, conventional, keep_paste, false),
     };
-    let swapped = standardize::swappable(&Blocks::read(data)?).stand_ins;
-    let data = standardize::barrels(data, &[])?;
-    let data = standardize::without_trapdoors(&data)?;
-    let data = if standardize {
-        standardize::standardize(&data).context("cannot standardize it")?
+    // Read once, changed in memory a step at a time, and written once.
+    let blocks = Blocks::read(data)?;
+    let swapped = standardize::swappable(&blocks).stand_ins;
+    let blocks = standardize::barrelled(&blocks, &[])?.unwrap_or(blocks);
+    let blocks = standardize::trapdoors_out(&blocks)?.unwrap_or(blocks);
+    let blocks = if standardize {
+        standardize::standardized(&blocks).context("cannot standardize it")?
     } else {
-        standardize::tidy(&data)?
+        standardize::tidied(&blocks)?
     };
     // Dust as the game shapes it among its neighbours, as `//update` leaves
     // it, whatever way it was saved.
-    let data = crate::schem::dust::update(&data)?;
-    let (data, turn) = if orient {
-        crate::ingest::orient::orient(&data)?
+    let blocks = schem::dust::updated(&blocks)?.unwrap_or(blocks);
+    let (blocks, turn) = if orient {
+        let (laid, turn) = crate::ingest::orient::oriented(&blocks)?;
+        (laid.unwrap_or(blocks), turn)
     } else {
-        (data, Turn::default())
+        (blocks, Turn::default())
     };
-    let data = if keep_paste {
-        data
+    let blocks = if keep_paste {
+        blocks
     } else {
-        schem::paste_from_corner(&data)?
+        blocks.pasting_from_corner()?
     };
-    let blocks = Blocks::read(&data)?;
+    let data = blocks.encode()?;
     let size = measure(&blocks, conventional)?;
     let sha256 = sha256(&schem::lines::without(&data)?);
     Ok(Prepared {

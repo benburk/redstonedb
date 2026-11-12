@@ -22,12 +22,8 @@ pub struct Size {
     pub z: u16,
 }
 
-/// The schematic's top-level fields.
-pub(super) fn body(data: &[u8]) -> Result<HashMap<String, Value>> {
-    Ok(decode(data)?.body)
-}
-
 /// A schematic's NBT, kept whole so it can be changed and written back.
+#[derive(Clone)]
 pub struct Nbt {
     pub body: HashMap<String, Value>,
     /// Version 3 nests the fields in a `Schematic` compound; version 2
@@ -38,10 +34,17 @@ pub struct Nbt {
 /// `data` set to paste from one block south of its south-east-bottom
 /// corner; see `Nbt::place_for_paste`.
 pub fn paste_from_corner(data: &[u8]) -> Result<Vec<u8>> {
-    let mut nbt = decode(data)?;
-    let size = Blocks::read(data)?.size;
-    nbt.place_for_paste(size);
-    encode(nbt)
+    Blocks::read(data)?.pasting_from_corner()?.encode()
+}
+
+impl Blocks {
+    /// The blocks set to paste from one block south of their
+    /// south-east-bottom corner; see `Nbt::place_for_paste`.
+    pub fn pasting_from_corner(&self) -> Result<Blocks> {
+        let mut nbt = self.nbt()?;
+        nbt.place_for_paste(self.size);
+        Blocks::of(nbt)
+    }
 }
 
 /// The most a schematic may unpack to. Gzip shrinks a uniform file

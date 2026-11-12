@@ -12,22 +12,13 @@ use super::{
     AIR, Pos,
     direction::{Direction, step},
     entity::{comparator, container, sign},
-    lines::{KEY, Roles},
-    nbt::{Size, body, dimension, varints},
+    lines::Roles,
+    nbt::{Nbt, Size, decode, dimension, encode, varints},
 };
 
-/// The roles the schematic's fields `body` carry, if any.
-fn roles(body: &HashMap<String, Value>) -> Option<Roles> {
-    let Some(Value::Compound(metadata)) = body.get("Metadata") else {
-        return None;
-    };
-    let Some(Value::String(json)) = metadata.get(KEY) else {
-        return None;
-    };
-    serde_json::from_str(json).ok()
-}
-
-/// A schematic's blocks and sign text, by position.
+/// A schematic's blocks and sign text, by position, with the file they
+/// were read from, so they can be changed and written back.
+#[derive(Clone)]
 pub struct Blocks {
     /// The bounding box.
     pub size: Pos,
@@ -45,21 +36,29 @@ pub struct Blocks {
     /// keeps with its version; `None` for a file carrying none, whose
     /// roles are read from its shapes. See [`super::lines`].
     pub roles: Option<Roles>,
+    /// The file they were read from; `None` for blocks made from a grid.
+    file: Option<Nbt>,
 }
 
 impl Blocks {
     pub fn read(data: &[u8]) -> Result<Self> {
-        let body = body(data)?;
+        Self::of(decode(data)?)
+    }
+
+    /// The blocks the file `nbt` holds, which they keep to be changed and
+    /// written back.
+    pub fn of(nbt: Nbt) -> Result<Self> {
+        let body = &nbt.body;
         let size = [
-            dimension(&body, "Width")?,
-            dimension(&body, "Height")?,
-            dimension(&body, "Length")?,
+            dimension(body, "Width")?,
+            dimension(body, "Height")?,
+            dimension(body, "Length")?,
         ]
         .map(i32::from);
         // Version 3 gathers the block fields in a `Blocks` compound.
         let blocks = match body.get("Blocks") {
             Some(Value::Compound(nested)) => nested,
-            _ => &body,
+            _ => body,
         };
         let Some(Value::Compound(names)) = blocks.get("Palette") else {
             bail!("schematic has no block palette");
@@ -91,15 +90,36 @@ impl Blocks {
             Some(Value::List(entities)) => entities.as_slice(),
             _ => &[],
         };
+        let signs = entities.iter().filter_map(sign).collect();
+        let comparators = entities.iter().filter_map(comparator).collect();
+        let containers = entities.iter().filter_map(container).collect();
         Ok(Blocks {
             size,
             palette,
             grid,
-            signs: entities.iter().filter_map(sign).collect(),
-            comparators: entities.iter().filter_map(comparator).collect(),
-            containers: entities.iter().filter_map(container).collect(),
-            roles: roles(&body),
+            signs,
+            comparators,
+            containers,
+            roles: nbt.roles(),
+            file: Some(nbt),
         })
+    }
+
+    /// The file they were read from, carrying their roles as they now are,
+    /// to change and write back.
+    pub fn nbt(&self) -> Result<Nbt> {
+        let mut nbt = self
+            .file
+            .clone()
+            .context("blocks made from a grid have no file")?;
+        nbt.set_roles(self.roles.as_ref());
+        Ok(nbt)
+    }
+
+    /// The file written back as it is worked on, carrying its roles; see
+    /// [`super::lines`].
+    pub fn encode(&self) -> Result<Vec<u8>> {
+        encode(self.nbt()?)
     }
 
     /// A schematic of `size` holding `states` by position, air elsewhere,
@@ -126,6 +146,7 @@ impl Blocks {
             comparators: HashMap::new(),
             containers: HashMap::new(),
             roles: None,
+            file: None,
         }
     }
 

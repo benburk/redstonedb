@@ -38,13 +38,20 @@ fn is_glass(state: &str) -> bool {
     schem::id(state).ends_with("glass")
 }
 
+/// The file in `data` standardized; see [`standardized`].
 pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
-    let swapped = barrels(data, &[])?;
-    let data = swapped.as_slice();
-    let blocks = Blocks::read(data)?;
-    let old_markers = loose_glass(&blocks, false);
-    let inputs: HashSet<Pos> = interface::feeds(&blocks).into_keys().collect();
-    let notes = notes(&blocks, &inputs);
+    standardized(&Blocks::read(data)?)?.encode()
+}
+
+/// `blocks` standardized, as this module's head says: stand-ins swapped
+/// for barrels, old markers and notes taken out, the box fitted, and each
+/// data input's lever off. Refuses a build with no inputs or no outputs.
+pub fn standardized(blocks: &Blocks) -> Result<Blocks> {
+    let swapped = barrelled(blocks, &[])?;
+    let blocks = swapped.as_ref().unwrap_or(blocks);
+    let old_markers = loose_glass(blocks, false);
+    let inputs: HashSet<Pos> = interface::feeds(blocks).into_keys().collect();
+    let notes = notes(blocks, &inputs);
     let grid: HashMap<Pos, String> = blocks
         .iter()
         .filter(|(pos, state)| {
@@ -52,10 +59,10 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
         })
         .map(|(pos, state)| (pos, state.to_owned()))
         .collect();
-    let restyled = schem::rebox(data, &grid, [0, 0, 0], blocks.size)?;
-    let standardized = tidy(&restyled)?;
+    let restyled = blocks.reboxed(&grid, [0, 0, 0], blocks.size)?;
+    let standardized = tidied(&restyled)?;
 
-    let found = interface::read(&Blocks::read(&standardized)?);
+    let found = interface::read(&standardized);
     ensure!(
         !found.inputs.is_empty(),
         "inputs: none found — mark each with a lever or button, or a \
@@ -67,16 +74,17 @@ pub fn standardize(data: &[u8]) -> Result<Vec<u8>> {
          facing air; if the file should have some, check the selection it \
          was saved from covers the whole build"
     );
-    Ok(data_levers_off(&standardized).unwrap_or(standardized))
+    // A build that cannot be settled keeps its levers as they were.
+    let off = data_levers_off(&standardized).ok().flatten();
+    Ok(off.unwrap_or(standardized))
 }
 
-/// The file with the lever of each data input, any input but a control
-/// line, switched off, every other lever as it was, and every
-/// component at rest with them, as `with_levers` settles them. A file with
-/// no data input's lever on comes back as it was.
-pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let data_levers: BTreeSet<Pos> = interface::read(&blocks)
+/// `blocks` with the lever of each data input, any input but a control
+/// line, switched off, every other lever as it was, and every component
+/// at rest with them, as [`levers_set`] settles them; `None` when no data
+/// input's lever is on, or settling changes nothing.
+fn data_levers_off(blocks: &Blocks) -> Result<Option<Blocks>> {
+    let data_levers: BTreeSet<Pos> = interface::read(blocks)
         .inputs
         .iter()
         .filter(|port| !port.control())
@@ -93,9 +101,9 @@ pub fn data_levers_off(data: &[u8]) -> Result<Vec<u8>> {
         .map(|(pos, _)| pos)
         .collect();
     if on.is_disjoint(&data_levers) {
-        return Ok(data.to_vec());
+        return Ok(None);
     }
-    with_levers(data, &(&on - &data_levers))
+    levers_set(blocks, &(&on - &data_levers))
 }
 
 /// The signs that label nothing: each but those on an input, one of
@@ -132,12 +140,17 @@ fn notes(blocks: &Blocks, inputs: &HashSet<Pos>) -> HashSet<Pos> {
 /// old corner markers, a corner and its three neighbours, or `WorldEdit`'s
 /// single corner blocks.
 pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let markers = loose_glass(&blocks, true);
+    tidied(&Blocks::read(data)?)?.encode()
+}
+
+/// `blocks` with any corner markers taken out and their box fitted tightly
+/// around the blocks left; see [`tidy`].
+pub fn tidied(blocks: &Blocks) -> Result<Blocks> {
+    let markers = loose_glass(blocks, true);
     let grid: HashMap<Pos, String> = blocks
         .iter()
         .filter(|(pos, state)| *state != AIR && !markers.contains(pos))
-        .map(|(pos, state)| (pos, facing_as_usual(&blocks, pos, state)))
+        .map(|(pos, state)| (pos, facing_as_usual(blocks, pos, state)))
         .collect();
     ensure!(!grid.is_empty(), "the schematic has no blocks");
     let bound = |axis: usize, pick: fn(i32, i32) -> i32| {
@@ -146,7 +159,7 @@ pub fn tidy(data: &[u8]) -> Result<Vec<u8>> {
     let low = [0, 1, 2].map(|axis| bound(axis, i32::min));
     let high = [0, 1, 2].map(|axis| bound(axis, i32::max));
     let size = [0, 1, 2].map(|axis| high[axis] - low[axis] + 1);
-    schem::rebox(data, &grid, low, size)
+    blocks.reboxed(&grid, low, size)
 }
 
 /// The file with each input at logical 0, as every stored build is: the
@@ -158,11 +171,23 @@ pub fn levers_at_zero(
     category: &str,
     inverted: &[String],
 ) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let mut lines = interface::read(&blocks);
+    match zeroed(&Blocks::read(data)?, category, inverted)? {
+        Some(zeroed) => zeroed.encode(),
+        None => Ok(data.to_vec()),
+    }
+}
+
+/// `blocks` with each input at logical 0, see [`levers_at_zero`]; `None`
+/// when they lie so already.
+pub fn zeroed(
+    blocks: &Blocks,
+    category: &str,
+    inverted: &[String],
+) -> Result<Option<Blocks>> {
+    let mut lines = interface::read(blocks);
     interface::name_lines(
         crate::category::Kind::named(category),
-        &blocks,
+        blocks,
         &mut lines,
     );
     let on: BTreeSet<Pos> = lines
@@ -173,32 +198,40 @@ pub fn levers_at_zero(
         .filter_map(|bit| Some(schem::step(bit.pos, bit.entry?)))
         .filter(|&pos| schem::short(blocks.get(pos)) == "lever")
         .collect();
-    with_levers(data, &on)
+    levers_set(blocks, &on)
 }
 
 /// The file with every lever off but those at `on`, and every component
 /// at rest with them, as the game settles it: each dust's power, each
 /// torch, repeater, comparator, and lamp, and each comparator's strength.
 pub fn with_levers(data: &[u8], on: &BTreeSet<Pos>) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
-    let (changes, strengths) = crate::simulate::settled(&blocks, on)?;
-    if changes.is_empty() && strengths.is_empty() {
-        return Ok(data.to_vec());
+    match levers_set(&Blocks::read(data)?, on)? {
+        Some(set) => set.encode(),
+        None => Ok(data.to_vec()),
     }
-    let mut grid: HashMap<Pos, String> = blocks
-        .iter()
-        .filter(|(_, state)| *state != AIR)
-        .map(|(pos, state)| (pos, state.to_owned()))
-        .collect();
+}
+
+/// `blocks` with every lever off but those at `on`, and every component at
+/// rest with them, see [`with_levers`]; `None` when they lie so already.
+pub fn levers_set(
+    blocks: &Blocks,
+    on: &BTreeSet<Pos>,
+) -> Result<Option<Blocks>> {
+    let (changes, strengths) = crate::simulate::settled(blocks, on)?;
+    if changes.is_empty() && strengths.is_empty() {
+        return Ok(None);
+    }
+    let mut grid = blocks.grid();
     grid.extend(changes);
-    schem::edit::rebox_with(
-        data,
-        &grid,
-        [0, 0, 0],
-        blocks.size,
-        &strengths,
-        &HashMap::new(),
-    )
+    blocks
+        .reboxed_with(
+            &grid,
+            [0, 0, 0],
+            blocks.size,
+            &strengths,
+            &HashMap::new(),
+        )
+        .map(Some)
 }
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
@@ -247,16 +280,24 @@ fn is_container(name: &str) -> bool {
 /// The file without its trapdoors, which builders hang on an output to show
 /// it flipping, playing no part in the circuit; as it is when it has none.
 pub fn without_trapdoors(data: &[u8]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
+    match trapdoors_out(&Blocks::read(data)?)? {
+        Some(without) => without.encode(),
+        None => Ok(data.to_vec()),
+    }
+}
+
+/// `blocks` without their trapdoors, see [`without_trapdoors`]; `None`
+/// when they have none.
+pub fn trapdoors_out(blocks: &Blocks) -> Result<Option<Blocks>> {
     let gone: BTreeMap<Pos, String> = blocks
         .iter()
         .filter(|(_, state)| schem::short(state).ends_with("_trapdoor"))
         .map(|(pos, _)| (pos, schem::AIR.to_owned()))
         .collect();
     if gone.is_empty() {
-        return Ok(data.to_vec());
+        return Ok(None);
     }
-    schem::edit(data, &gone)
+    blocks.edited(&gone).map(Some)
 }
 
 /// The file with each furnace, cauldron, and cake, and each container whose
@@ -266,7 +307,15 @@ pub fn without_trapdoors(data: &[u8]) -> Result<Vec<u8>> {
 /// place. Barrels are how a build takes a fixed strength; a hopper, which
 /// does not conduct as a barrel does, stays unless its author asks.
 pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
-    let blocks = Blocks::read(data)?;
+    match barrelled(&Blocks::read(data)?, also)? {
+        Some(swapped) => swapped.encode(),
+        None => Ok(data.to_vec()),
+    }
+}
+
+/// `blocks` with their stand-ins swapped for barrels, see [`barrels`];
+/// `None` when they have none to swap.
+pub fn barrelled(blocks: &Blocks, also: &[&str]) -> Result<Option<Blocks>> {
     let swapped: BTreeMap<Pos, u8> = blocks
         .iter()
         .filter_map(|(pos, state)| {
@@ -302,7 +351,7 @@ pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
         })
         .collect();
     if swapped.is_empty() {
-        return Ok(data.to_vec());
+        return Ok(None);
     }
     let grid: HashMap<Pos, String> = blocks
         .iter()
@@ -316,7 +365,7 @@ pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
             (pos, state.to_owned())
         })
         .collect();
-    let mut nbt = schem::decode(data)?;
+    let mut nbt = blocks.nbt()?;
     let mut entities: Vec<_> = nbt
         .take_entities()
         .into_iter()
@@ -329,7 +378,7 @@ pub fn barrels(data: &[u8], also: &[&str]) -> Result<Vec<u8>> {
         nbt.barrel_entity(pos, &schem::barrel_redstone(strength))
     }));
     nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
-    schem::encode(nbt)
+    Blocks::of(nbt).map(Some)
 }
 
 /// What `barrels` would swap in a build.
