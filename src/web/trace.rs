@@ -11,12 +11,13 @@ use maud::html;
 use crate::{
     category::Kind,
     interface::Interface,
-    models::{schematic, simulation, version},
+    models::{simulation, version},
     schem::Blocks,
     simulate::{
         Glitch, OutputTiming, Timing, Value,
         trace::{Case, Race, Trace, Tracer},
     },
+    store::builds,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -166,7 +167,7 @@ pub async fn glitch_fragment(
     State(state): State<AppState>,
 ) -> Result<Response, AppError> {
     let db = &state.db;
-    let s = schematic::get(db, &id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let report = simulation::current(db, &s).await?;
     let Some(timing) = report.as_ref().and_then(|r| r.timing()).cloned() else {
         return Ok(html! {}.into_response());

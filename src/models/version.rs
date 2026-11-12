@@ -319,7 +319,7 @@ pub async fn holder<'e, E: SqliteExecutor<'e>>(
 }
 
 /// Records a new build's file as its first version.
-pub(super) async fn first(
+pub(crate) async fn first(
     tx: &mut sqlx::SqliteConnection,
     id: &str,
     file: &Prepared,

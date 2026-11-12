@@ -18,16 +18,15 @@ use anyhow::{Context, Result};
 use sqlx::{SqliteExecutor, SqlitePool};
 
 use crate::{
+    build::Build,
     category::{self, Test},
     import, interface,
-    models::{
-        schematic::{self, Build},
-        version,
-    },
+    models::version,
     recognize::{evaluate::evaluate, roles},
     schem::Blocks,
     simulate::Report,
     stack::{self, StackDirection},
+    store::builds,
 };
 
 use derive::Derived;
@@ -184,7 +183,7 @@ pub async fn refresh(
     id: &str,
     again: bool,
 ) -> Result<Option<Report>> {
-    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let s = builds::get(db, id).await?.context("no such schematic")?;
     let data = current_file(db, &s).await?;
     if !again {
         adopt(db, id, (&data, &s.file.sha256), (&s.stacking, s.buses()))
@@ -482,16 +481,16 @@ impl Derived {
             return Ok(());
         }
         if self.specs != stored.specs {
-            schematic::set_specs(&mut *tx, &s.id, &self.specs).await?;
+            builds::set_specs(&mut *tx, &s.id, &self.specs).await?;
         }
         if self.flags != stored.flags {
-            schematic::set_flags(tx, &s.id, &self.flags).await?;
+            builds::set_flags(tx, &s.id, &self.flags).await?;
         }
         if self.stacking != stored.stacking {
-            schematic::set_stacking(tx, &s.id, &self.stacking).await?;
+            builds::set_stacking(tx, &s.id, &self.stacking).await?;
         }
         if self.widened != stored.widened {
-            schematic::set_widened(tx, &s.id, &self.widened).await?;
+            builds::set_widened(tx, &s.id, &self.widened).await?;
         }
         Ok(())
     }
@@ -518,7 +517,7 @@ async fn keep_measures(
     id: &str,
     report: Option<&Report>,
 ) -> Result<()> {
-    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let s = builds::get(db, id).await?.context("no such schematic")?;
     let verdict = match report {
         Some(Report::Ran(run)) if run.wrong == 0 => "passes",
         Some(Report::Ran(_)) => "wrong",
@@ -543,7 +542,7 @@ async fn timed(
     id: &str,
     again: bool,
 ) -> Result<Option<Report>> {
-    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let s = builds::get(db, id).await?.context("no such schematic")?;
     let Some(mut report) = current(db, &s).await? else {
         return Ok(None);
     };
@@ -583,7 +582,7 @@ async fn timed(
 /// then its needs kept, as [`keep_needs`] keeps them. Any other build is
 /// left as it came.
 pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
-    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let s = builds::get(db, id).await?.context("no such schematic")?;
     // Any build the site reads is shown in a theme, passing or not; only
     // one that passes, kept to the conventions, has its unused blocks out.
     if !s.evaluated()
@@ -625,7 +624,7 @@ pub async fn finish(db: &SqlitePool, id: &str) -> Result<()> {
 /// whatever made the version, so a fix by hand is shown in a theme too. A
 /// build the site can't read is left as it came.
 pub async fn keep_needs(db: &SqlitePool, id: &str) -> Result<()> {
-    let s = schematic::get(db, id).await?.context("no such schematic")?;
+    let s = builds::get(db, id).await?.context("no such schematic")?;
     let data = current_file(db, &s).await?;
     if !carries_roles(&data) {
         return Ok(());

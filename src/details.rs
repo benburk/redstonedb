@@ -5,15 +5,12 @@
 use sqlx::SqlitePool;
 
 use crate::{
+    build::{Build, Credits, Specs, valid_player_name},
     category::{self, Category, Kind, Measure, Test},
     external::mojang,
     import::Prepared,
     interface::Orientation,
-    models::{
-        player,
-        schematic::{self, Build, Credits, Specs},
-        simulation, tag,
-    },
+    models::{player, simulation, tag},
     simulate::Report,
     stack::{self, StackDirection},
 };
@@ -436,10 +433,8 @@ pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
 /// Refuses details whose fields are not of the shape they must be, each
 /// with a sentence saying which.
 fn shaped(details: &Details) -> Result<(), String> {
-    if let Some(name) = details
-        .credits
-        .everyone()
-        .find(|n| !schematic::valid_player_name(n))
+    if let Some(name) =
+        details.credits.everyone().find(|n| !valid_player_name(n))
     {
         return Err(format!(
             "{name} is not a Minecraft name: letters, digits, and \

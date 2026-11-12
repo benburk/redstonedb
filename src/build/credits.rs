@@ -15,3 +15,11 @@ impl Credits {
         self.authors.iter().chain(&self.contributors)
     }
 }
+
+/// Whether a name can be credited: a Minecraft name of letters, digits,
+/// and underscores.
+pub fn valid_player_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 16
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}

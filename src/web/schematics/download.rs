@@ -12,13 +12,11 @@ use serde::Deserialize;
 use sqlx::SqlitePool;
 
 use crate::{
-    models::{
-        schematic::{self, Build, DownloadKind},
-        user::User,
-        version,
-    },
+    build::{Build, file_stem},
+    models::{user::User, version},
     recognize::palette::{self, Palette},
     schem, stack,
+    store::builds::{self, DownloadKind},
     web::{app_state::AppState, error::AppError, settings::PaletteFields},
 };
 
@@ -128,7 +126,7 @@ impl Download {
     /// own: `None` when none is given, or it is the build's own, so a
     /// stack keeps the name it is given for its width.
     fn renamed(&self, filename: &str) -> Option<String> {
-        let stem = schematic::file_stem(self.name.as_deref()?);
+        let stem = file_stem(self.name.as_deref()?);
         let own = filename.trim_end_matches(".schem");
         (!stem.is_empty() && stem != own).then_some(stem)
     }
@@ -164,7 +162,7 @@ pub async fn download(
         } else {
             DownloadKind::File
         };
-        schematic::log_download(&state.db, &id, user.id, None, kind).await?;
+        builds::log_download(&state.db, &id, user.id, None, kind).await?;
     }
     // Only readable files are stored, so the viewer's copy falls back to
     // the file as it is only if that changes.
@@ -186,7 +184,7 @@ pub(in crate::web) async fn export(
     counted: bool,
     palette: Option<&Palette>,
 ) -> Result<(String, Vec<u8>), AppError> {
-    let s = schematic::get(db, id).await?.ok_or(AppError::NotFound)?;
+    let s = builds::get(db, id).await?.ok_or(AppError::NotFound)?;
     let data = version::current_file(db, id)
         .await?
         .ok_or(AppError::NotFound)?;
@@ -283,7 +281,7 @@ async fn shaped(
         stacked.map_err(|err| AppError::BadRequest(err.to_string()))?
     };
     if counted {
-        schematic::count_download(db, id).await?;
+        builds::count_download(db, id).await?;
     }
     let data = match markers {
         Some(direction) => {

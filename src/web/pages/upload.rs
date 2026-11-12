@@ -5,10 +5,8 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::{
-        schematic::Build,
-        user::{SchematiLink, User},
-    },
+    build::Build,
+    models::user::{SchematiLink, User},
     web::analysis::{self, Step},
 };
 

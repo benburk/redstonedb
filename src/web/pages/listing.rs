@@ -12,10 +12,10 @@ use super::{
 };
 use crate::{
     APP_NAME,
+    build::Build,
     category::{Flag, Section},
     interface::Encoding,
     models::{
-        schematic::Build,
         tag::{self, Tag},
         user::User,
     },

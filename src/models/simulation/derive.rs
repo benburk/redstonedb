@@ -3,9 +3,9 @@
 //! written by `Derived::save` in the module above.
 
 use crate::{
+    build::{Build, Specs, Widened},
     category::{self, Test},
     import, interface,
-    models::schematic::{Build, Specs, Widened},
     recognize::evaluate::Evaluation,
     schem::Blocks,
     simulate::{Edge, Report, Stacking},

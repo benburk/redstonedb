@@ -13,14 +13,12 @@ use axum::{
 };
 
 use crate::{
+    build::Build,
     category::Category,
     leaderboard,
-    models::{
-        schematic::{self, Build},
-        tag,
-        user::User,
-    },
+    models::{tag, user::User},
     search,
+    store::builds,
     web::{app_state::AppState, error::AppError, extractors::fixi::Fixi},
 };
 
@@ -90,7 +88,7 @@ async fn index(
     fixi: bool,
     viewer: Option<&User>,
 ) -> Result<Response, AppError> {
-    let all = schematic::visible(&state.db, viewer).await?;
+    let all = builds::visible(&state.db, viewer).await?;
     let categories = Category::all();
     let viewing = super::super::viewing(&state.db, viewer).await?;
     // A category's tile counts its verified builds, unaligned too, as its
@@ -190,7 +188,7 @@ async fn listing(
     viewer: Option<&User>,
 ) -> Result<Response, AppError> {
     let terms = search::parse(&query.q);
-    let all = schematic::visible(&state.db, viewer).await?;
+    let all = builds::visible(&state.db, viewer).await?;
     let categories = Category::all();
     let total = all.len();
     let mut found: Vec<Build> = search::matching(&terms, all)

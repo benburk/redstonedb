@@ -24,9 +24,9 @@
 use std::collections::HashSet;
 
 use crate::{
+    build::Build,
     category::{Flag, Logic, Measure, NO_DESIGN},
     interface::colour,
-    models::schematic::Build,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,11 +393,9 @@ fn versions(s: &Build) -> Vec<String> {
 pub(crate) mod tests {
     use super::*;
     use crate::{
+        build::{Credits, Entry, File, Specs},
         interface::{Encoding, Orientation},
-        models::{
-            schematic::{Credits, Entry, File, Specs},
-            tag::Tag,
-        },
+        models::tag::Tag,
     };
 
     /// A build of `category` with nothing but its orientation and `tags`,
@@ -436,8 +434,8 @@ pub(crate) mod tests {
             flags: Vec::new(),
             description: None,
             unverified: None,
-            status: crate::models::schematic::Status::default(),
-            operands: crate::models::schematic::Operands::Split,
+            status: crate::build::Status::default(),
+            operands: crate::build::Operands::Split,
             unaligned: false,
             tags: tags
                 .iter()
@@ -483,7 +481,7 @@ pub(crate) mod tests {
         let mut xor = schematic("xor_gate", Orientation::Horizontal, &[]);
         assert!(!find("xor interleaved_inputs", &xor));
         assert!(find("xor -interleaved_inputs", &xor));
-        xor.operands = crate::models::schematic::Operands::Interleaved;
+        xor.operands = crate::build::Operands::Interleaved;
         assert!(find("xor interleaved_inputs", &xor));
         assert!(find("xor \"interleaved inputs\"", &xor));
         assert!(!find("xor -interleaved_inputs", &xor));

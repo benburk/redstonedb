@@ -10,10 +10,10 @@ use std::sync::Arc;
 use app::{
     details::Details,
     models::{
-        schematic,
         session::{Session, now_micros},
         user::{Role, User},
     },
+    store::builds,
     thumbnail::{Assets, Renderer},
     web::{self, app_state::AppState},
 };
@@ -186,7 +186,7 @@ async fn each_download_is_logged_with_who_took_it() {
             (alex, 1, "version".to_owned())
         ]
     );
-    let s = schematic::get(&site.db, &id).await.unwrap().unwrap();
+    let s = builds::get(&site.db, &id).await.unwrap().unwrap();
     assert_eq!(
         s.entry.downloads, 1,
         "the counter counts the current file alone"
@@ -224,7 +224,7 @@ async fn only_a_builds_uploader_may_edit_it() {
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let response = site.delete(&id, &others).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert!(schematic::get(&site.db, &id).await.unwrap().is_some());
+    assert!(builds::get(&site.db, &id).await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -240,7 +240,7 @@ async fn an_uploader_deletes_their_own_build() {
 
     let response = site.delete(&id, &owners).await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(schematic::get(&site.db, &id).await.unwrap().is_none());
+    assert!(builds::get(&site.db, &id).await.unwrap().is_none());
     let response = site.get(&format!("/schematics/{id}"), Some(&owners)).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 
@@ -273,7 +273,7 @@ async fn an_uploader_deletes_their_own_build() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(schematic::get(&site.db, &id).await.unwrap().is_some());
+    assert!(builds::get(&site.db, &id).await.unwrap().is_some());
     let log = site.get("/log", Some(&admins)).await.text().await.unwrap();
     assert!(log.contains(" restored "), "{log}");
 }
@@ -320,7 +320,7 @@ async fn a_private_build_is_unlisted_but_opens_from_its_link() {
     let owner = common::sign_in(&site.db, "1", "steve").await;
     let other = common::sign_in(&site.db, "2", "alex").await;
     let id = site.adder(&owner).await;
-    schematic::set_public(&site.db, &id, false).await.unwrap();
+    builds::set_public(&site.db, &id, false).await.unwrap();
     let link = format!("href=\"/schematics/{id}");
 
     let others = site.session(&other).await;
@@ -488,7 +488,7 @@ async fn a_link_to_a_build_previews_its_name_authors_size_and_picture() {
     let id = site.adder(&owner).await;
     let page = site.get(&format!("/schematics/{id}"), None).await;
     let page = page.text().await.unwrap();
-    let s = schematic::get(&site.db, &id).await.unwrap().unwrap();
+    let s = builds::get(&site.db, &id).await.unwrap().unwrap();
     let title = format!(r#"<meta property="og:title" content="{}"#, s.name());
     assert!(page.contains(&title), "{page}");
     assert!(page.contains(" H×W×D, "), "{page}");
@@ -600,5 +600,5 @@ async fn a_mod_merges_a_build_into_the_one_it_fixes() {
         "{:?}",
         versions[0].note
     );
-    assert!(schematic::get(&site.db, &from).await.unwrap().is_none());
+    assert!(builds::get(&site.db, &from).await.unwrap().is_none());
 }

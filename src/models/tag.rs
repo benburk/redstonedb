@@ -258,7 +258,7 @@ pub enum Unverified {
 /// A build's stored `tags`, led by `failing` or `untested`
 /// when it is `unverified`, with `torchless` among its restrictions when
 /// its file has no torches, and `alpha` when it works from Alpha.
-pub(super) fn with_derived(
+pub(crate) fn with_derived(
     mut tags: Vec<Tag>,
     unverified: Option<Unverified>,
     torches: Option<i64>,
@@ -290,7 +290,7 @@ pub(super) fn with_derived(
 
 /// Replaces a build's tags with the ones `names` name. A name no tag has
 /// yet makes a new tag under `other`.
-pub(super) async fn set(
+pub(crate) async fn set(
     tx: &mut sqlx::SqliteConnection,
     id: &str,
     names: &[String],

@@ -14,9 +14,10 @@ use app::{
         inspect::{self, Run},
         repeater_outputs::{self, Output},
     },
-    models::{schematic, version},
+    models::version,
     recognize::probe,
     schem::{self, Blocks, Pos},
+    store::builds,
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -65,7 +66,7 @@ pub(super) async fn inspect_command(
             stored = Some(s.category);
         }
         None => {
-            for s in schematic::all(db).await? {
+            for s in builds::all(db).await? {
                 if s.kind().is_none()
                     || category.is_some_and(|c| c != s.category)
                 {

@@ -5,14 +5,13 @@
 mod common;
 
 use app::{
+    build::{Build, Specs},
     details::{self, Candidate, Details},
     import,
     interface::{Encoding, Orientation},
-    models::{
-        schematic::{self, Specs},
-        simulation, tag,
-    },
+    models::{simulation, tag},
     simulate::Report,
+    store::builds,
 };
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 
@@ -55,7 +54,7 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
     let report = simulation::refresh(&db, &id, false).await.unwrap();
     assert!(matches!(report, Some(Report::Ran(_))), "{report:?}");
     assert!(report.unwrap().passed());
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.specs.width, Some(8));
     assert_eq!(s.specs.orientation, Orientation::Horizontal);
     assert_eq!(s.specs.encoding, Some(Encoding::Binary));
@@ -88,7 +87,7 @@ async fn a_build_without_a_test_keeps_no_result() {
             .unwrap()
             .is_none()
     );
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.specs.latency, Some(64), "its author's latency stands");
 }
 
@@ -109,7 +108,7 @@ async fn an_adders_measured_details_come_from_its_file_not_its_typing() {
     let id = store(&db, "rca-slice-capped", typed).await;
     let report = simulation::refresh(&db, &id, false).await.unwrap();
     assert!(report.is_some_and(|r| r.passed() && r.timing().is_some()));
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.specs.design.as_deref(), Some("ripple_carry"));
     assert_ne!(s.specs.latency, Some(99));
     assert!(s.specs.throughput.is_some_and(|t| (2..99).contains(&t)));
@@ -163,7 +162,7 @@ async fn an_unverified_build_is_tested_as_its_category() {
         .unwrap()
         .expect("it is tested");
     assert!(report.failed(), "the fixture fails the adder test");
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.category, "adder");
     assert!(s.unverified.is_some());
     assert!(!s.verified());
@@ -254,7 +253,7 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
     )
     .await;
     simulation::refresh(&db, &id, false).await.unwrap();
-    let measured = schematic::get(&db, &id).await.unwrap().unwrap();
+    let measured = builds::get(&db, &id).await.unwrap().unwrap();
     assert!(
         measured.specs.latency.is_some() && measured.specs.throughput.is_some()
     );
@@ -275,16 +274,16 @@ async fn editing_an_adders_details_keeps_what_was_measured() {
         .await
         .unwrap()
         .unwrap();
-    schematic::set_details(&db, &id, &ready).await.unwrap();
+    builds::set_details(&db, &id, &ready).await.unwrap();
     simulation::refresh(&db, &id, false).await.unwrap();
 
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     // Respelled as the player spells it, whatever that is.
     assert!(
         matches!(s.credits.authors.as_slice(), [name] if name.eq_ignore_ascii_case("someone_else"))
     );
     assert_eq!(s.description.as_deref(), Some("A slice."));
-    let fields = |s: &schematic::Build| {
+    let fields = |s: &Build| {
         (
             s.specs.width,
             s.specs.orientation,

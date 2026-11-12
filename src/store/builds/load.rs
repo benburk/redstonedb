@@ -6,14 +6,12 @@ use std::collections::HashMap;
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
-use super::{
-    Build, Credits, Encoding, Entry, File, Logic, Operands, Orientation, Specs,
-    StackDirection, Status, Widened,
-};
 use crate::{
-    category::{self, Flag},
-    interface::Kept,
+    build::{Build, Credits, Entry, File, Operands, Specs, Status, Widened},
+    category::{self, Flag, Logic},
+    interface::{Encoding, Kept, Orientation},
     models::tag::{self, Tag},
+    stack::StackDirection,
 };
 
 /// Every schematic but deleted ones, ordered by category, width, then
@@ -400,14 +398,6 @@ impl Credit {
             Credit::Contributor => "contributor",
         }
     }
-}
-
-/// Whether a name can be credited: a Minecraft name of letters, digits,
-/// and underscores.
-pub fn valid_player_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 16
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// Everyone credited on a stored build, by name.

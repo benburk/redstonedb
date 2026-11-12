@@ -5,11 +5,14 @@
 
 use sqlx::{SqliteExecutor, SqlitePool};
 
-use super::{Logic, Specs, StackDirection, Widened, load::Credit};
+use super::load::Credit;
 use crate::{
+    build::{Specs, Widened},
+    category::Logic,
     details::Ready,
     import::Prepared,
     models::{tag, version},
+    stack::StackDirection,
 };
 
 /// Makes build `id` public or private.

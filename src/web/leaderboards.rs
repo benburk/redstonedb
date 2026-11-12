@@ -5,12 +5,11 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    build::Build,
     category::Category,
     leaderboard::{self, Wanted},
-    models::{
-        schematic::{self, Build},
-        user::User,
-    },
+    models::user::User,
+    store::builds,
     web::{app_state::AppState, error::AppError},
 };
 
@@ -47,7 +46,7 @@ pub async fn show(
         return Ok(Redirect::permanent(&path).into_response());
     }
     // Private builds compete with no one.
-    let all = schematic::visible(&state.db, None).await?;
+    let all = builds::visible(&state.db, None).await?;
     let categories = Category::all();
     let Some(chosen) = categories.iter().find(|c| c.name == category) else {
         return Err(AppError::NotFound);
@@ -83,7 +82,7 @@ pub async fn people(
         let path = format!("/leaderboards/{category}");
         return Ok(Redirect::to(&path).into_response());
     }
-    let all = schematic::visible(&state.db, None).await?;
+    let all = builds::visible(&state.db, None).await?;
     let categories = Category::all();
     let stacks = leaderboard::stacked(&all);
     let builds: Vec<&Build> = all.iter().chain(&stacks).collect();

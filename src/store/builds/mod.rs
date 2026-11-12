@@ -1,24 +1,13 @@
 //! Stored builds, loaded together with everything that hangs off them, and
 //! the writes that change them. What a build is lives in [`crate::build`];
-//! its files live in its versions, see `models::version`.
+//! its files live in its versions.
 
 mod load;
 mod write;
 
-// Until the queries move to a store of their own, the build's types are
-// still reached through here, as they were.
-pub use crate::{
-    build::{
-        Build, Credits, Entry, File, Operands, Specs, Status, Widened,
-        file_stem,
-    },
-    category::Logic,
-    interface::{Encoding, Orientation},
-    stack::{Faces, PITCHES, StackDirection, classes},
-};
 pub use load::{
     all, all_people, get, get_many, get_many_with_deleted, ids_with_prefix,
-    valid_player_name, visible,
+    visible,
 };
 pub use write::{
     DownloadKind, New, Restorable, count_download, delete, favorite_count,

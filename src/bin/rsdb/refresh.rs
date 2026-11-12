@@ -10,8 +10,9 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::{Context, Result, bail, ensure};
 use app::{
-    models::{schematic, simulation, version},
+    models::{simulation, version},
     simulate::{Action, Report, Stacking, Step, Timing},
+    store,
 };
 use sqlx::SqlitePool;
 
@@ -57,7 +58,7 @@ pub(super) async fn refresh(
          pass --all"
     );
     let ids = if all {
-        schematic::all(db)
+        store::builds::all(db)
             .await?
             .into_iter()
             .map(|s| s.id)

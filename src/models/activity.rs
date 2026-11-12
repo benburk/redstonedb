@@ -6,9 +6,11 @@
 use sqlx::{SqliteExecutor, SqlitePool};
 use uuid::Uuid;
 
-use super::{
-    schematic::{self, Build, Restorable, StackDirection},
-    user::{REDSTONEDB, User},
+use super::user::{REDSTONEDB, User};
+use crate::{
+    build::Build,
+    stack::StackDirection,
+    store::builds::{self, Restorable},
 };
 
 /// What happened.
@@ -384,7 +386,7 @@ pub async fn revert(
             "Only a description, authors, or contributors can be put back.",
         ));
     };
-    let Some(s) = schematic::get(db, &row.build_id).await? else {
+    let Some(s) = builds::get(db, &row.build_id).await? else {
         return Ok(Err("That build is gone."));
     };
     if !revertible(&s, &change) {
@@ -392,7 +394,7 @@ pub async fn revert(
             "It has changed since that edit, so it was left as it is; edit the build to change it.",
         ));
     }
-    schematic::restore(db, &s.id, restorable, change.from.as_deref()).await?;
+    builds::restore(db, &s.id, restorable, change.from.as_deref()).await?;
     let undone = Change {
         detail: change.detail,
         from: change.to,

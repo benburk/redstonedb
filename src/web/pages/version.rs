@@ -3,7 +3,10 @@
 
 use maud::{Markup, html};
 
-use crate::models::{schematic::Build, user::User, version::Version};
+use crate::{
+    build::Build,
+    models::{user::User, version::Version},
+};
 
 use super::{SECTION_TITLE, diff};
 

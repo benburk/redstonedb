@@ -19,7 +19,8 @@ use sqlx::SqlitePool;
 
 use crate::{
     external::schemati::{self, Folder, Refusal},
-    models::{schematic, user::User},
+    models::user::User,
+    store::builds,
     web::{
         app_state::AppState,
         error::AppError,
@@ -368,12 +369,12 @@ pub async fn send(
             let name = schemati::file_name(&filename);
             let saved = connected.save(&name, data).await.map_err(sentence);
             if saved.is_ok() {
-                schematic::log_download(
+                builds::log_download(
                     &state.db,
                     &id,
                     user.id,
                     None,
-                    schematic::DownloadKind::Schemati,
+                    builds::DownloadKind::Schemati,
                 )
                 .await?;
             }

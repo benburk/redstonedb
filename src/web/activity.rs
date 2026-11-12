@@ -13,9 +13,9 @@ use serde::Deserialize;
 use crate::{
     models::{
         activity::{self, Filter},
-        schematic,
         user::User,
     },
+    store::builds,
     web::{app_state::AppState, error::AppError, extractors::session::Admin},
 };
 
@@ -92,7 +92,7 @@ pub async fn restore(
     Admin(viewer): Admin,
     Form(shown): Form<Shown>,
 ) -> Result<Response, AppError> {
-    if !schematic::undelete(&state.db, &id, viewer.id).await? {
+    if !builds::undelete(&state.db, &id, viewer.id).await? {
         let message = "That build is not deleted.";
         return render(&state, &viewer, &shown, message).await;
     }
@@ -131,7 +131,7 @@ async fn render(
         .collect();
     ids.sort_unstable();
     ids.dedup();
-    let builds = schematic::get_many_with_deleted(db, &ids)
+    let builds = builds::get_many_with_deleted(db, &ids)
         .await?
         .into_iter()
         .map(|s| (s.id.clone(), s))

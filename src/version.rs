@@ -18,9 +18,10 @@ use std::collections::HashMap;
 use sqlx::SqlitePool;
 
 use crate::{
+    build::Build,
     import::{self, Prepared},
     interface::inspect,
-    models::{schematic::Build, version},
+    models::version,
     schem::{
         self, Blocks, Pos,
         turn::{self, Turn},
@@ -326,7 +327,7 @@ pub async fn merge(
     let colours = version::colours_of(db, &from.id, number).await?;
     // A file is held by one version at most, so `from` goes first, its file
     // and colours read already and every check passed.
-    crate::models::schematic::purge(db, &from.id).await?;
+    crate::store::builds::purge(db, &from.id).await?;
     let how = version::Replacing::NextVersion {
         added_by: by,
         added_from: None,

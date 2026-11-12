@@ -6,17 +6,15 @@ use sqlx::SqlitePool;
 
 use super::pages::{self, Choices, DetailsPage, File, Reply};
 use crate::{
-    category::{Category, Guessed},
+    build::{Build, Credits, Specs},
+    category::{Category, Guessed, Logic},
     details::Details,
     import::{self, Analysis, FileFacts},
     interface::{self, Interface, Orientation},
-    models::{
-        schematic::{self, Build, Credits, Specs},
-        tag,
-        user::User,
-    },
+    models::{tag, user::User},
     schem::{Blocks, Size},
     stack::StackDirection,
+    store::builds,
     web::error::AppError,
 };
 
@@ -118,7 +116,7 @@ pub struct Form {
     /// Such as `2024-02-02`; empty when unknown.
     pub built_on: String,
     pub description: String,
-    /// A [`schematic::Logic`]'s name; empty follows the category.
+    /// A [`Logic`]'s name; empty follows the category.
     pub logic: String,
     /// Whether the stacking toggle is on; the rows count only when it is.
     pub stackable: bool,
@@ -229,7 +227,7 @@ impl Form {
             synchronized: s.specs.synchronized,
             built_on: text(&s.built_on),
             description: text(&s.description),
-            logic: name(s.specs.logic.map(schematic::Logic::name)),
+            logic: name(s.specs.logic.map(Logic::name)),
             stackable: !s.stacking.is_empty(),
             // A build that does not stack yet starts with a likely direction.
             stack_rows: if s.stacking.is_empty() {
@@ -371,7 +369,7 @@ impl Form {
 pub async fn choices(db: &SqlitePool) -> Result<Choices, sqlx::Error> {
     Ok(Choices {
         categories: Category::all(),
-        people: schematic::all_people(db).await?,
+        people: builds::all_people(db).await?,
         tags: tag::all(db).await?,
     })
 }

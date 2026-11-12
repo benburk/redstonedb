@@ -5,8 +5,9 @@
 use maud::{Markup, PreEscaped, html};
 
 use crate::{
+    build::Build,
     category::{Category, Section},
-    models::{schematic::Build, tag::Tag},
+    models::tag::Tag,
 };
 
 const PAGE_TITLE: &str = "text-page font-bold";

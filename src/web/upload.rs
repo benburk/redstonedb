@@ -18,20 +18,17 @@ use axum::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 
 use crate::{
+    build::Build,
     category::{self, Category, Guessed},
     details,
     external::schemati,
     import::{self, Kept, Upload},
     ingest::standardize,
     interface,
-    models::{
-        schematic::{self, Build},
-        similarity, simulation,
-        user::User,
-        version,
-    },
+    models::{similarity, simulation, user::User, version},
     recognize::probe,
     schem::Blocks,
+    store::builds,
     web::{
         app_state::AppState,
         error::AppError,
@@ -298,7 +295,7 @@ async fn closest(
     else {
         return Ok(None);
     };
-    Ok(schematic::get(db, &id)
+    Ok(builds::get(db, &id)
         .await?
         .filter(|s| s.listed_to(Some(user)))
         .map(|s| (s, permille)))
@@ -542,7 +539,7 @@ async fn publish_checked(
     if let Ok(id) = &stored
         && !form.public
     {
-        schematic::set_public(db, id, false).await?;
+        builds::set_public(db, id, false).await?;
     }
     // The colours its author gave it, read off the file they sent.
     if let Ok(id) = &stored
@@ -587,7 +584,7 @@ async fn show_preview(
     }
     // A deleted build keeps its file, for an admin to restore.
     let shown = match &duplicate {
-        Some(id) => schematic::get(&state.db, id).await?.is_some(),
+        Some(id) => builds::get(&state.db, id).await?.is_some(),
         None => false,
     };
     let duplicate = duplicate.as_deref().map(|id| {

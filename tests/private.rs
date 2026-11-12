@@ -5,10 +5,8 @@ mod common;
 
 use app::{
     details::Details,
-    models::{
-        schematic,
-        user::{Role, User},
-    },
+    models::user::{Role, User},
+    store::builds,
 };
 use sqlx::SqlitePool;
 
@@ -35,17 +33,17 @@ async fn a_private_build_is_listed_only_for_its_uploader_and_admins() {
     let moderator = User::get_by_username(&db, "mod").await.unwrap().unwrap();
 
     let id = store(&db, "alpha-rca", &owner).await;
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert!(s.entry.public, "a build is public unless made private");
     assert!(s.listed_to(None));
 
-    schematic::set_public(&db, &id, false).await.unwrap();
+    builds::set_public(&db, &id, false).await.unwrap();
     let listed = |viewer: Option<&User>| {
         let db = db.clone();
         let id = id.clone();
         let viewer = viewer.cloned();
         async move {
-            let all = schematic::visible(&db, viewer.as_ref()).await.unwrap();
+            let all = builds::visible(&db, viewer.as_ref()).await.unwrap();
             all.iter().any(|s| s.id == id)
         }
     };
@@ -55,9 +53,9 @@ async fn a_private_build_is_listed_only_for_its_uploader_and_admins() {
     assert!(listed(Some(&owner)).await);
     assert!(listed(Some(&admin)).await);
     // Its link still opens it, for anyone.
-    assert!(schematic::get(&db, &id).await.unwrap().is_some());
+    assert!(builds::get(&db, &id).await.unwrap().is_some());
 
-    schematic::set_public(&db, &id, true).await.unwrap();
+    builds::set_public(&db, &id, true).await.unwrap();
     assert!(listed(None).await);
 }
 
@@ -68,45 +66,34 @@ async fn favourites_are_each_accounts_own() {
     let alex = common::sign_in(&db, "2", "alex").await;
     let id = store(&db, "alpha-rca", &steve).await;
 
-    assert!(!schematic::favorited(&db, alex.id, &id).await.unwrap());
-    schematic::set_favorite(&db, alex.id, &id, true)
-        .await
-        .unwrap();
+    assert!(!builds::favorited(&db, alex.id, &id).await.unwrap());
+    builds::set_favorite(&db, alex.id, &id, true).await.unwrap();
     // Favouriting twice keeps one.
-    schematic::set_favorite(&db, alex.id, &id, true)
-        .await
-        .unwrap();
-    assert!(schematic::favorited(&db, alex.id, &id).await.unwrap());
+    builds::set_favorite(&db, alex.id, &id, true).await.unwrap();
+    assert!(builds::favorited(&db, alex.id, &id).await.unwrap());
     // Its cards and page count each account that favourited it once.
-    assert_eq!(schematic::favorite_count(&db, &id).await.unwrap(), 1);
-    let s = schematic::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(builds::favorite_count(&db, &id).await.unwrap(), 1);
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
     assert_eq!(s.entry.favorites, 1);
     assert_eq!(
-        schematic::favorites(&db, alex.id).await.unwrap(),
+        builds::favorites(&db, alex.id).await.unwrap(),
         std::slice::from_ref(&id)
     );
-    assert!(
-        schematic::favorites(&db, steve.id)
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(builds::favorites(&db, steve.id).await.unwrap().is_empty());
 
-    schematic::set_favorite(&db, alex.id, &id, false)
+    builds::set_favorite(&db, alex.id, &id, false)
         .await
         .unwrap();
-    assert!(schematic::favorites(&db, alex.id).await.unwrap().is_empty());
+    assert!(builds::favorites(&db, alex.id).await.unwrap().is_empty());
 
     // Deleting the build takes it out of everyone's favourites, and
     // restoring it puts it back.
-    schematic::set_favorite(&db, alex.id, &id, true)
-        .await
-        .unwrap();
-    assert!(schematic::delete(&db, &id, steve.id).await.unwrap());
-    assert!(schematic::favorites(&db, alex.id).await.unwrap().is_empty());
-    assert!(schematic::undelete(&db, &id, steve.id).await.unwrap());
+    builds::set_favorite(&db, alex.id, &id, true).await.unwrap();
+    assert!(builds::delete(&db, &id, steve.id).await.unwrap());
+    assert!(builds::favorites(&db, alex.id).await.unwrap().is_empty());
+    assert!(builds::undelete(&db, &id, steve.id).await.unwrap());
     assert_eq!(
-        schematic::favorites(&db, alex.id).await.unwrap(),
+        builds::favorites(&db, alex.id).await.unwrap(),
         std::slice::from_ref(&id)
     );
 }

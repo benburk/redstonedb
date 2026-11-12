@@ -8,9 +8,10 @@ use app::{
     category::{self, Logic},
     details::{self, Details},
     interface::{Encoding, Orientation},
-    models::{schematic, simulation, tag, version},
+    models::{simulation, tag, version},
     search,
     stack::{self, StackDirection},
+    store::builds,
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -107,7 +108,7 @@ pub(super) async fn search_command(
         terms.iter().partition(|term| id_prefix(term));
     let words: Vec<&str> = words.iter().map(|word| word.as_str()).collect();
     let terms = search::parse(&words.join(" "));
-    let builds = schematic::all(db).await?;
+    let builds = builds::all(db).await?;
     let builds = if prefixes.is_empty() {
         builds
     } else {
@@ -140,7 +141,7 @@ fn id_prefix(term: &str) -> bool {
 pub(super) async fn remove(db: &SqlitePool, id: &str) -> Result<()> {
     let id = resolve(db, id).await?;
     let filename = load(db, &id).await?.filename();
-    schematic::purge(db, &id).await?;
+    builds::purge(db, &id).await?;
     println!("removed {}  {filename}", &id[..8]);
     Ok(())
 }
@@ -204,19 +205,14 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         Ok(ready) => ready,
         Err(message) => bail!("{message}"),
     };
-    schematic::set_details(db, &id, &ready).await?;
+    builds::set_details(db, &id, &ready).await?;
     let imported_by = if unset.iter().any(|f| f == "imported-by") {
         None
     } else {
         given.imported_by.or(s.entry.imported_by)
     };
-    schematic::set_import_details(
-        db,
-        &id,
-        imported_by.as_deref(),
-        conventional,
-    )
-    .await?;
+    builds::set_import_details(db, &id, imported_by.as_deref(), conventional)
+        .await?;
     // A new category or width may bring a test or drop one; recognized
     // now, it keeps what its building blocks must be, for themes, as an
     // upload does. It was judged as its category just now.
@@ -269,7 +265,7 @@ pub(super) async fn rejudge(db: &SqlitePool, id: &str) -> Result<()> {
     };
     match details::check(db, details, build, true).await? {
         Ok(ready) if ready.details.unverified != s.unverified => {
-            schematic::set_details(db, id, &ready).await?;
+            builds::set_details(db, id, &ready).await?;
             let now = ready.details.unverified.as_deref();
             println!(
                 "{}  {}",

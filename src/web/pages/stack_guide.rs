@@ -9,7 +9,7 @@
 use maud::{Markup, html};
 
 use crate::{
-    models::schematic::Build,
+    build::Build,
     stack::{FirstCopy, Review, StackDirection, classes},
 };
 

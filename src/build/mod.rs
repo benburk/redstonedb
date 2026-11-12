@@ -13,7 +13,7 @@ mod tags;
 #[cfg(test)]
 mod tests;
 
-pub use credits::Credits;
+pub use credits::{Credits, valid_player_name};
 pub use entry::Entry;
 pub use file::File;
 pub use name::file_stem;

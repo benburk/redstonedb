@@ -6,13 +6,15 @@ use std::{fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use app::{
+    build::Build,
     category::Category,
     details::{self, Details},
     import,
     models::{
-        schematic, simulation,
+        simulation,
         version::{self, Replacing},
     },
+    store::builds,
 };
 use clap::Args;
 use sqlx::SqlitePool;
@@ -57,7 +59,7 @@ pub(super) async fn reread(db: &SqlitePool, id: &str) -> Result<()> {
 /// compared.
 async fn refile(
     db: &SqlitePool,
-    s: &schematic::Build,
+    s: &Build,
     file: &[u8],
     standardize: bool,
 ) -> Result<()> {
@@ -175,7 +177,7 @@ pub(super) async fn merge(
 /// category, as on the site.
 async fn next_version(
     db: &SqlitePool,
-    s: &schematic::Build,
+    s: &Build,
     raw: &[u8],
     file: &Path,
     note: Option<&str>,
@@ -242,7 +244,7 @@ async fn next_version(
             .await?
         {
             Ok(ready) => {
-                schematic::set_details(db, id, &ready).await?;
+                builds::set_details(db, id, &ready).await?;
                 println!("{name}: verified");
             }
             Err(why) => println!("{name}: not verified: {why}"),

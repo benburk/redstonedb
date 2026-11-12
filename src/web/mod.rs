@@ -187,7 +187,7 @@ async fn viewing(
         palette: crate::recognize::palette::key_for(db, viewer).await?,
         signed_in: viewer.is_some(),
         favorites: match viewer {
-            Some(viewer) => crate::models::schematic::favorites(db, viewer.id)
+            Some(viewer) => crate::store::builds::favorites(db, viewer.id)
                 .await?
                 .into_iter()
                 .collect(),
