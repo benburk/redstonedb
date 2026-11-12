@@ -10,8 +10,8 @@ use crate::{
     external::mojang,
     store::builds,
     web::{
-        self,
         app_state::AppState,
+        browse::list,
         error::AppError,
         people::users_view::{self, ProfileBuilds, ProfileList},
     },
@@ -146,7 +146,7 @@ async fn show_profile(
     let builds = ProfileBuilds {
         lists,
         shown,
-        viewing: web::viewing(&state.db, viewer).await?,
+        viewing: list::viewing(&state.db, viewer).await?,
     };
     Ok(users_view::profile(viewer, account, &builds).into_response())
 }

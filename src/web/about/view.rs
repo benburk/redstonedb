@@ -8,7 +8,7 @@ use crate::{
     account::User,
     recognize::guide,
     web::{
-        guide_image,
+        assets::guide_image,
         ui::{
             PAGE_TITLE, SECTION_TITLE, description::player_badge, layout::base,
         },

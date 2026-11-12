@@ -11,11 +11,12 @@ use crate::{
     build::{self, Build, Change},
     store::activity::{Event, Filter, Kind, Page},
     web::{
-        build::detail_view::long_date,
+        href,
         ui::{
             PAGE_TITLE, SWITCH, SWITCHES,
             icons::{self, icon},
             layout::base,
+            text::{self, long_date},
         },
     },
 };
@@ -57,7 +58,7 @@ pub fn activity(log: &ActivityLog) -> Markup {
     // The events in runs of one day each.
     let mut days: Vec<(&str, Vec<&Event>)> = Vec::new();
     for event in &log.page.events {
-        let day = event.at.get(..10).unwrap_or(&event.at);
+        let day = text::day(&event.at);
         match days.last_mut() {
             Some((last, events)) if *last == day => events.push(event),
             _ => days.push((day, vec![event])),
@@ -302,7 +303,7 @@ fn change_row(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
 fn account(user: Option<&User>) -> Markup {
     html! {
         @if let Some(user) = user {
-            a href={ "/users/" (user.username) } class="font-medium" { (user.name()) }
+            a href=(href::user(&user.username)) class="font-medium" { (user.name()) }
         } @else {
             span class="text-muted" { "A deleted account" }
         }
@@ -317,7 +318,7 @@ fn build_link(log: &ActivityLog, id: &str) -> Markup {
             span class="text-muted" { (s.title()) " (deleted)" }
         },
         Some(s) => html! {
-            a href={ "/schematics/" (s.id) } { (s.title()) }
+            a href=(href::build(&s.id)) { (s.title()) }
         },
         None => html! { span class="text-muted" { "a removed build" } },
     }

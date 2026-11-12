@@ -12,9 +12,10 @@ use crate::{
     leaderboard,
     store::builds,
     web::{
-        self,
         app_state::AppState,
+        browse::list,
         error::AppError,
+        href,
         people::{
             heads,
             player_view::{self, PlayerPage},
@@ -75,8 +76,9 @@ pub async fn show(
         }
     };
     if spelling != name {
-        return Ok(Redirect::permanent(&format!("/players/{spelling}"))
-            .into_response());
+        return Ok(
+            Redirect::permanent(&href::player(&spelling)).into_response()
+        );
     }
     // Newest first, as on the home page.
     all.sort_by(|a, b| b.entry.added_at.cmp(&a.entry.added_at));
@@ -124,7 +126,7 @@ pub async fn show(
                 .cloned()
                 .collect::<Vec<_>>(),
             records: &held,
-            viewing: &web::viewing(&state.db, user_opt.as_ref()).await?,
+            viewing: &list::viewing(&state.db, user_opt.as_ref()).await?,
         },
     )
     .into_response())

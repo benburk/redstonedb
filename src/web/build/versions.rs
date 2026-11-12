@@ -33,6 +33,7 @@ use crate::{
             client_ip::ClientIp,
             session::{Moderator, SignedIn},
         },
+        href,
         submit::{
             details_view::Reply,
             edit::{EditView, editable, show_edit},
@@ -118,7 +119,7 @@ pub async fn restore(
     tracing::info!(id, by = user.username, ip, number, "restored a version");
     jobs::complete_soon(db, &id);
     similar::refresh_soon(db);
-    Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
+    Ok(Redirect::to(&href::build(&id)).into_response())
 }
 
 /// What merging a build into another names.
@@ -174,8 +175,7 @@ pub async fn merge(
             );
             jobs::complete_soon(db, &into.id);
             similar::refresh_soon(db);
-            Ok(Redirect::to(&format!("/schematics/{}", into.id))
-                .into_response())
+            Ok(Redirect::to(&href::build(&into.id)).into_response())
         }
         Err(refusals) => Err(AppError::BadRequest(refusals.join(" "))),
     }

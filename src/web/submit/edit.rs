@@ -27,6 +27,7 @@ use crate::{
         back,
         error::AppError,
         extractors::{client_ip::ClientIp, session::SignedIn},
+        href,
         submit::{
             analysis,
             details_view::{File, Reply},
@@ -170,7 +171,7 @@ pub async fn save(
     // A new file, category, or width may call for a test, or another.
     jobs::complete_soon(db, &id);
     similar::refresh_soon(db);
-    Ok(Redirect::to(&format!("/schematics/{id}")).into_response())
+    Ok(Redirect::to(&href::build(&id)).into_response())
 }
 
 /// `file`, newly chosen on build `s`'s edit page, checked as its next

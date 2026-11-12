@@ -11,9 +11,12 @@ use crate::{
     build::Build,
     compare::diff::Counts,
     store::versions::{Measures, Version},
-    web::ui::{
-        PAGE_TITLE, SECTION_TITLE, SIGN_IN_TO_DOWNLOAD, SWITCHES, layout::base,
-        viewer_3d_sides,
+    web::{
+        href,
+        ui::{
+            PAGE_TITLE, SECTION_TITLE, SIGN_IN_TO_DOWNLOAD, SWITCHES,
+            layout::base, text::plural, viewer::viewer_3d_sides,
+        },
     },
 };
 
@@ -29,7 +32,7 @@ pub fn diff_page(
     (from, to): (i64, i64),
     counts: Counts,
 ) -> Markup {
-    let path = format!("/schematics/{}", s.id);
+    let path = href::build(&s.id);
     let between = format!("from={from}&to={to}");
     let file = |side: &str| format!("{path}/diff/{side}?{between}");
     let preview = |side: &str| format!("{}&preview=yes", file(side));
@@ -138,14 +141,6 @@ pub fn summary(counts: Counts) -> String {
         ));
     }
     parts.join(", ")
-}
-
-fn plural(n: usize, word: &str) -> String {
-    if n == 1 {
-        word.to_owned()
-    } else {
-        format!("{word}s")
-    }
 }
 
 /// What changed in what the two versions measured, one line each, such as

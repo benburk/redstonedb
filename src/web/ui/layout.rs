@@ -7,7 +7,8 @@ use crate::{
     APP_NAME, SITE_URL,
     account::User,
     web::{
-        self,
+        assets::{APP_JS, CSS, FIXI_JS, SIDEBAR_JS, THEME_JS},
+        href,
         ui::{
             PAGE_TITLE,
             icons::{self, icon},
@@ -86,14 +87,14 @@ pub fn base_previewed(
                 meta name="theme-color" content="#c4302b";
                 // The brand mark, inline, so there is no icon file to fetch.
                 link rel="icon" href=(ICON);
-                link rel="stylesheet" href=(web::CSS.url());
+                link rel="stylesheet" href=(CSS.url());
                 // Not deferred: the chosen theme must apply before the page
                 // is drawn.
-                script src=(web::THEME_JS.url()) {}
+                script src=(THEME_JS.url()) {}
                 // fixi first, so the app's policies hear its every event.
-                script defer src=(web::FIXI_JS.url()) {}
-                script defer src=(web::APP_JS.url()) {}
-                script defer src=(web::SIDEBAR_JS.url()) {}
+                script defer src=(FIXI_JS.url()) {}
+                script defer src=(APP_JS.url()) {}
+                script defer src=(SIDEBAR_JS.url()) {}
             }
             body class="min-h-screen desktop:flex" {
                 a href="#main"
@@ -188,7 +189,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
                     @match viewer {
                         None => (link("/sessions/new", icons::LOG_IN, "Log in", current("/sessions/new"))),
                         Some(user) => {
-                            @let profile = format!("/users/{}", user.username);
+                            @let profile = href::user(&user.username);
                             li {
                                 a href=(profile) aria-current=[current(&profile)] class=(SIDEBAR_LINK) {
                                     @match user.picture(16) {

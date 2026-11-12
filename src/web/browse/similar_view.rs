@@ -9,8 +9,9 @@ use crate::{
     build::Build,
     web::{
         browse::list_view,
+        href,
         schemati::view::{self, Offered},
-        ui::{self, PAGE_TITLE, SECTION_TITLE, facts},
+        ui::{PAGE_TITLE, SECTION_TITLE, summary::facts, text},
     },
 };
 
@@ -103,11 +104,11 @@ fn results(found: &Found) -> Markup {
                             alt="" loading="lazy" decoding="async" width="96" height="72"
                             class="aspect-[4/3] w-24 shrink-0 rounded-control bg-sidebar object-contain";
                         div class="flex min-w-0 flex-1 flex-col gap-0.5" {
-                            a href={ "/schematics/" (s.id) }
+                            a href=(href::build(&s.id))
                                 class="font-semibold text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
                             p class="text-meta text-muted tabular-nums" { (s.category_label()) " · " (facts(s)) }
                         }
-                        span class="text-section font-semibold tabular-nums" { (ui::percent(*permille)) }
+                        span class="text-section font-semibold tabular-nums" { (text::percent(*permille)) }
                     }
                 }
             }

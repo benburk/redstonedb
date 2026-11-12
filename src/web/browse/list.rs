@@ -11,19 +11,20 @@ use axum::{
     extract::{RawQuery, State},
     response::{IntoResponse, Response},
 };
+use sqlx::SqlitePool;
 
 use crate::{
     account::User,
     build::{Build, tag},
     category::Category,
     leaderboard, search,
-    store::builds,
+    store::{builds, users},
     web::{
-        self,
         app_state::AppState,
         browse::{
             list_view::{
                 self, Facet, HomeQuery, Index, Listing, Sort, SortField, Tile,
+                Viewing,
             },
             similar,
         },
@@ -93,7 +94,7 @@ async fn index(
 ) -> Result<Response, AppError> {
     let all = builds::visible(&state.db, viewer).await?;
     let categories = Category::all();
-    let viewing = web::viewing(&state.db, viewer).await?;
+    let viewing = viewing(&state.db, viewer).await?;
     // A category's tile counts its verified builds, unaligned too, as its
     // listing shows them, and pictures the first on its board, where none
     // unaligned rank.
@@ -233,7 +234,7 @@ async fn listing(
             .collect()
     };
     order(&mut shown, &query.sort);
-    let viewing = web::viewing(&state.db, viewer).await?;
+    let viewing = viewing(&state.db, viewer).await?;
     let listing = Listing {
         shown: &shown,
         total,
@@ -346,6 +347,25 @@ fn facets(
     // when it has some or is chosen.
     facets.retain(|f| f.name != OTHER || f.count > 0 || f.name == chosen);
     facets
+}
+
+/// What `viewer`'s cards show of them: their palette, and whether they
+/// are signed in, with their favourites.
+pub(crate) async fn viewing(
+    db: &SqlitePool,
+    viewer: Option<&User>,
+) -> anyhow::Result<Viewing> {
+    Ok(Viewing {
+        palette: users::palette_key(db, viewer).await?,
+        signed_in: viewer.is_some(),
+        favorites: match viewer {
+            Some(viewer) => builds::favorites(db, viewer.id)
+                .await?
+                .into_iter()
+                .collect(),
+            None => HashSet::new(),
+        },
+    })
 }
 
 #[cfg(test)]

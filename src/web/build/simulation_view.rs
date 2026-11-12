@@ -13,7 +13,7 @@ use crate::{
     stack::StackDirection,
     web::{
         build::trace::shown_glitch,
-        ui::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped, spinner},
+        ui::{SECTION_TITLE, TABLE_CELL, TABLE_HEAD, spinner, text::grouped},
     },
 };
 

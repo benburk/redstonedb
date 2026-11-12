@@ -38,6 +38,7 @@ use crate::{
         app_state::AppState,
         error::AppError,
         extractors::{client_ip::ClientIp, session::SignedIn},
+        href,
         submit::{
             analysis,
             details_view::{Duplicate, File, Reply},
@@ -368,9 +369,7 @@ pub async fn publish(
             tracing::info!(id, by = user.username, ip, "upload");
             jobs::complete_soon(&state.db, &id);
             similar::refresh_soon(&state.db);
-            return Ok(
-                Redirect::to(&format!("/schematics/{id}")).into_response()
-            );
+            return Ok(Redirect::to(&href::build(&id)).into_response());
         }
         Err(message) => message,
     };

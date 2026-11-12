@@ -16,9 +16,14 @@ use crate::{
     simulate::Group,
     web::{
         browse::list_view::{Facet, category_menu},
+        href,
         ui::{
-            self, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL,
-            TABLE_HEAD, layout::base,
+            PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES, TABLE_CELL,
+            TABLE_HEAD,
+            layout::base,
+            person,
+            summary::{self, latency},
+            text::count,
         },
     },
 };
@@ -62,11 +67,11 @@ pub fn people(viewer: Option<&User>, page: &PeoplePage) -> Markup {
         holders,
         facets,
     } = *page;
-    let author = |s: &Standing| ui::player_href(&s.name);
+    let author = |s: &Standing| href::player(&s.name);
     // An upload's account has a profile; an importer is only a name.
     let adder = |name: &str, account: Option<&str>| match account {
-        Some(username) => format!("/users/{username}"),
-        None => ui::player_href(name),
+        Some(username) => href::user(username),
+        None => href::player(name),
     };
     base(
         viewer,
@@ -143,13 +148,6 @@ pub(crate) fn record_table(
         });
         theirs.unwrap_or(&record.holders[0]).id.clone()
     };
-    let count = |n: usize, one: &str| {
-        if n == 1 {
-            format!("1 {one}")
-        } else {
-            format!("{n} {one}s")
-        }
-    };
     html! {
         div class="relative overflow-x-auto" {
             table class="w-full border-collapse" {
@@ -166,7 +164,7 @@ pub(crate) fn record_table(
                     @for record in records.iter().take(if named { usize::MAX } else { SHOWN }) {
                         @let id = holder(record);
                         @let holder = record.holders.iter().find(|s| s.id == id).unwrap_or(&record.holders[0]);
-                        @let href = format!("/schematics/{}", holder.id);
+                        @let href = href::build(&holder.id);
                         tr class="hover:bg-selection/50" {
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
                                 a href=(record_href(record)) class="font-semibold" { (record.name()) }
@@ -182,7 +180,7 @@ pub(crate) fn record_table(
                             td class={ (TABLE_CELL) " tabular-nums" } {
                                 a href=(href) {
                                     @match record.rank {
-                                        Rank::Fastest => (ticks(holder)),
+                                        Rank::Fastest => (latency(holder)),
                                         Rank::Smallest => (blocks(holder, record.ruler)),
                                     }
                                 }
@@ -260,7 +258,7 @@ fn standings(
                             tr class="hover:bg-selection/50" {
                                 td class={ (TABLE_CELL) " tabular-nums text-muted" } { (place) }
                                 th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                    (ui::person_link(&person.name, &href(person)))
+                                    (person::person_link(&person.name, &href(person)))
                                 }
                                 td class={ (TABLE_CELL) " text-right tabular-nums" } { (person.count) }
                             }
@@ -474,12 +472,12 @@ fn rankings(category: &Category, board: &Board) -> Markup {
     let tradeoffs = leaderboard::tradeoffs(builds, ruler);
     let shared = board.group == Group::SharedLines;
     let by_speed = |s: &Build| {
-        let mut values = vec![ticks(s), blocks(s, ruler)];
+        let mut values = vec![latency(s), blocks(s, ruler)];
         values.extend(shared.then(|| copies(s, ruler)));
         values
     };
     let by_size = |s: &Build| {
-        let mut values = vec![blocks(s, ruler), ticks(s)];
+        let mut values = vec![blocks(s, ruler), latency(s)];
         values.extend(shared.then(|| copies(s, ruler)));
         values
     };
@@ -586,18 +584,11 @@ fn board_name(category: &Category, board: &Board) -> String {
         .join(" ")
 }
 
-fn ticks(s: &Build) -> String {
-    s.specs
-        .latency
-        .map(|t| format!("{t} ticks"))
-        .unwrap_or_default()
-}
-
 /// Its size as `ruler` measures it: its volume, or a cell's blocks, those
 /// of each copy where its copies stack, or a bit where it holds more.
 fn blocks(s: &Build, ruler: Ruler) -> String {
     if ruler == Ruler::Whole {
-        return ui::volume(s);
+        return summary::volume(s);
     }
     let size = ruler.size(s);
     if size.bits == 1 {
@@ -668,7 +659,7 @@ fn ranking(
                                 td class={ (TABLE_CELL) " tabular-nums text-muted" } { (place) }
                             }
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                a href={ "/schematics/" (s.id) } class="font-semibold" { (s.title()) }
+                                a href=(href::build(&s.id)) class="font-semibold" { (s.title()) }
                                 @if let (Some(from), Some(width)) = (s.stacked_from, s.specs.width) {
                                     div class="mt-1 text-meta text-muted" {
                                         (width / from.max(1)) " copies of a " (from) "-bit build, stacked"
@@ -677,7 +668,7 @@ fn ranking(
                                 @if !s.credits.authors.is_empty() {
                                     div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-meta" {
                                         @for name in &s.credits.authors {
-                                            (ui::person_link(name, &ui::player_href(name)))
+                                            (person::person_link(name, &href::player(name)))
                                         }
                                     }
                                 }

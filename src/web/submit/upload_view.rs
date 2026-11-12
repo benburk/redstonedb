@@ -8,6 +8,7 @@ use crate::{
     account::{SchematiLink, User},
     build::Build,
     web::{
+        href,
         schemati::view::{self, Offered},
         submit::analysis::{self, Step},
         ui::{
@@ -143,7 +144,7 @@ pub fn checking_version(user: &User, s: &Build, id: &str) -> Markup {
             div class="max-w-form" {
                 h1 class={ (PAGE_TITLE) " mb-6" } { "Upload a new version" }
                 // A step on the way to the build's page, as its edit page is.
-                div fx-action={ "/schematics/" (s.id) "/versions/check/" (id) "/progress" }
+                div fx-action={ (href::build(&s.id)) "/versions/check/" (id) "/progress" }
                     fx-trigger="poll" data-every="250" fx-swap="innerHTML" data-step-page
                     role="status" aria-live="polite" {
                     (version_steps())

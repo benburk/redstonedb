@@ -9,7 +9,8 @@ use crate::{
     store::versions::Version,
     web::{
         build::diff_view,
-        ui::{self, SECTION_TITLE},
+        href,
+        ui::{self, SECTION_TITLE, person, text},
     },
 };
 
@@ -24,7 +25,7 @@ pub fn versions_section(
     may_restore: bool,
 ) -> Markup {
     let current = versions.first().map_or(1, |v| v.version);
-    let path = format!("/schematics/{}", s.id);
+    let path = href::build(&s.id);
     let measured = |number: i64| {
         versions
             .iter()
@@ -53,12 +54,12 @@ pub fn versions_section(
                                         span class="min-w-9 rounded-control bg-sidebar px-1.5 text-center font-semibold tabular-nums" { "v" (number) }
                                     }
                                     span class="text-meta text-muted tabular-nums" {
-                                        (version.added_at.get(..10).unwrap_or(&version.added_at))
+                                        (text::day(&version.added_at))
                                     }
                                     @if version.by_site {
                                         span class="badge badge-found" title="Made by the site itself" { "RedstoneDB" }
                                     } @else if let (Some(by), Some(username)) = (&version.added_by, &version.added_by_username) {
-                                        (ui::person_badge(by, &format!("/users/{username}")))
+                                        (person::person_badge(by, &href::user(username)))
                                     }
                                 }
                                 @match &version.note {
