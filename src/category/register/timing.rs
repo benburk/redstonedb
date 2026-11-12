@@ -449,11 +449,9 @@ fn aligned(
         changes: settled.len() as u64,
         patterns: !exhaustive,
         start: Start::Input,
-        write: None,
         data: Some(found.latency),
         takes: Takes::Open,
-        pulse: None,
-        free_running: None,
+        ..Timing::default()
     })
 }
 
@@ -462,12 +460,7 @@ fn aligned(
 fn spread(settled: &[(i32, Value)]) -> (i32, i32, i32, Value) {
     let mut ticks: Vec<i32> = settled.iter().map(|&(tick, _)| tick).collect();
     ticks.sort_unstable();
-    let at = |share: usize| {
-        ticks
-            .get((ticks.len() * share / 100).min(ticks.len().saturating_sub(1)))
-            .copied()
-            .unwrap_or(0)
-    };
+    let at = |share: usize| crate::simulate::timing::percentile(&ticks, share);
     let (slowest, value) = settled
         .iter()
         .copied()

@@ -59,7 +59,7 @@ use crate::{interface::Interface, schem::Blocks};
 
 /// When a build's inputs may change and its outputs settle, in ticks from
 /// t = 0, as the slowest inputs change.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Timing {
     /// Each input, A first.
     pub inputs: Vec<InputTiming>,
@@ -101,6 +101,15 @@ pub struct Timing {
     /// ticks from one count to the next then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub free_running: Option<i32>,
+}
+
+/// Of `sorted` ticks, lowest first, the one `share` in a hundred of them
+/// come by, as the median is the one half do; 0 for none.
+pub(crate) fn percentile(sorted: &[i32], share: usize) -> i32 {
+    sorted
+        .get((sorted.len() * share / 100).min(sorted.len().saturating_sub(1)))
+        .copied()
+        .unwrap_or(0)
 }
 
 /// The pulse a monostable gives as input A changes on its edge.
@@ -527,10 +536,7 @@ fn measured(
         patterns,
         start: Start::Input,
         takes: Takes::Open,
-        write: None,
-        data: None,
-        pulse: None,
-        free_running: None,
+        ..Timing::default()
     })
 }
 
@@ -799,10 +805,7 @@ fn pressed_timing(
         patterns: true,
         start: Start::Input,
         takes: Takes::default(),
-        write: None,
-        data: None,
-        pulse: None,
-        free_running: None,
+        ..Timing::default()
     }
 }
 

@@ -82,7 +82,7 @@ impl Report {
 }
 
 /// A test that ran, case by case.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Run {
     /// What each case is, such as `A + B + carry in`.
     pub pattern: String,
