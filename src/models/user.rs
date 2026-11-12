@@ -135,7 +135,7 @@ impl User {
 
     /// Whether the account uploaded the build through the site.
     pub fn uploaded(&self, s: &Build) -> bool {
-        s.uploader.as_deref() == Some(self.username.as_str())
+        s.entry.uploader.as_deref() == Some(self.username.as_str())
     }
 
     /// Whether the build credits the account's confirmed Minecraft name as

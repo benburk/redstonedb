@@ -243,7 +243,7 @@ async fn checked(
     // function's, as an upload's, colour playing no part: inputs are its
     // levers, buttons, and comparators with air behind, and outputs its
     // repeaters and comparators facing air.
-    if s.conventional {
+    if s.file.conventional {
         // Dust on top of an input is a fault only on a data input, which
         // probing a blessed build checks.
         let current = inspect::inspect(&current);

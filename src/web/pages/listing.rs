@@ -695,9 +695,9 @@ fn without(terms: &[Term], index: usize) -> String {
 fn badges(s: &Build, class: &str) -> Markup {
     let tags = on_card(s);
     html! {
-        @if !tags.is_empty() || !s.public {
+        @if !tags.is_empty() || !s.entry.public {
             ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
-                @if !s.public {
+                @if !s.entry.public {
                     li { (super::private_badge()) }
                 }
                 @for tag in &tags {
@@ -887,7 +887,7 @@ pub(super) fn thumbnail_src(s: &Build, palette: Option<&str>) -> String {
     format!(
         "/schematics/{}/thumbnail.webp?v={}-{}{themed}{palette}",
         s.id,
-        &s.sha256[..12.min(s.sha256.len())],
+        &s.file.sha256[..12.min(s.file.sha256.len())],
         crate::thumbnail::RENDERER
     )
 }
@@ -952,10 +952,10 @@ fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
                                     span class="font-semibold" { (latency(s)) }
                                 }
                                 span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
-                                @if s.favorites > 0 {
-                                    @let label = super::favourites_label(s.favorites);
+                                @if s.entry.favorites > 0 {
+                                    @let label = super::favourites_label(s.entry.favorites);
                                     span class="ml-auto inline-flex items-center gap-1 self-center text-meta text-muted" title=(label) aria-label=(label) {
-                                        (icon(icons::STAR, "size-3.5")) (s.favorites)
+                                        (icon(icons::STAR, "size-3.5")) (s.entry.favorites)
                                     }
                                 }
                             }

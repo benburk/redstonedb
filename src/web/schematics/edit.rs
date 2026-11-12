@@ -148,7 +148,7 @@ pub async fn save(
         return show_edit(db, &user, &s, view).await;
     }
     let new_prepared = kept.as_ref().or(checked.as_ref().map(|c| &c.prepared));
-    if form.public != s.public {
+    if form.public != s.entry.public {
         schematic::set_public(db, &id, form.public).await?;
     }
     // What the edit changed, before a new version changes what its file
@@ -184,7 +184,7 @@ async fn chosen_version(
     // one unverified or off the list as built, until a version it is
     // recognized by moves it up.
     let listed = s.kind().is_some();
-    let standardize = s.conventional && listed && s.unverified.is_none();
+    let standardize = s.file.conventional && listed && s.unverified.is_none();
     check_version(db, s, file, standardize)
         .await
         .map_err(|err| format!("Could not read that file: {err:#}."))
@@ -384,7 +384,7 @@ async fn version_kept(
     if Category::name_of(&categories, category) == s.category
         && let Some(meant) = simulation::stands_in(s)
         && let Some((moved, to)) =
-            import::moved_up(&categories, meant, prepared, s.keeps_paste)
+            import::moved_up(&categories, meant, prepared, s.file.keeps_paste)
                 .await?
     {
         return Ok(Some((moved, Some(to.name.clone()))));
@@ -427,7 +427,7 @@ async fn saved(
         // which a save of its details needn't run again.
         details::Candidate {
             data: &stored,
-            conventional: s.conventional,
+            conventional: s.file.conventional,
             passes: same
                 && simulation::current(db, s)
                     .await?

@@ -233,7 +233,7 @@ impl Form {
             stackable: !s.stacking.is_empty(),
             // A build that does not stack yet starts with a likely direction.
             stack_rows: if s.stacking.is_empty() {
-                vec![StackRow::suggested(s.specs.orientation, s.size)]
+                vec![StackRow::suggested(s.specs.orientation, s.file.size)]
             } else {
                 s.stacking.iter().map(StackRow::of).collect()
             },
@@ -245,7 +245,7 @@ impl Form {
                 .filter(|tag| !tag.is_derived())
                 .map(|tag| tag.name.clone())
                 .collect(),
-            public: s.public,
+            public: s.entry.public,
         }
     }
 
@@ -406,7 +406,7 @@ pub async fn page(
             !unconventional,
         ),
         File::Stored { s, .. } | File::Version { s, .. } => {
-            (s.category.clone(), s.conventional)
+            (s.category.clone(), s.file.conventional)
         }
     };
     let analysis = shown.blocks.map_or_else(Analysis::default, |blocks| {

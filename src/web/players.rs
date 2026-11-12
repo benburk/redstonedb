@@ -41,7 +41,7 @@ pub async fn show(
             .authors
             .iter()
             .chain(&s.credits.contributors)
-            .chain(&s.imported_by)
+            .chain(&s.entry.imported_by)
             .find(|n| same(n))
             .cloned()
     });
@@ -74,9 +74,9 @@ pub async fn show(
             .into_response());
     }
     // Newest first, as on the home page.
-    all.sort_by(|a, b| b.added_at.cmp(&a.added_at));
+    all.sort_by(|a, b| b.entry.added_at.cmp(&a.entry.added_at));
     // Private builds compete with no one.
-    let public: Vec<&Build> = all.iter().filter(|s| s.public).collect();
+    let public: Vec<&Build> = all.iter().filter(|s| s.entry.public).collect();
     let stacks = leaderboard::stacked(public.iter().copied());
     let builds: Vec<&Build> = public.into_iter().chain(&stacks).collect();
     let records = leaderboard::records(&builds);

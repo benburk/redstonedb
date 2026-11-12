@@ -111,7 +111,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
             div class="mb-6 flex flex-wrap items-start justify-between gap-4" {
                 div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                     h1 class=(PAGE_TITLE) { (name) }
-                    @if !s.public {
+                    @if !s.entry.public {
                         (super::private_badge())
                     }
                     (build_banner(s, simulating))
@@ -127,11 +127,11 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                         button type="button" aria-disabled="true" title=(super::SIGN_IN_TO_DOWNLOAD) class="btn btn-primary flex-1 sm:flex-none" { "Download" }
                     }
                     @if viewer.is_some() {
-                        (favorite_button(&path, favorited, s.favorites))
-                    } @else if s.favorites > 0 {
-                        @let label = super::favourites_label(s.favorites);
+                        (favorite_button(&path, favorited, s.entry.favorites))
+                    } @else if s.entry.favorites > 0 {
+                        @let label = super::favourites_label(s.entry.favorites);
                         span class="flex h-10 items-center gap-1.5 px-2 text-muted tabular-nums" title=(label) aria-label=(label) {
-                            (icon(icons::STAR, "size-5")) (s.favorites)
+                            (icon(icons::STAR, "size-5")) (s.entry.favorites)
                         }
                     }
                     (actions_menu(s, viewer, &path, from))
@@ -294,7 +294,7 @@ impl Sources {
         let passed = report.is_some_and(Report::passed);
         // A conventional build's file sets these over what was typed.
         let derived = interface
-            .filter(|_| s.conventional)
+            .filter(|_| s.file.conventional)
             .map(|interface| import::derived(&s.category, interface))
             .unwrap_or_default();
         let checked = |from_file: bool, simulated: bool| {
@@ -447,7 +447,7 @@ pub fn build_info(
             (credits(s))
             @match file {
                 // Kept as built and never tested, its lines were never read.
-                _ if !s.conventional
+                _ if !s.file.conventional
                     && !matches!(s.status, Status::Passing | Status::Failing) =>
                 {
                     p class="text-meta text-muted" {
@@ -538,9 +538,9 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
                     None => (fact("Blocks", html! { (s.volume()) })),
                 }
                 (fact("Size, H×W×D", html! { (size(s)) }))
-                @if let Some(from) = &s.works_from {
+                @if let Some(from) = &s.file.works_from {
                     // Why that release, on hover: the newest part it uses.
-                    @let why = match &s.works_from_by {
+                    @let why = match &s.file.works_from_by {
                         Some(by) => format!("Needs {from} for its {by}"),
                         None => format!("Uses only what redstone has had since {from}"),
                     };
@@ -739,11 +739,11 @@ fn credits(s: &Build) -> Markup {
                 }
                 // An upload names its account, by its Minecraft name if it
                 // has one; an import names whoever ran it.
-                @match (&s.uploader, &s.uploader_name) {
+                @match (&s.entry.uploader, &s.entry.uploader_name) {
                     (Some(username), Some(name)) => {
                         (field("Uploaded by", person_badge(name, &format!("/users/{username}"))))
                     }
-                    _ => @if let Some(name) = &s.imported_by {
+                    _ => @if let Some(name) = &s.entry.imported_by {
                         (field("Imported by", person_badge(name, &super::search_href(&format!("importer:{name}")))))
                     },
                 }
@@ -752,12 +752,12 @@ fn credits(s: &Build) -> Markup {
                 summary class="cursor-pointer text-meta text-muted" { "File" }
                 dl class="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
                     (field("Name", html! { code class="break-all" { (s.filename()) } }))
-                    (field("Uploaded", long_date(&s.added_at)))
-                    @if let Some(edited) = &s.edited_at {
+                    (field("Uploaded", long_date(&s.entry.added_at)))
+                    @if let Some(edited) = &s.entry.edited_at {
                         (field("Last edited", long_date(edited)))
                     }
-                    (field("Downloads", s.downloads.to_string()))
-                    (field("Conventions", if s.conventional {
+                    (field("Downloads", s.entry.downloads.to_string()))
+                    (field("Conventions", if s.file.conventional {
                         html! { "followed" }
                     } else {
                         search_link("not followed", "unconventional")
@@ -772,7 +772,7 @@ fn credits(s: &Build) -> Markup {
 /// author giving it: a conventional build of a category whose stacking
 /// it infers.
 fn stacking_found(s: &Build) -> bool {
-    s.conventional
+    s.file.conventional
         && category::behaviour(&s.category).stacking
             == category::Stacking::Inferred
 }
@@ -1134,7 +1134,7 @@ fn preview(s: &Build) -> super::Preview {
     if let Some(pitch) = s.stacking.iter().filter_map(|d| d.pitch).min() {
         facts.push(format!("{pitch}-wide stackable"));
     }
-    if let Some(from) = &s.works_from {
+    if let Some(from) = &s.file.works_from {
         facts.push(format!("works from {from}"));
     }
     facts.push(

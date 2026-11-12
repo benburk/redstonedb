@@ -21,7 +21,7 @@ impl Build {
     /// found it: copies across its bits, with no pitch, as a stacking its
     /// author gave has none either.
     fn word_tags(&self, kind: tag::Kind) -> Vec<Tag> {
-        let decided = self.conventional
+        let decided = self.file.conventional
             && crate::category::behaviour(&self.category).stacking
                 == crate::category::Stacking::Inferred;
         self.stacking
@@ -55,7 +55,7 @@ impl Build {
     pub fn every_tag(&self) -> Vec<Tag> {
         let behaviour = crate::category::behaviour(&self.category);
         let found = |kind, by_site: bool| {
-            if self.conventional && self.unverified.is_none() && by_site {
+            if self.file.conventional && self.unverified.is_none() && by_site {
                 kind
             } else {
                 tag::Kind::Other

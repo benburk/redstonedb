@@ -84,8 +84,8 @@ impl Purpose {
     pub fn of(s: &Build, standardize: bool) -> Purpose {
         Purpose::InPlace {
             standardize,
-            conventional: s.conventional,
-            keep_paste: s.keeps_paste,
+            conventional: s.file.conventional,
+            keep_paste: s.file.keeps_paste,
         }
     }
 }

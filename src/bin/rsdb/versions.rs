@@ -65,9 +65,9 @@ async fn refile(
         import::prepare_for(file, import::Purpose::of(s, standardize))?;
     let facts = &prepared.facts;
     let stored = (
-        s.torches,
-        s.works_from.as_deref(),
-        s.works_from_by.as_deref(),
+        s.file.torches,
+        s.file.works_from.as_deref(),
+        s.file.works_from_by.as_deref(),
     );
     let read = (
         Some(facts.torches),
@@ -76,15 +76,15 @@ async fn refile(
     );
     let size = &prepared.size;
     let size = (size.x.into(), size.y.into(), size.z.into());
-    let rewritten = prepared.sha256 != s.sha256;
-    if rewritten || stored != read || size != s.size {
+    let rewritten = prepared.sha256 != s.file.sha256;
+    if rewritten || stored != read || size != s.file.size {
         version::replace(db, &s.id, &prepared, Replacing::InPlace).await?;
     }
     if rewritten {
         println!("{}  file rewritten", &s.id[..8]);
     }
-    if size != s.size {
-        let (x, y, z) = s.size;
+    if size != s.file.size {
+        let (x, y, z) = s.file.size;
         let (nx, ny, nz) = size;
         println!("{}  {y}x{x}x{z} -> {ny}x{nx}x{nz}", &s.id[..8]);
     }
@@ -216,7 +216,7 @@ async fn next_version(
                 &categories,
                 meant,
                 &checked.prepared,
-                s.keeps_paste,
+                s.file.keeps_paste,
             )
             .await?
         }

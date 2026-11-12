@@ -219,7 +219,7 @@ fn revert_button(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
     let (Some(edit), Some(s)) = (event.edit, build) else {
         return html! {};
     };
-    if s.deleted || !activity::revertible(s, change) {
+    if s.entry.deleted || !activity::revertible(s, change) {
         return html! {};
     }
     let action = format!("/log/edits/{edit}/revert");
@@ -242,7 +242,7 @@ fn revert_button(log: &ActivityLog, event: &Event, change: &Change) -> Markup {
 /// deleted; nothing otherwise.
 fn restore_button(log: &ActivityLog, event: &Event) -> Markup {
     let build = event.schematic.as_ref().and_then(|id| log.builds.get(id));
-    let Some(s) = build.filter(|s| s.deleted) else {
+    let Some(s) = build.filter(|s| s.entry.deleted) else {
         return html! {};
     };
     let action = format!("/log/deletions/{}/restore", s.id);
@@ -311,7 +311,7 @@ fn account(user: Option<&User>) -> Markup {
 /// title alone, and one removed for good as such.
 fn build_link(log: &ActivityLog, id: &str) -> Markup {
     match log.builds.get(id) {
-        Some(s) if s.deleted => html! {
+        Some(s) if s.entry.deleted => html! {
             span class="text-muted" { (s.title()) " (deleted)" }
         },
         Some(s) => html! {

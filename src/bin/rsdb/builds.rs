@@ -180,11 +180,11 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         let name = tag_name(db, name).await?;
         details.tags.retain(|kept| *kept != name);
     }
-    let conventional = given.conventional.unwrap_or(s.conventional);
+    let conventional = given.conventional.unwrap_or(s.file.conventional);
     // Under its category, read as it was, it stays as verified as it was;
     // another category, or its file read another way, is recognized
     // afresh, as the edit page does.
-    if details.category != s.category || conventional != s.conventional {
+    if details.category != s.category || conventional != s.file.conventional {
         details.unverified = None;
     }
     let data = version::current_file(db, &id)
@@ -192,7 +192,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
         .context("schematic vanished")?;
     // Its stored file, kept under its category, passed its test already.
     let passes = details.category == s.category
-        && conventional == s.conventional
+        && conventional == s.file.conventional
         && simulation::current(db, &s)
             .await?
             .is_some_and(|report| report.passed());
@@ -210,7 +210,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let imported_by = if unset.iter().any(|f| f == "imported-by") {
         None
     } else {
-        given.imported_by.or(s.imported_by)
+        given.imported_by.or(s.entry.imported_by)
     };
     schematic::set_import_details(
         db,
@@ -266,7 +266,7 @@ pub(super) async fn rejudge(db: &SqlitePool, id: &str) -> Result<()> {
     };
     let build = details::Candidate {
         data: &data,
-        conventional: s.conventional,
+        conventional: s.file.conventional,
         passes: false,
     };
     match details::check(db, details, build, true).await? {
@@ -439,7 +439,7 @@ pub(super) async fn guide_images(dir: &Path) -> Result<()> {
 pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     let s = load(db, id).await?;
     let unknown = |v: Option<String>| v.unwrap_or_else(|| "unknown".into());
-    let (x, y, z) = s.size;
+    let (x, y, z) = s.file.size;
     let tags: Vec<String> = s.tags.iter().map(tag::Tag::label).collect();
     println!("id           {}", s.id);
     println!("title        {}", s.title());
@@ -474,8 +474,8 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
         s.logic().map_or("unknown", Logic::name),
         if s.pipelined() { ", pipelined" } else { "" }
     );
-    let from = s.works_from.as_deref().unwrap_or("unknown");
-    let by = s.works_from_by.as_deref().map(|by| format!(" ({by})"));
+    let from = s.file.works_from.as_deref().unwrap_or("unknown");
+    let by = s.file.works_from_by.as_deref().map(|by| format!(" ({by})"));
     println!("works from   {from}{}", by.unwrap_or_default());
     let design = s
         .specs
@@ -512,20 +512,20 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     }
     println!("built on     {}", unknown(s.built_on));
     println!("tags         {}", tags.join(", "));
-    println!("imported by  {}", unknown(s.imported_by));
+    println!("imported by  {}", unknown(s.entry.imported_by));
     println!(
         "conventions  {}",
-        if s.conventional {
+        if s.file.conventional {
             "followed"
         } else {
             "not followed"
         }
     );
-    println!("added at     {}", s.added_at);
-    if let Some(edited) = &s.edited_at {
+    println!("added at     {}", s.entry.added_at);
+    if let Some(edited) = &s.entry.edited_at {
         println!("edited at    {edited}");
     }
-    println!("downloads    {}", s.downloads);
+    println!("downloads    {}", s.entry.downloads);
     print_versions(db, &s.id).await?;
     if let Some(description) = &s.description {
         println!("\n{description}");
