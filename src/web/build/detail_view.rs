@@ -23,12 +23,16 @@ use crate::{
             simulation_view::cases_pending,
             stack_guide_view, versions_view,
         },
+        href,
         ui::{
             self, CHOICE, PAGE_TITLE, SECTION_TITLE, SWITCH, SWITCHES,
-            beside_viewer_under, description, field, grouped,
+            description, field,
             icons::{self, icon},
             layout::{self, base_previewed},
-            name_badges, percent, person_badge, plural, search_link, size,
+            person::{name_badges, person_badge},
+            summary::{self, search_link, size},
+            text::{self, grouped, long_date, percent, plural},
+            viewer::beside_viewer_under,
         },
     },
 };
@@ -104,7 +108,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
     } = *page;
     let report = simulation.as_ref();
     let name = s.name();
-    let path = format!("/schematics/{}", s.id);
+    let path = href::build(&s.id);
     base_previewed(
         viewer,
         &name,
@@ -115,7 +119,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                 div class="flex flex-wrap items-center gap-x-4 gap-y-2" {
                     h1 class=(PAGE_TITLE) { (name) }
                     @if !s.entry.public {
-                        (ui::private_badge())
+                        (summary::private_badge())
                     }
                     (build_banner(s, simulating))
                 }
@@ -132,7 +136,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
                     @if viewer.is_some() {
                         (favorite_button(&path, favorited, s.entry.favorites))
                     } @else if s.entry.favorites > 0 {
-                        @let label = ui::favourites_label(s.entry.favorites);
+                        @let label = text::favourites_label(s.entry.favorites);
                         span class="flex h-10 items-center gap-1.5 px-2 text-muted tabular-nums" title=(label) aria-label=(label) {
                             (icon(icons::STAR, "size-5")) (s.entry.favorites)
                         }
@@ -172,7 +176,7 @@ pub fn schematic_page(viewer: Option<&User>, page: &BuildPage) -> Markup {
 /// when its simulation comes in.
 pub fn build_banner(s: &Build, simulating: bool) -> Markup {
     html! {
-        div id="build-banner" fx-action={ "/schematics/" (s.id) "?panel=banner" } fx-trigger="redraw"
+        div id="build-banner" fx-action={ (href::build(&s.id)) "?panel=banner" } fx-trigger="redraw"
             class="flex flex-wrap items-center gap-1.5" {
             @if simulating {
                 @let pill = html! {
@@ -431,7 +435,7 @@ pub fn build_info(
     let flag_names: Vec<String> =
         s.flags.iter().map(|flag| flag.name.to_owned()).collect();
     html! {
-        div id="build-info" fx-action={ "/schematics/" (s.id) "?panel=info" } fx-trigger="redraw"
+        div id="build-info" fx-action={ (href::build(&s.id)) "?panel=info" } fx-trigger="redraw"
             class="flex flex-col gap-8" {
             (facts(s, &sources))
             // Whether it works leads its tags, then its design, orientation,
@@ -442,7 +446,7 @@ pub fn build_info(
             ul aria-label="Tags" class="flex flex-wrap gap-1.5" {
                 (verdict_tags(s, report))
                 @for tag in tags {
-                    li { (ui::badge(tag, s)) }
+                    li { (summary::badge(tag, s)) }
                 }
             }
             (specs(s, &sources, report))
@@ -529,7 +533,7 @@ fn facts(s: &Build, sources: &Sources) -> Markup {
                     })))
                 }
                 (fact("Latency", s.specs.latency.map_or_else(unknown, |t| {
-                    sourced(ui::ticks(t), sources.timing, sources)
+                    sourced(text::ticks(t), sources.timing, sources)
                 })))
                 @match s.per_copy() {
                     // A copy's own shape, beside what it adds.
@@ -629,7 +633,7 @@ fn specs(s: &Build, sources: &Sources, report: Option<&Report>) -> Markup {
                 // A category off the list has no list of its own to link to.
                 (field("Category", sourced(html! {
                     @if s.kind().is_some() {
-                        a href={ "/?category=" (s.category) } { (s.category_label()) }
+                        a href=(href::category(&s.category)) { (s.category_label()) }
                     } @else {
                         (s.category_label())
                     }
@@ -681,43 +685,10 @@ fn flag(on: bool, term: Option<&str>) -> Markup {
     };
     html! {
         @match term {
-            Some(term) => a href=(ui::search_href(term)) title="Find builds that share it"
+            Some(term) => a href=(href::search(term)) title="Find builds that share it"
                 class={ (pill) " " (color) " hover:no-underline" } { (word) },
             None => span class={ (pill) " " (color) } { (word) },
         }
-    }
-}
-
-/// A date such as `2022-07-01`, or a time starting with one, as `July 1,
-/// 2022`; anything else as it is.
-pub(crate) fn long_date(date: &str) -> String {
-    const MONTHS: [&str; 12] = [
-        "January",
-        "February",
-        "March",
-        "April",
-        "May",
-        "June",
-        "July",
-        "August",
-        "September",
-        "October",
-        "November",
-        "December",
-    ];
-    let mut parts = date.get(..10).unwrap_or(date).split('-');
-    let (Some(year), Some(month), Some(day), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return date.to_owned();
-    };
-    let month = month
-        .parse::<usize>()
-        .ok()
-        .and_then(|m| MONTHS.get(m.checked_sub(1)?));
-    match (month, day.parse::<u32>()) {
-        (Some(month), Ok(day)) => format!("{month} {day}, {year}"),
-        _ => date.to_owned(),
     }
 }
 
@@ -727,13 +698,13 @@ fn credits(s: &Build) -> Markup {
         section aria-labelledby="credits-heading" {
             h2 id="credits-heading" class={ (SECTION_TITLE) " mb-2" } { "Credits" }
             dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-6 gap-y-1.5" {
-                (field(&plural("Author", &s.credits.authors), if s.credits.authors.is_empty() {
+                (field(&plural(s.credits.authors.len(), "Author"), if s.credits.authors.is_empty() {
                     html! { span class="text-muted" { "unknown" } }
                 } else {
                     name_badges(&s.credits.authors)
                 }))
                 @if !s.credits.contributors.is_empty() {
-                    (field(&plural("Contributor", &s.credits.contributors), name_badges(&s.credits.contributors)))
+                    (field(&plural(s.credits.contributors.len(), "Contributor"), name_badges(&s.credits.contributors)))
                 }
                 @if let Some(built) = &s.built_on {
                     (field("Built", long_date(built)))
@@ -742,10 +713,10 @@ fn credits(s: &Build) -> Markup {
                 // has one; an import names whoever ran it.
                 @match (&s.entry.uploader, &s.entry.uploader_name) {
                     (Some(username), Some(name)) => {
-                        (field("Uploaded by", person_badge(name, &format!("/users/{username}"))))
+                        (field("Uploaded by", person_badge(name, &href::user(username))))
                     }
                     _ => @if let Some(name) = &s.entry.imported_by {
-                        (field("Imported by", person_badge(name, &ui::search_href(&format!("importer:{name}")))))
+                        (field("Imported by", person_badge(name, &href::search(&format!("importer:{name}")))))
                     },
                 }
             }
@@ -786,9 +757,9 @@ fn crumbs(s: &Build, from: Option<&str>) -> Markup {
     // A category off the list is among the other builds.
     let (category, plural) = match s.kind() {
         Some(kind) if s.kind().is_some() => {
-            (format!("/?category={}", s.category), kind.plural())
+            (href::category(&s.category), kind.plural())
         }
-        _ => ("/?category=other".to_owned(), "Other builds".to_owned()),
+        _ => (href::category("other"), "Other builds".to_owned()),
     };
     let back = from.filter(|&from| from != "/" && from != category);
     html! {
@@ -867,7 +838,7 @@ pub fn favorite_button(path: &str, favorited: bool, count: i64) -> Markup {
         "Add to favourites"
     };
     let title = if count > 0 {
-        format!("{label} · {}", ui::favourites_label(count))
+        format!("{label} · {}", text::favourites_label(count))
     } else {
         label.to_owned()
     };
@@ -944,7 +915,7 @@ fn merge_dialog(s: &Build) -> Markup {
     html! {
         dialog id="merge" aria-labelledby="merge-heading"
             class="dialog w-full max-w-form" {
-            form action={ "/schematics/" (s.id) "/merge" } method="post" data-step class="flex flex-col gap-4" {
+            form action={ (href::build(&s.id)) "/merge" } method="post" data-step class="flex flex-col gap-4" {
                 h2 id="merge-heading" class=(SECTION_TITLE) { "Merge " (s.name()) " into another build" }
                 p { "Its file becomes the other build's next version, and this build is deleted." }
                 label class="flex flex-col gap-1" {
@@ -970,7 +941,7 @@ fn delete_dialog(s: &Build, from: Option<&str>) -> Markup {
     html! {
         dialog id="delete" aria-labelledby="delete-heading"
             class="dialog w-full max-w-form" {
-            form action={ "/schematics/" (s.id) "/delete" } method="post" data-step class="flex flex-col gap-4" {
+            form action={ (href::build(&s.id)) "/delete" } method="post" data-step class="flex flex-col gap-4" {
                 @if let Some(from) = from {
                     input type="hidden" name="next" value=(from);
                 }
@@ -993,7 +964,7 @@ fn delete_dialog(s: &Build, from: Option<&str>) -> Markup {
 /// it by; and a button that sends the file so made to the viewer's
 /// Schemati instead. Only someone signed in is shown it.
 fn download_dialog(s: &Build, colours: ColoursShown) -> Markup {
-    let path = format!("/schematics/{}", s.id);
+    let path = href::build(&s.id);
     let filename = s.filename();
     let stem = filename.trim_end_matches(".schem");
     let options = [
@@ -1098,7 +1069,7 @@ fn similar_section(similar: &[(Build, u32)]) -> Markup {
                 @for (other, permille) in similar {
                     li class="flex items-baseline justify-between gap-4" {
                         span {
-                            a href={ "/schematics/" (other.id) } { (other.title()) }
+                            a href=(href::build(&other.id)) { (other.title()) }
                             span class="text-muted" {
                                 @if !other.credits.authors.is_empty() { " by " (other.credits.authors.join(", ")) }
                                 ", " (size(other))
@@ -1125,12 +1096,12 @@ fn preview(s: &Build) -> layout::Preview {
     let title = format!(
         "{}{by} · {} H×W×D, {} blocks",
         s.name(),
-        ui::size(s),
+        summary::size(s),
         s.volume()
     );
     let mut facts = vec![s.category_label()];
     if let Some(t) = s.specs.latency {
-        facts.push(format!("{t} {}", if t == 1 { "tick" } else { "ticks" }));
+        facts.push(text::ticks(t));
     }
     if let Some(pitch) = s.stacking.iter().filter_map(|d| d.pitch).min() {
         facts.push(format!("{pitch}-wide stackable"));

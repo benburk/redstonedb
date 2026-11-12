@@ -19,7 +19,7 @@ use crate::{
             detail_view::FileRead,
             simulation_view::{self, cell_faults, shown, timing_section},
         },
-        ui::{self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, grouped},
+        ui::{self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD, text::grouped},
     },
 };
 

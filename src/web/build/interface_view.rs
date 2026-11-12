@@ -11,8 +11,9 @@ use crate::{
     simulate::{InputTiming, OutputTiming, Strength, Timing},
     web::{
         build::detail_view::hover_note,
+        href,
         ui::{
-            self, SECTION_TITLE, TABLE_CELL, TABLE_HEAD,
+            SECTION_TITLE, TABLE_CELL, TABLE_HEAD,
             icons::{CHEVRON_RIGHT, icon},
         },
     },
@@ -370,7 +371,7 @@ fn inverted_cell(inverted: Inverted) -> Markup {
     html! {
         @match inverted {
             Inverted::Flagged(flag) => td class=(TABLE_CELL) {
-                a href=(ui::search_href(flag)) title="Find builds that share it" { "Yes" }
+                a href=(href::search(flag)) title="Find builds that share it" { "Yes" }
             },
             Inverted::Found => td class=(TABLE_CELL) { "Yes" },
             Inverted::No => td class={ (TABLE_CELL) " text-muted" } { "No" },

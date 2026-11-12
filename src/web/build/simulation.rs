@@ -37,6 +37,7 @@ use crate::{
             details_view,
             form::{self, Form},
         },
+        ui::text,
     },
 };
 
@@ -447,20 +448,13 @@ fn taken_out(
                 .count()
         })
     };
-    let plural = |n: usize, one: &str, many: &str| {
-        if n == 1 {
-            format!("1 {one}")
-        } else {
-            format!("{n} {many}")
-        }
-    };
     let mut said = Vec::new();
     if let Some(original) = original {
         let trapdoors = count(original, &|name| name.ends_with("_trapdoor"));
         if trapdoors > 0 {
             said.push(format!(
                 "{} taken out, which only showed an output flipping.",
-                plural(trapdoors, "trapdoor", "trapdoors")
+                text::count(trapdoors, "trapdoor")
             ));
         }
         if let Ok(blocks) = Blocks::read(original) {
@@ -484,7 +478,7 @@ fn taken_out(
     if signs > 0 {
         said.push(format!(
             "{} taken out: the site names its lines itself.",
-            plural(signs, "sign", "signs")
+            text::count(signs, "sign")
         ));
     }
     if passes {
@@ -494,7 +488,7 @@ fn taken_out(
         {
             said.push(format!(
                 "{} no part of its circuit uses taken out.",
-                plural(pruned.gone.len(), "block", "blocks")
+                text::count(pruned.gone.len(), "block")
             ));
         }
     }

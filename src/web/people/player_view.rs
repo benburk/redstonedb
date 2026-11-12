@@ -8,8 +8,9 @@ use crate::{
     leaderboard::Record,
     web::{
         browse::list_view::{Viewing, cards},
+        href,
         leaderboard::view,
-        ui::{PAGE_TITLE, SECTION_TITLE, layout::base},
+        ui::{PAGE_TITLE, SECTION_TITLE, layout::base, text},
     },
 };
 
@@ -46,7 +47,7 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
     base(
         viewer,
         name,
-        &format!("/players/{name}"),
+        &href::player(name),
         &html! {
             div class="mb-8 flex items-center gap-4" {
                 @if let Some(uuid) = uuid {
@@ -59,14 +60,14 @@ pub fn player(viewer: Option<&User>, page: &PlayerPage) -> Markup {
                         @match account {
                             Some(account) => {
                                 "Signed up as "
-                                a href={ "/users/" (account.username) } { "@" (account.username) }
+                                a href=(href::user(&account.username)) { "@" (account.username) }
                             }
                             None => { "Not signed up" }
                         }
                         @if !records.is_empty() {
                             " · "
                             a href="#records-heading" {
-                                (records.len()) (if records.len() == 1 { " record" } else { " records" })
+                                (text::count(records.len(), "record"))
                             }
                         }
                     }

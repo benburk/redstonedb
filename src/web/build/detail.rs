@@ -36,6 +36,7 @@ use crate::{
         },
         error::AppError,
         extractors::{fixi::Fixi, session::SignedIn},
+        href,
     },
 };
 
@@ -312,7 +313,7 @@ pub async fn favorite(
         .await?
         .ok_or(AppError::NotFound)?;
     builds::set_favorite(&state.db, user.id, &id, on.is_some()).await?;
-    let path = format!("/schematics/{id}");
+    let path = href::build(&id);
     if fixi && card.is_some() {
         return Ok(list_view::card_star(&id, on.is_some()).into_response());
     }

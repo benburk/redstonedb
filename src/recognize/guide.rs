@@ -226,7 +226,7 @@ mod tests {
     fn every_example_is_pictured() {
         for example in examples() {
             assert!(
-                crate::web::guide_image(example.name).is_some(),
+                crate::web::assets::guide_image(example.name).is_some(),
                 "{} has no picture",
                 example.name
             );

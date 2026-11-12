@@ -1,10 +1,10 @@
 use std::io::IsTerminal as _;
 use std::net::SocketAddr;
 
-use app::db::connect_to_database;
 use app::external::discord;
 use app::web;
 use app::web::app_state::AppState;
+use app::{db::connect_to_database, web::assets};
 use axum::Router;
 use axum::body::Body;
 use axum::http::{HeaderValue, Request, header};
@@ -89,7 +89,7 @@ async fn main() {
         .on_response(DefaultOnResponse::new().level(Level::INFO));
 
     let app = Router::new()
-        .merge(web::static_router())
+        .merge(assets::static_router())
         // Pages show live data, so browsers fetch them afresh, even on Back;
         // a handler that knows better, such as thumbnails, says so itself.
         .merge(

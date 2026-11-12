@@ -8,12 +8,12 @@ use crate::{
     build::Build,
     web::{
         browse::list_view::{Viewing, cards},
-        build::detail_view,
+        href,
         ui::{
             PAGE_TITLE, SWITCH, SWITCHES, TABLE_HEAD,
             icons::{self, icon},
             layout::base,
-            player_href,
+            text,
         },
     },
 };
@@ -104,7 +104,7 @@ pub fn user_row(admin: &User, user: &User) -> Markup {
             td class={ (CELL) " order-last min-w-0 basis-full" } { (minecraft_name(user, &target)) }
             // On a phone, under the Minecraft name, leaving the account's
             // line its room.
-            td class={ (CELL) " order-last -mt-1 basis-full text-meta text-muted sm:mt-0 sm:basis-auto" } { (detail_view::long_date(&user.created_at)) }
+            td class={ (CELL) " order-last -mt-1 basis-full text-meta text-muted sm:mt-0 sm:basis-auto" } { (text::long_date(&user.created_at)) }
             td class=(CELL) {
                 @if user.id == admin.id {
                     span class="flex items-center gap-2" {
@@ -211,7 +211,7 @@ fn account_link(user: &User) -> Markup {
         div class="flex items-center gap-2.5" {
             @if let Some(picture) = user.picture(28) { (picture) }
             div class="flex min-w-0 flex-col" {
-                a href={ "/users/" (user.username) } class="truncate" { (user.name()) }
+                a href=(href::user(&user.username)) class="truncate" { (user.name()) }
                 @if user.name() != user.username {
                     span class="truncate text-meta text-muted" { "@" (user.username) }
                 }
@@ -246,7 +246,7 @@ pub fn profile(
     account: &User,
     builds: &ProfileBuilds,
 ) -> Markup {
-    let path = format!("/users/{}", account.username);
+    let path = href::user(&account.username);
     let own = viewer.is_some_and(|viewer| viewer.id == account.id);
     base(
         viewer,
@@ -263,7 +263,7 @@ pub fn profile(
                     @if let Some(name) = &account.minecraft_name {
                         p {
                             "Minecraft: "
-                            a href=(player_href(name)) { (name) }
+                            a href=(href::player(name)) { (name) }
                             @if !account.minecraft_verified {
                                 span class="text-meta text-muted" { " · not yet confirmed" }
                             }

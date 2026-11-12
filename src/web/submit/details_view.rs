@@ -15,11 +15,12 @@ use crate::{
     recognize::fault::wrong_outputs,
     simulate::Report,
     web::{
-        self,
+        assets::FORM_JS,
         build::{
             interface_view::{Inversions, interface_section},
             simulation_view::simulation_results,
         },
+        href,
         schemati::view::Offered,
         submit::{
             form::Form,
@@ -27,8 +28,8 @@ use crate::{
             upload_view::file_fields,
         },
         ui::{
-            self, PAGE_TITLE, SECTION_TITLE, beside_viewer, grouped,
-            layout::base,
+            self, PAGE_TITLE, SECTION_TITLE, layout::base, text::grouped,
+            viewer::beside_viewer,
         },
     },
 };
@@ -136,12 +137,12 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
         File::Stored { s, .. } => (
             format!("Edit {}", s.name()),
             format!("Edit {}", s.name()),
-            format!("/schematics/{}", s.id),
+            href::build(&s.id),
         ),
         File::Version { s, version, .. } => (
             format!("Version {version} of {}", s.name()),
             format!("Version {version} of {}", s.name()),
-            format!("/schematics/{}", s.id),
+            href::build(&s.id),
         ),
     };
     let viewer = match &page.file {
@@ -188,7 +189,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
             // category and width change: asked for once the page loads.
             @let simulate = simulate_url(page);
             (simulation_results(&simulate, &html! {}))
-            script defer src=(web::FORM_JS.url()) {}
+            script defer src=(FORM_JS.url()) {}
         },
     )
 }
@@ -310,7 +311,7 @@ fn checks(page: &DetailsPage) -> Markup {
             (check("duplicate", State::Fail, &html! {
                 @match duplicate {
                     Duplicate::Shown(id) => {
-                        "This exact file is already on the site: " a href={ "/schematics/" (id) } { "see it here" } "."
+                        "This exact file is already on the site: " a href=(href::build(id)) { "see it here" } "."
                     }
                     Duplicate::Deleted => {
                         "This exact file is a deleted build's. An admin can restore it."
@@ -321,10 +322,10 @@ fn checks(page: &DetailsPage) -> Markup {
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
             (check("similar", State::Warn, &html! {
                 "Nearly the same as "
-                a href={ "/schematics/" (other.id) } { (other.title()) }
+                a href=(href::build(&other.id)) { (other.title()) }
                 @if !other.credits.authors.is_empty() { " by " (other.credits.authors.join(", ")) }
                 ": " (permille / 10) "% of their redstone lines up. If it is that build fixed, "
-                a href={ "/schematics/" (other.id) "/versions/new" } { "upload it as a new version" }
+                a href={ (href::build(&other.id)) "/versions/new" } { "upload it as a new version" }
                 " instead; if it builds on it, say so in the description."
             }))
         }
@@ -476,12 +477,12 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
         File::Stored { s, .. } => (
             format!("/schematics/{}/edit", s.id),
             "Save".to_owned(),
-            Some(format!("/schematics/{}", s.id)),
+            Some(href::build(&s.id)),
         ),
         File::Version { s, version, .. } => (
             format!("/schematics/{}/edit", s.id),
             format!("Save and publish version {version}"),
-            Some(format!("/schematics/{}", s.id)),
+            Some(href::build(&s.id)),
         ),
     };
     let blocked = blocked(page);

@@ -15,12 +15,16 @@ use crate::{
     category::{Flag, Section},
     interface::Encoding,
     search::Term,
-    web::ui::{
-        self, PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, badge,
-        icons::{self, icon},
-        latency,
-        layout::base,
-        name_links, size, volume,
+    web::{
+        href,
+        ui::{
+            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD,
+            icons::{self, icon},
+            layout::base,
+            person::name_links,
+            summary::{self, badge, latency, size, volume},
+            text,
+        },
     },
 };
 
@@ -701,7 +705,7 @@ fn badges(s: &Build, class: &str) -> Markup {
         @if !tags.is_empty() || !s.entry.public {
             ul class={ "flex flex-wrap gap-1.5 " (class) } aria-label="Tags" {
                 @if !s.entry.public {
-                    li { (ui::private_badge()) }
+                    li { (summary::private_badge()) }
                 }
                 @for tag in &tags {
                     li { (badge(tag, s)) }
@@ -945,7 +949,7 @@ fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
                     div class="flex flex-1 flex-col gap-2 p-3 sm:p-4" {
                         div class="flex flex-col gap-0.5" {
                             h2 class="text-section font-semibold" {
-                                a href={ "/schematics/" (s.id) }
+                                a href=(href::build(&s.id))
                                     class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (s.name()) }
                             }
                             // Latency is what builds are compared by, so it
@@ -956,7 +960,7 @@ fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
                                 }
                                 span class="text-meta text-muted" { (size(s)) " · " (volume(s)) }
                                 @if s.entry.favorites > 0 {
-                                    @let label = ui::favourites_label(s.entry.favorites);
+                                    @let label = text::favourites_label(s.entry.favorites);
                                     span class="ml-auto inline-flex items-center gap-1 self-center text-meta text-muted" title=(label) aria-label=(label) {
                                         (icon(icons::STAR, "size-3.5")) (s.entry.favorites)
                                     }
@@ -1035,7 +1039,7 @@ fn table(schematics: &[Build], terms: &[Term]) -> Markup {
                             @for s in schematics {
                                 tr class="hover:bg-selection/50" {
                                     th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                        a href={ "/schematics/" (s.id) } class="font-semibold" { (s.name()) }
+                                        a href=(href::build(&s.id)) class="font-semibold" { (s.name()) }
                                         (stacked_note(s, terms))
                                         (badges(s, "mt-1.5"))
                                     }

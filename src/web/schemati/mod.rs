@@ -30,6 +30,7 @@ use crate::{
         build::download::{self, Download},
         error::AppError,
         extractors::{fixi::Fixi, session::SignedIn},
+        href,
         schemati::view::{Connection, Offered},
     },
 };
@@ -395,7 +396,7 @@ pub async fn send(
     Ok(if fixi {
         view::schemati_sent(&sent).into_response()
     } else {
-        Redirect::to(&format!("/schematics/{id}")).into_response()
+        Redirect::to(&href::build(&id)).into_response()
     })
 }
 
