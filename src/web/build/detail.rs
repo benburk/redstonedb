@@ -23,7 +23,6 @@ use crate::{
         results, similar,
     },
     interface::problem::{Problem, Rule},
-    recognize::palette,
     schem::{self, Blocks},
     stack,
     store::{builds, versions},
@@ -34,7 +33,7 @@ use crate::{
         build::{
             actions_view,
             detail_view::{self, BuildPage, ColoursShown, FileRead},
-            download::Colours,
+            download::{self, Colours},
             info_view,
         },
         error::AppError,
@@ -53,37 +52,18 @@ pub async fn thumbnail(
     State(state): State<AppState>,
     viewer: Option<User>,
 ) -> Result<Response, AppError> {
-    let s = builds::get(&state.db, &id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    let data = versions::current_file(&state.db, &id)
-        .await?
-        .ok_or(AppError::NotFound)?;
-    // A build is drawn in the viewer's palette, if they chose one, and kept
-    // apart from others' pictures of it, else in the site's: its roles in
-    // their colours and, for a recognized build, its building blocks the
-    // palette's. A build kept as built is drawn as its author made it.
+    // A build is drawn as the 3D viewer shows it: in the viewer's palette,
+    // if they chose one, and kept apart from others' pictures of it, else
+    // in the site's.
     let chosen = match &viewer {
-        Some(user) if s.file.conventional => {
-            crate::store::users::palette(&state.db, user.id).await?
-        }
-        _ => None,
+        Some(user) => crate::store::users::palette(&state.db, user.id).await?,
+        None => None,
     };
     let painted = chosen.is_some();
-    let palette = chosen.unwrap_or_default();
+    let data = download::shown(&state.db, &id, chosen.as_ref()).await?;
     // Kept by what is drawn, so a build whose needs are kept later, its
     // file the same, is drawn again in its theme's building blocks.
-    let (data, key) = if s.file.conventional {
-        let needs = crate::store::versions::needs(&state.db, &id).await?;
-        let painted = palette::apply(&data, needs.as_ref(), &palette)?;
-        let key = schem::sha256(&painted);
-        (painted, key)
-    } else {
-        let data = crate::schem::lines::without(&data)?;
-        let key = schem::sha256(&data);
-        (data, key)
-    };
-    let sha256 = key;
+    let sha256 = schem::sha256(&data);
     let cached = state.thumbnails.lock().unwrap().get(&sha256);
     // From memory, else as drawn before and kept beside the database, else
     // drawn now, fetching the game's files it needs that aren't kept.

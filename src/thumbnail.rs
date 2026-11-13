@@ -14,7 +14,7 @@ use crate::schem::Blocks;
 
 /// Names the way thumbnails are drawn, in their addresses and their kept
 /// files, so drawing them anew changes both.
-pub const RENDERER: &str = "t5";
+pub const RENDERER: &str = "t6";
 
 /// Where drawn thumbnails are kept, beside the database, so a restart
 /// draws none again.
