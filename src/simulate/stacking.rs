@@ -59,7 +59,7 @@ use serde::{Deserialize, Serialize};
 use super::MAX_STACKED;
 use crate::{
     interface::{self, Interface, Orientation},
-    schem::Blocks,
+    schem::{Blocks, lines::Role},
     stack::{self, Copies, Faces, PITCHES, StackDirection},
 };
 
@@ -286,8 +286,8 @@ impl Step {
 
     /// Its pitch for copies each adding `places`: the blocks a place, a
     /// bit or a hex digit, a class, 1, 2, or 4, or, for an adder, its own
-    /// width end to end, as the search tries no other; `None` for a step
-    /// that is no whole number of blocks a place, or goes both ways.
+    /// width end to end; `None` for a step that is no whole number of
+    /// blocks a place, as an adder's end to end may be, or goes both ways.
     pub fn pitch(self, places: usize) -> Option<i64> {
         let places = i64::try_from(places).ok()?;
         let length = self.west + self.up;
@@ -532,20 +532,24 @@ impl<'a> Stacker<'a> {
         self.how.end_to_end
     }
 
-    /// The pitches copies are tried at `way`: each class, then, for the
-    /// adder test's builds, end to end, each step from the narrowest the
-    /// box rule's box at any step cuts the build's core to that way, as
-    /// `interface::measured` finds it, to its whole width, outputs and
-    /// inputs sticking out of it meeting the next copy's, where that is a
-    /// whole pitch and no class, tried only once no class works.
-    pub(crate) fn pitches(&self, way: Way) -> Vec<i64> {
+    /// The steps, in blocks, copies are tried at `way`: each class's,
+    /// then, for the adder test's builds, end to end, each step from the
+    /// narrowest the box rule's box at any step cuts the build's core to
+    /// that way, as `interface::measured` finds it, or the narrower its
+    /// operands' and outputs' bits span, to its whole width, outputs and
+    /// inputs sticking out of it meeting the next copy's, tried only once
+    /// no class works. A step end to end need be no whole pitch, as an
+    /// 8-bit adder 2 blocks a bit may stack 18 up, its copies overlapping
+    /// by the layers under its least significant bit.
+    pub(crate) fn steps(&self, way: Way) -> Vec<i64> {
         let places = self.places();
-        let mut pitches = PITCHES.to_vec();
+        let mut steps: Vec<i64> =
+            PITCHES.iter().map(|pitch| pitch * places).collect();
         if !self.end_to_end() {
-            return pitches;
+            return steps;
         }
         let Ok(blocks) = Blocks::read(self.data) else {
-            return pitches;
+            return steps;
         };
         let (low, high) = interface::measured(&blocks);
         let axis = usize::from(way == Way::Up);
@@ -562,19 +566,30 @@ impl<'a> Stacker<'a> {
                     most[axis].min(high[axis]) - least[axis].max(low[axis]) + 1,
                 )
             })
-            .fold(core, i64::min)
-            .max(1);
+            .fold(core, i64::min);
+        // Copies closer than their bits span would put bits on bits.
+        let bits = blocks.roles.as_ref().and_then(|roles| {
+            let along = roles
+                .0
+                .iter()
+                .filter(|(_, role)| {
+                    matches!(role, Role::Operand(_) | Role::Output(_))
+                })
+                .map(|(pos, _)| i64::from(pos[axis]));
+            let (least, most) = along.fold(None, |span, at| match span {
+                None => Some((at, at)),
+                Some((least, most)) => Some((at.min(least), at.max(most))),
+            })?;
+            Some(most - least + 1)
+        });
+        let narrowest = bits.map_or(narrowest, |bits| narrowest.min(bits));
+        let narrowest = narrowest.max(1);
         for width in narrowest..=whole {
-            let pitch = width / places.max(1);
-            if places > 0
-                && width % places == 0
-                && pitch > 0
-                && !pitches.contains(&pitch)
-            {
-                pitches.push(pitch);
+            if !steps.contains(&width) {
+                steps.push(width);
             }
         }
-        pitches
+        steps
     }
 
     /// Each way its copies add bits, at the tightest pitch class that
@@ -586,10 +601,9 @@ impl<'a> Stacker<'a> {
         let mut found: Vec<(i64, Apart)> = Vec::new();
         let mut last = (None, self.not.clone());
         let mut tested = false;
-        let places = self.places();
         for &way in &self.ways {
-            for pitch in self.pitches(way) {
-                let step = way.step(pitch * places);
+            for length in self.steps(way) {
+                let step = way.step(length);
                 let Some(copies) = self.copies(step) else {
                     continue;
                 };
@@ -608,14 +622,14 @@ impl<'a> Stacker<'a> {
                             cases,
                             most: None,
                         };
-                        found.push((pitch, self.most(apart)));
+                        found.push((length, self.most(apart)));
                         break;
                     }
                     Err(reason) => last = (Some(step), reason),
                 }
             }
         }
-        found.sort_by_key(|&(pitch, _)| pitch);
+        found.sort_by_key(|&(length, _)| length);
         if found.is_empty() {
             return Err(last);
         }
