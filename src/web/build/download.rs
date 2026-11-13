@@ -28,7 +28,7 @@ use crate::{
 
 /// What a download of a build's file asks for: from the download dialog,
 /// the stacking guide's links, and the 3D viewer.
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub(in crate::web) struct Download {
     /// Set when the 3D viewer fetches the file, which is no download.
     preview: Option<String>,
@@ -227,6 +227,19 @@ pub(in crate::web) async fn export(
     let (filename, data) = shaped(db, id, s, data, asked, counted).await?;
     let data = palette::colour(&data, &palette)?;
     Ok((filename, crate::schem::lines::without(&data)?))
+}
+
+/// Build `id`'s file as the site shows it, on its card and in the 3D viewer
+/// alike: in `palette`, or with none the site's own, and for a build the
+/// site can't read, in its author's colours; a 404 for no build.
+pub(in crate::web) async fn shown(
+    db: &SqlitePool,
+    id: &str,
+    palette: Option<&Palette>,
+) -> Result<Vec<u8>, AppError> {
+    let (_, data) =
+        export(db, id, &Download::default(), false, palette).await?;
+    Ok(data)
 }
 
 /// Build `s`'s file `data` as `asked`: a part, copies stacked, or as it is,
