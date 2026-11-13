@@ -8,8 +8,12 @@
 //!   more distances, or held only in the halves of a sum a comparator
 //!   holds, as a carry cancel's carry is; a carry held only in halves
 //!   torches hold, as in a build from before comparators, is read from
-//!   them as any other;
-//! - `r`: from the carry just below, rippling;
+//!   them as any other, and so is one held only in halves comparators hold
+//!   in a build where none reads a strength, as a ripple carry's carries
+//!   joined on dust each bit are, from the components joining into it;
+//! - `r`: from the carry just below, rippling: for a carry joined on dust,
+//!   read whole from what joins into it, not just its generate, as a
+//!   lookahead reads;
 //! - `L`: from the inputs alone, or the carry in, looking at every bit;
 //! - `s`: from a carry further down, skipping;
 //! - `?`: no component holds it;
@@ -152,7 +156,7 @@ pub fn design_of(signature: &str, terms: &[Terms]) -> &'static str {
     if signature.contains('?') {
         return Design::OTHER;
     }
-    if signature.chars().all(|c| c == 'r') {
+    if signature.trim_end_matches('-').chars().all(|c| c == 'r') {
         return "ripple_carry";
     }
     let complete = |t: &Terms| t.all > 0 && t.found == t.all;
@@ -391,15 +395,45 @@ impl Tabled {
     }
 
     /// Whether any of `nodes` is a comparator reading dust from three or
-    /// more distances, as a carry cancel's carry is read.
+    /// more distances into its back or its side, as a carry cancel's carry
+    /// is read, its strength falling bit by bit along the dust.
     fn strength(&self, nodes: &[Pos]) -> bool {
         nodes.iter().any(|p| {
-            let distances: BTreeSet<u8> = self.fanin[p]
+            let distances = |into_side: bool| {
+                self.fanin[p]
+                    .iter()
+                    .filter(|&&(_, side, d)| side == into_side && d > 0)
+                    .map(|&(_, _, d)| d)
+                    .collect::<BTreeSet<u8>>()
+                    .len()
+            };
+            self.kinds[p] == "comparator"
+                && (distances(false) >= 3 || distances(true) >= 3)
+        })
+    }
+
+    /// The components whose outputs join on dust into bit `k`'s carry, or
+    /// its complement: each on only when it is, together on whenever it
+    /// is, as a ripple's generate and transmitted carry are; `None` when no
+    /// such components make it whole.
+    fn drivers(&self, adder: &Adder, k: usize) -> Option<Joined> {
+        let cases = adder.cases.len();
+        let carry = adder.table(|c| adder.carry(c, k));
+        [carry.clone(), carry.not()].into_iter().find_map(|want| {
+            let drivers: Vec<(Pos, Table)> = self
+                .components
                 .iter()
-                .filter(|&&(_, side, d)| !side && d > 0)
-                .map(|&(_, _, d)| d)
+                .zip(&self.tables)
+                .filter(|(_, t)| !t.none(cases) && t.within(&want, cases))
+                .map(|(&p, t)| (p, t.clone()))
                 .collect();
-            self.kinds[p] == "comparator" && distances.len() >= 3
+            let whole = drivers
+                .iter()
+                .fold(Table::off(&want), |all, (_, t)| all.or(t));
+            whole.same(&want, cases).then_some(Joined {
+                drivers,
+                carry: want,
+            })
         })
     }
 
@@ -420,12 +454,12 @@ impl Tabled {
 
     /// A letter for each carry from bit 1's up to the carry out.
     fn signature(&self, interface: &Interface, adder: &Adder) -> String {
-        let mut carries: Vec<Vec<Pos>> = vec![Vec::new(); adder.width + 1];
+        let mut carries: Vec<Carry> = vec![Carry::default(); adder.width + 1];
         if let Some(port) = adder.carry_in {
             let lever = |b: &interface::Bit| {
                 b.entry.map(|side| schem::step(b.pos, side))
             };
-            carries[0] = interface.inputs[port]
+            carries[0].held = interface.inputs[port]
                 .bits
                 .iter()
                 .filter_map(lever)
@@ -433,68 +467,126 @@ impl Tabled {
         }
         for (k, found) in carries.iter_mut().enumerate().skip(1) {
             let carry = adder.table(|c| adder.carry(c, k));
-            *found = self.matching(&carry, adder.cases.len());
+            found.held = self.matching(&carry, adder.cases.len());
+            if found.held.is_empty() {
+                found.halves = self.halves(adder, k);
+            }
         }
+        let cancels = carries.iter().any(|c| self.strength(&c.halves));
         (1..=adder.width)
-            .map(|k| {
-                let start: Vec<Pos> =
-                    match (carries[k].first(), adder.carry_out) {
-                        (Some(&p), _) => vec![p],
-                        (None, Some(port)) if k == adder.width => interface
-                            .outputs[port]
-                            .bits
-                            .iter()
-                            .map(|b| schem::step(b.pos, Direction::Up))
-                            .filter(|p| self.fanin.contains_key(p))
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                if start.is_empty()
-                    && k == adder.width
-                    && adder.carry_out.is_none()
-                {
-                    return '-';
-                }
-                // A carry no component holds is read from the halves of its
-                // sum: a strength where a comparator holds one, as a carry
-                // cancel's sum reads its carry, and otherwise by what feeds
-                // them, as torches do in a build from before comparators.
-                let start = if start.is_empty() {
-                    let halves = self.halves(adder, k);
-                    if halves.iter().any(|p| self.kinds[p] == "comparator") {
-                        return '~';
-                    }
-                    halves
-                } else {
-                    start
-                };
-                if start.is_empty() {
-                    return '?';
-                }
-                if self.strength(&start) {
-                    return '~';
-                }
-                match self.below(start, &carries[..k]).into_iter().max() {
-                    Some(j) if j + 1 == k => 'r',
-                    Some(0) | None => 'L',
-                    Some(_) => 's',
-                }
-            })
+            .map(|k| self.letter(interface, adder, &mut carries, cancels, k))
             .collect()
     }
 
+    /// The letter for bit `k`'s carry, given how each carry below it is
+    /// held and whether any carry is read as a strength; a carry no
+    /// component holds but some join into on dust is held so from here on,
+    /// so a carry above it can ripple from it.
+    fn letter(
+        &self,
+        interface: &Interface,
+        adder: &Adder,
+        carries: &mut [Carry],
+        cancels: bool,
+        k: usize,
+    ) -> char {
+        let start: Vec<Pos> = match (carries[k].held.first(), adder.carry_out) {
+            (Some(&p), _) => vec![p],
+            (None, Some(port)) if k == adder.width => interface.outputs[port]
+                .bits
+                .iter()
+                .map(|b| schem::step(b.pos, Direction::Up))
+                .filter(|p| self.fanin.contains_key(p))
+                .collect(),
+            _ => Vec::new(),
+        };
+        if start.is_empty() && k == adder.width && adder.carry_out.is_none() {
+            return '-';
+        }
+        // A carry no component holds is read from the halves of its sum: a
+        // strength where a comparator holds one, as a carry cancel's sum
+        // reads its carry, and otherwise by what feeds them, as torches do
+        // in a build from before comparators. Where no comparator anywhere
+        // reads a carry's dust from three or more distances, as a carry
+        // cancel's do above its lowest bits, a comparator reads a carry made
+        // whole on dust each bit, as a ripple carry's comparators do, joined
+        // from its generate and the carry below transmitted; it is read
+        // from those.
+        let start = if start.is_empty() {
+            let halves = carries[k].halves.clone();
+            if halves.iter().any(|p| self.kinds[p] == "comparator") {
+                let joined = match self.drivers(adder, k) {
+                    Some(joined) if !cancels => joined,
+                    _ => return '~',
+                };
+                let start = joined.drivers.iter().map(|&(p, _)| p).collect();
+                carries[k].joined = Some(joined);
+                start
+            } else {
+                halves
+            }
+        } else {
+            start
+        };
+        if start.is_empty() {
+            return '?';
+        }
+        if self.strength(&start) {
+            return '~';
+        }
+        match self
+            .below(start, &carries[..k], adder.cases.len())
+            .into_iter()
+            .max()
+        {
+            Some(j) if j + 1 == k => 'r',
+            Some(0) | None => 'L',
+            Some(_) => 's',
+        }
+    }
+
     /// The carries among `below` reached walking back from `start` before
-    /// any other carry.
-    fn below(&self, start: Vec<Pos>, below: &[Vec<Pos>]) -> Vec<usize> {
+    /// any other carry: one a component holds where the walk meets it, one
+    /// joined on dust where a part reads enough of what joins into it to
+    /// make it whole, as a ripple's next bit does, and not where a part
+    /// reads only some of it, as a lookahead reads a generate below.
+    fn below(
+        &self,
+        start: Vec<Pos>,
+        below: &[Carry],
+        cases: usize,
+    ) -> Vec<usize> {
         let mut found = Vec::new();
         let mut seen: HashSet<Pos> = HashSet::new();
         let mut stack = start;
         while let Some(p) = stack.pop() {
-            for &(from, _, _) in self.fanin.get(&p).into_iter().flatten() {
-                if !seen.insert(from) {
+            let fanin = self.fanin.get(&p).map_or(&[][..], Vec::as_slice);
+            let mut read: HashSet<Pos> = HashSet::new();
+            for (j, carry) in below.iter().enumerate() {
+                let Some(joined) = &carry.joined else {
+                    continue;
+                };
+                let ins: Vec<&(Pos, Table)> = joined
+                    .drivers
+                    .iter()
+                    .filter(|(d, _)| {
+                        fanin.iter().any(|&(from, _, _)| from == *d)
+                    })
+                    .collect();
+                let whole = ins
+                    .iter()
+                    .fold(Table::off(&joined.carry), |all, (_, t)| all.or(t));
+                if whole.same(&joined.carry, cases) {
+                    found.push(j);
+                    read.extend(ins.iter().map(|(d, _)| *d));
+                }
+            }
+            for &(from, _, _) in fanin {
+                if read.contains(&from) || !seen.insert(from) {
                     continue;
                 }
-                match below.iter().position(|carry| carry.contains(&from)) {
+                match below.iter().position(|carry| carry.held.contains(&from))
+                {
                     Some(j) => found.push(j),
                     None => stack.push(from),
                 }
@@ -502,6 +594,24 @@ impl Tabled {
         }
         found
     }
+}
+
+/// How a carry is held: by the components whose table it is, or, for one
+/// none holds, in the halves of its sum, and joined on dust from the
+/// components that make it.
+#[derive(Clone, Default)]
+struct Carry {
+    held: Vec<Pos>,
+    halves: Vec<Pos>,
+    joined: Option<Joined>,
+}
+
+/// A carry joined on dust: each component joining into it with its table,
+/// and the carry, or its complement, as they make it.
+#[derive(Clone)]
+struct Joined {
+    drivers: Vec<(Pos, Table)>,
+    carry: Table,
 }
 
 /// Whether bit `k` of `case` is on: bit `i` of A is bit `i`.
@@ -527,15 +637,58 @@ impl Table {
         if self == want {
             return true;
         }
+        self.all_with(want, cases, |a, b, mask| (a ^ b) & mask == mask)
+    }
+
+    /// Whether this is exactly `want` over `cases`.
+    fn same(&self, want: &Table, cases: usize) -> bool {
+        self.all_with(want, cases, |a, b, mask| (a ^ b) & mask == 0)
+    }
+
+    /// Whether this is on only where `want` is, over `cases`.
+    fn within(&self, want: &Table, cases: usize) -> bool {
+        self.all_with(want, cases, |a, b, mask| a & !b & mask == 0)
+    }
+
+    /// Whether this is off in every one of `cases`.
+    fn none(&self, cases: usize) -> bool {
+        self.all_with(self, cases, |a, _, mask| a & mask == 0)
+    }
+
+    /// A table as long as `like`, off in every case.
+    fn off(like: &Table) -> Table {
+        Table(vec![0; like.0.len()])
+    }
+
+    fn not(&self) -> Table {
+        Table(self.0.iter().map(|w| !w).collect())
+    }
+
+    fn or(&self, other: &Table) -> Table {
+        Table(self.0.iter().zip(&other.0).map(|(a, b)| a | b).collect())
+    }
+
+    /// Whether `holds` holds of each word of this and `other`, given the
+    /// mask of the bits in it that are among `cases`.
+    fn all_with(
+        &self,
+        other: &Table,
+        cases: usize,
+        holds: impl Fn(u64, u64, u64) -> bool,
+    ) -> bool {
         let last = self.0.len().saturating_sub(1);
         let tail = if cases.is_multiple_of(64) {
             u64::MAX
         } else {
             (1 << (cases % 64)) - 1
         };
-        self.0.iter().zip(&want.0).enumerate().all(|(i, (a, b))| {
-            let mask = if i == last { tail } else { u64::MAX };
-            (a ^ b) & mask == mask
-        })
+        self.0
+            .iter()
+            .zip(&other.0)
+            .enumerate()
+            .all(|(i, (&a, &b))| {
+                let mask = if i == last { tail } else { u64::MAX };
+                holds(a, b, mask)
+            })
     }
 }

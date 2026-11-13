@@ -120,6 +120,22 @@ fn an_adders_design_comes_from_how_its_carries_are_made() {
         (alpha.name.as_str(), alpha.signature.as_str()),
         ("carry_lookahead", "rLLL")
     );
+    // Comparators making each carry whole on dust from its generate and
+    // the carry below transmitted, read a distance or two away rather than
+    // as a strength falling along the dust: a ripple carry, though no
+    // component holds a carry and its sums' comparators read them.
+    let ripple = design("inverted-adder-8-rca-comparator-ands");
+    assert_eq!(
+        (ripple.name.as_str(), ripple.signature.as_str()),
+        ("ripple_carry", "rrrrrrr-")
+    );
+    // The same carries made on dust at every other bit, those between
+    // looked ahead from the carry two below.
+    let alternating = design("adder-8-ripple-even-lookahead-odd");
+    assert_eq!(
+        (alternating.name.as_str(), alternating.signature.as_str()),
+        ("carry_lookahead", "rLrLrLrL")
+    );
 }
 
 /// Each group's lookahead terms, as `found` of `all`.
@@ -172,6 +188,8 @@ fn a_carry_signature_and_terms_name_its_design() {
     );
     assert_eq!(design_of("??????~L", &terms(&[(0, 36)])), "other");
     assert_eq!(design_of("rrrrrrrr", &terms(&[(0, 36)])), "ripple_carry");
+    // One without a carry out.
+    assert_eq!(design_of("rrrrrrr-", &terms(&[(0, 36)])), "ripple_carry");
 }
 
 #[test]
