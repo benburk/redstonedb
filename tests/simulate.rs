@@ -245,6 +245,35 @@ fn an_adder_stacks_by_a_box_found_by_testing() {
     assert_eq!((faces.low, faces.high), ([0, 2, 2], [0, 0, 0]));
 }
 
+/// An 8-bit adder 2 blocks a bit whose copies stack 18 up, end to end,
+/// its carry in under its least significant bit: 18 is no whole number of
+/// blocks a bit, and its copies 16 up, pitch 2, don't pass the carry, so
+/// it stacks at no pitch class.
+#[test]
+#[ignore = "measures whole builds: just test-full"]
+fn an_adder_stacks_end_to_end_at_no_whole_pitch() {
+    let raw =
+        read_fixture("tests/fixtures/vert-adder-8-stacks-18-up.schem").unwrap();
+    let found =
+        app::recognize::probe::recognize_as(&raw, Some("adder")).unwrap();
+    assert!(found.found.is_some(), "{:?}", found.problems);
+    let standard = prepare::prepare_for(
+        &found.file,
+        Purpose::Standard { keep_paste: false },
+    )
+    .unwrap();
+    let Some(Stacking::Stacks { step, bits, .. }) =
+        Test::Adder.stacking(&standard.data)
+    else {
+        panic!(
+            "it does not stack: {:?}",
+            Test::Adder.stacking(&standard.data)
+        );
+    };
+    assert_eq!((step.describe().as_str(), bits), ("18 up", 24));
+    assert_eq!(step.pitch(8), None);
+}
+
 /// A hex adder's pitch is the blocks a digit, as a binary build's is the
 /// blocks a bit: the one-digit adder of issue 6, its copies a digit every 2
 /// blocks up, each taking the carry from the one below, half a block a

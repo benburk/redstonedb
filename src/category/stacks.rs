@@ -317,7 +317,7 @@ mod tests {
         let raw = std::fs::read("tests/fixtures/rca-1-5-wide.schem").unwrap();
         let data = publish::with_roles(&raw, "adder").unwrap();
         let works = |_: Step, _: usize, _| Err("untried".to_owned());
-        let pitches = |kind| {
+        let steps = |kind| {
             Stacker::new(
                 &data,
                 Kind::copying(kind),
@@ -325,13 +325,13 @@ mod tests {
                 works,
                 "none",
             )
-            .pitches(Way::West)
+            .steps(Way::West)
         };
         for kind in [Kind::Adder, Kind::Subtractor, Kind::HexAdder] {
-            assert_eq!(pitches(kind), [1, 2, 4, 5, 6, 7, 8, 9], "{kind:?}");
+            assert_eq!(steps(kind), [1, 2, 4, 5, 6, 7, 8, 9], "{kind:?}");
         }
         for kind in [Kind::XorGate, Kind::Incrementer, Kind::Monostable] {
-            assert_eq!(pitches(kind), PITCHES, "{kind:?}");
+            assert_eq!(steps(kind), PITCHES, "{kind:?}");
         }
     }
 }
