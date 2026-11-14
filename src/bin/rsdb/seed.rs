@@ -1,9 +1,9 @@
 //! A new database filled from the test fixtures, for a checkout with no
-//! copy of the live one.
+//! copy of the live one, and a file published as an account's upload.
 
 use std::{path::Path, sync::Arc};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use app::{
     account::{Role, User},
     external::discord::DiscordProfile,
@@ -69,4 +69,32 @@ pub(super) async fn seed(db: &SqlitePool, dir: &Path) -> Result<()> {
     }
     println!("{published} of {} files published", files.len());
     Ok(())
+}
+
+/// Publishes the file at `path` as the account with Discord username
+/// `username` uploading it, every detail as its preview suggests, and
+/// prints its id; or fails saying why the site refused it.
+pub(super) async fn publish(
+    db: &SqlitePool,
+    path: &Path,
+    username: &str,
+) -> Result<()> {
+    let user = User::get_by_username(db, username).await?.with_context(
+        || {
+            format!(
+                "no account named {username}; they log in with Discord first"
+            )
+        },
+    )?;
+    let raw = std::fs::read(path)
+        .with_context(|| format!("reading {}", path.display()))?;
+    match publish_suggested(db, &user, &raw).await? {
+        Ok(id) => {
+            let build =
+                builds::get(db, &id).await?.context("just published")?;
+            println!("{id}  {}", build.category);
+            Ok(())
+        }
+        Err(why) => bail!("the site refused it: {why}"),
+    }
 }

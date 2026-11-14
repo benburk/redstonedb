@@ -25,7 +25,7 @@ use builds::{Set, export, guide_images, remove, search_command, set, show};
 use categories::{define_tag, print_categories, print_tags};
 use inspect::{Inspect, inspect_command};
 use refresh::refresh;
-use seed::seed;
+use seed::{publish, seed};
 use versions::{Standardizing, merge, new_version};
 
 /// A database of Minecraft redstone schematics.
@@ -165,6 +165,16 @@ enum Command {
         #[arg(default_value = "tests/fixtures")]
         dir: PathBuf,
     },
+    /// Publish a .schem file as the account with this Discord username
+    /// uploading it, every detail as its preview suggests, as an upload is
+    /// simulated and stored; `set` then changes what it got wrong, such as
+    /// its authors
+    Publish {
+        file: PathBuf,
+        /// The uploader's Discord username
+        #[arg(long)]
+        user: String,
+    },
     /// Draw the How builds are recognized page's example builds into `dir`, one
     /// WebP each, named for the example
     GuideImages { dir: PathBuf },
@@ -242,6 +252,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             _ => list_users(db).await,
         },
         Command::Seed { dir } => seed(db, &dir).await,
+        Command::Publish { file, user } => publish(db, &file, &user).await,
         Command::GuideImages { dir } => guide_images(&dir).await,
     }
 }
