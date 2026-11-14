@@ -160,7 +160,7 @@ pub(crate) fn facts(s: &Build, sources: &Sources) -> Markup {
             dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3" {
                 @for &measure in s.measures() {
                     @let source = match measure {
-                        Measure::Width => sources.width,
+                        Measure::Width | Measure::Inputs => sources.width,
                         Measure::Pulse => sources.pulse,
                         Measure::AtLeast => Source::Given,
                     };

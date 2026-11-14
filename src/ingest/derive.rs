@@ -110,6 +110,9 @@ impl Derived {
         if let Some(encoding) = found.encoding {
             self.specs.encoding = Some(encoding);
         }
+        if let Some(inputs) = found.inputs {
+            self.specs.inputs = Some(inputs);
+        }
         if let Some(flags) = read::derived_flags(category, &interface) {
             self.flags = flags;
         }

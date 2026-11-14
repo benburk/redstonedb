@@ -39,6 +39,7 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
         ("throughput", number(s.specs.throughput)),
         ("at least", number(s.specs.at_least)),
         ("pulse", number(s.specs.pulse)),
+        ("inputs", number(s.specs.inputs)),
         (
             "flags",
             list(s.flags.iter().map(|f| f.label.to_owned()).collect()),

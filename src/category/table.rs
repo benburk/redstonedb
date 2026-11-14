@@ -449,6 +449,24 @@ pub(super) const TABLE: [Facts; 38] = [
         ..ROW
     },
     Facts {
+        kind: Kind::HexMax,
+        runs: Some(&converters::HEX_MAX),
+        name: "hex_max",
+        label: "Hex Max",
+        noun: "hex max",
+        plural: Some("Hex Max"),
+        section: Section::Arithmetic,
+        measures: &[Measure::Inputs],
+        logic: Some(Logic::Stateless),
+        aliases: &["hex maximum", "max"],
+        listed_as: "hex maxes",
+        probe: probed(8, Probe::Digits),
+        guess: Guess::Tried(137),
+        digit_inputs: true,
+        behaviour: evaluated(Test::HexMax, Stacking::Never),
+        ..ROW
+    },
+    Facts {
         kind: Kind::CarryOut,
         runs: Some(&adder::CARRY_OUT),
         name: "carry_out",
@@ -602,23 +620,6 @@ pub(super) const TABLE: [Facts; 38] = [
         guess: Guess::Tried(136),
         digit_inputs: true,
         behaviour: evaluated(Test::HexInputSpread, Stacking::Never),
-        ..ROW
-    },
-    Facts {
-        kind: Kind::HexMax,
-        runs: Some(&converters::HEX_MAX),
-        name: "hex_max",
-        label: "Hex Max",
-        noun: "hex max",
-        plural: Some("Hex Max"),
-        section: Section::Conversion,
-        logic: Some(Logic::Stateless),
-        aliases: &["hex maximum", "max"],
-        listed_as: "hex maxes",
-        probe: probed(8, Probe::Digits),
-        guess: Guess::Tried(137),
-        digit_inputs: true,
-        behaviour: evaluated(Test::HexMax, Stacking::Never),
         ..ROW
     },
     Facts {

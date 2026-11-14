@@ -2,7 +2,7 @@
 //! typed: its width, the way its bits run, its encoding, and its flags.
 
 use crate::{
-    category::{self, Kind, Lines},
+    category::{self, Kind, Lines, Measure},
     interface::{self, Encoding, Interface, Orientation, Port},
     schem::Blocks,
 };
@@ -38,16 +38,35 @@ pub struct FromFile {
     pub orientation: Option<Orientation>,
     /// Hex when A takes a signal strength, a digit per block, else binary.
     pub encoding: Option<Encoding>,
+    /// A's blocks, each an input, for a category ranked by its inputs, as
+    /// a hex max is by its digits.
+    pub inputs: Option<i64>,
 }
 
 /// What `category` reads from a build with `interface`: nothing for a
 /// category that reads nothing from its file; see [`read_from_file`].
 pub fn derived(category: &str, interface: &Interface) -> FromFile {
-    match category::behaviour(category).reads {
+    let found = match category::behaviour(category).reads {
         category::Reads::Output => read_from_output(interface),
         category::Reads::InputA => read_from_file(interface),
-        category::Reads::Nothing => FromFile::default(),
+        category::Reads::Nothing => return FromFile::default(),
+    };
+    let ranked = Kind::named(category)
+        .is_some_and(|kind| kind.facts().measures.contains(&Measure::Inputs));
+    FromFile {
+        inputs: ranked.then(|| a_blocks(interface)).flatten(),
+        ..found
     }
+}
+
+/// How many blocks A, the unsigned first operand of a build with
+/// `interface`, has; `None` without one.
+fn a_blocks(interface: &Interface) -> Option<i64> {
+    let a = interface
+        .inputs
+        .iter()
+        .find(|port| !port.labelled && port.a())?;
+    i64::try_from(a.bits.len()).ok()
 }
 
 /// What a counter or shift register reads from a build with `interface`:
@@ -64,6 +83,7 @@ fn read_from_output(interface: &Interface) -> FromFile {
             width: i64::try_from(port.bits.len()).ok(),
             orientation: interface::orientation(port),
             encoding: Some(Encoding::Binary),
+            inputs: None,
         },
         None => FromFile::default(),
     }
@@ -89,6 +109,7 @@ pub fn read_from_file(interface: &Interface) -> FromFile {
             } else {
                 Encoding::Binary
             }),
+            inputs: None,
         },
         None => FromFile::default(),
     }

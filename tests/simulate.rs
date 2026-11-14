@@ -1156,6 +1156,9 @@ fn a_hex_max_gives_the_largest_of_its_digits() {
     assert_eq!(run.wrong, 0, "{:?}", run.examples);
     assert!(run.by_digit);
     assert_eq!(app::category::guess(&blocks).unwrap().category, "hex_max");
+    // Named for its eight digits in, not the 32 bits they come to.
+    let found = read::derived("hex_max", &interface::read(&blocks));
+    assert_eq!((found.inputs, found.width), (Some(8), Some(32)));
 }
 
 /// An 8-bit carry out: of A + B, only the carry, on one unsigned status
