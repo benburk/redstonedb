@@ -2,7 +2,8 @@
 //! coded decimal and back, to its absolute value, and to how many of its
 //! bits are on, as a popcount and a threshold read it, and whether that
 //! is odd, as a parity circuit does; and from hex digits, each a block's
-//! signal strength, to binary.
+//! signal strength, to binary, to copies of themselves, as a hex input spread
+//! gives them, or to the largest of them, as a hex max does.
 
 use anyhow::{Result, bail};
 
@@ -122,13 +123,7 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
 /// on outputs that give a bit a block.
 pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
     let bench = one_input_bench(interface, "hex-to-binary converter")?;
-    if !interface.inputs[0].signal_strength {
-        broken!(
-            "A hex-to-binary converter takes a hex digit a block as its \
-             strength, through a comparator with air behind, but A has \
-             levers."
-        );
-    }
+    takes_digits(interface, "hex-to-binary converter")?;
     interface.binary_outputs = true;
     let width = bench.widths(interface)[0];
     let has: usize = bench
@@ -148,6 +143,117 @@ pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
         kinds: vec![Kind::new("A in binary", |case| case[0])],
         by_digit: false,
     })
+}
+
+/// Refuses `what`, a build of digits, whose A has levers.
+fn takes_digits(interface: &Interface, what: &str) -> Result<()> {
+    if !interface.inputs[0].signal_strength {
+        broken!(
+            "A {what} takes a hex digit a block as its strength, through a \
+             comparator with air behind, but A has levers."
+        );
+    }
+    Ok(())
+}
+
+/// A hex input spread's every value of A, its digit inputs, a hex digit a block
+/// as each block's strength: A again on each of at least two copies of
+/// it, its outputs a digit a block too.
+pub(super) fn hex_input_spread(interface: &Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "hex input spread")?;
+    takes_digits(interface, "hex input spread")?;
+    let width = bench.widths(interface)[0];
+    let has: usize = bench.output_widths(interface).iter().sum();
+    if !has.is_multiple_of(width) || has / width < 2 {
+        broken!(
+            "A hex input spread gives A, of {} digits, on at least two \
+             copies, but its outputs have {} digits.",
+            width / 4,
+            has / 4
+        );
+    }
+    let copies = has / width;
+    Ok(Spec {
+        bench,
+        cases: Box::new(move || digit_cases(width)),
+        kinds: vec![Kind::new("A on each copy", move |case| {
+            (0..copies)
+                .fold(0, |spread, copy| spread | case[0] << (copy * width))
+        })],
+        by_digit: true,
+    })
+}
+
+/// A hex max's cases, each of A's digits given every value against every
+/// value of the rest, and the test patterns: the largest of A's digits,
+/// at least two, on one output block's strength.
+pub(super) fn hex_max(interface: &Interface) -> Result<Spec> {
+    let bench = one_input_bench(interface, "hex max")?;
+    takes_digits(interface, "hex max")?;
+    let width = bench.widths(interface)[0];
+    let has: usize = bench.output_widths(interface).iter().sum();
+    if width < 8 || has != 4 {
+        broken!(
+            "A hex max gives the largest of at least two digits as one \
+             digit, but A has {} digits and its outputs {}.",
+            width / 4,
+            has / 4
+        );
+    }
+    Ok(Spec {
+        bench,
+        cases: Box::new(move || max_cases(width)),
+        kinds: vec![Kind::new("largest digit of A", move |case| {
+            (0..width)
+                .step_by(4)
+                .map(|low| case[0] >> low & 0xf)
+                .max()
+                .unwrap_or(0)
+        })],
+        by_digit: true,
+    })
+}
+
+/// The values of A, of `width` bits, a build of digits too wide to try
+/// every one of is checked on: every value of each digit, the others 0,
+/// and the test patterns, with how many are patterns.
+fn digit_cases(width: usize) -> (Vec<Case>, u64) {
+    let mut cases = Distinct::default();
+    for low in (0..width).step_by(4) {
+        for v in 0..16 {
+            cases.add([v << low, 0, 0]);
+        }
+    }
+    let digits = cases.len();
+    for a in patterns(width) {
+        cases.add([a, 0, 0]);
+    }
+    let paired = (cases.len() - digits) as u64;
+    (cases.cases, paired)
+}
+
+/// The values of A, of `width` bits, a hex max is checked on: each digit
+/// given every value while every other digit holds each value, so each is
+/// weighed against the rest whichever is larger, and the test patterns,
+/// with how many are patterns.
+fn max_cases(width: usize) -> (Vec<Case>, u64) {
+    let every =
+        |digit: Value| (0..width).step_by(4).fold(0, |a, low| a | digit << low);
+    let mut cases = Distinct::default();
+    for low in (0..width).step_by(4) {
+        for rest in 0..16 {
+            for v in 0..16 {
+                let a = every(rest) & !(0xf << low) | v << low;
+                cases.add([a, 0, 0]);
+            }
+        }
+    }
+    let digits = cases.len();
+    for a in patterns(width) {
+        cases.add([a, 0, 0]);
+    }
+    let paired = (cases.len() - digits) as u64;
+    (cases.cases, paired)
 }
 
 /// A threshold's cases, at least `k` of A's bits on, as they are named.
@@ -274,6 +380,10 @@ pub(super) const BINARY_TO_HEX: BySpec =
     BySpec::spec(|_, interface| binary_to_hex(interface));
 pub(super) const HEX_TO_BINARY: BySpec =
     BySpec::spec(|_, interface| hex_to_binary(interface));
+pub(super) const HEX_INPUT_SPREAD: BySpec =
+    BySpec::spec(|_, interface| hex_input_spread(interface));
+pub(super) const HEX_MAX: BySpec =
+    BySpec::spec(|_, interface| hex_max(interface));
 pub(super) const THRESHOLD: BySpec =
     BySpec::spec(|_, interface| threshold(interface));
 pub(super) const PARITY: BySpec =

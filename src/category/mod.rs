@@ -69,6 +69,8 @@ pub enum Kind {
     Parity,
     BinaryToHex,
     HexToBinary,
+    HexInputSpread,
+    HexMax,
     XorGate,
     XnorGate,
     AndGate,
@@ -169,9 +171,9 @@ pub enum Probe {
     /// A hex adder's digit inputs, carry in, sum, and carry out, each by
     /// its shape.
     HexAdder,
-    /// A hex-to-binary converter's digit inputs and its output bits, each
-    /// by its shape.
-    HexToBinary,
+    /// The one digit input of a hex-to-binary converter, a hex input
+    /// spread, or a hex max, and its outputs, each by its shape.
+    Digits,
     /// A register's or buffer's data buses and its cells' controls.
     Register,
     Shifter,

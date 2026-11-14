@@ -9,8 +9,8 @@ use crate::interface::problem::{Problem, Rule};
 use std::collections::BTreeMap;
 
 use super::{
-    Fault, Order, Roles, alu, hex_adder, hex_to_binary, multiplier,
-    one_operand, register, sequential, shifter,
+    Fault, Order, Roles, alu, digits, hex_adder, multiplier, one_operand,
+    register, sequential, shifter,
 };
 use crate::{
     category::{Kind, Probe, Probing, Test},
@@ -589,7 +589,7 @@ impl Subject {
             Probe::Matched => unreachable!("see `Subject::matched`"),
             Probe::HexAdder => hex_adder(data, blocks, report, test, order)
                 .map(|probed| (probed.digits, probed.file, probed.run)),
-            Probe::HexToBinary => hex_to_binary(data, blocks, report, test)
+            Probe::Digits => digits(data, blocks, report, test)
                 .map(|probed| (probed.digits, probed.file, probed.run)),
             Probe::Register => register(data, report, test)
                 .map(|probed| (probed.data_in, probed.file, probed.run)),
@@ -660,9 +660,9 @@ fn plain_roles(
 /// Of the `faults` probing found as each kind it tried, the one to show:
 /// the one it is meant as, if any; else one whose test ran and got cases
 /// wrong, as nearest to holding, over those that could not run. Of either
-/// kind, the hex adder's or else the hex-to-binary converter's when it has
-/// signal-strength inputs; the decoder's
-/// when it has one input line; the register's when it
+/// kind, the hex adder's or else the hex-to-binary converter's, the hex
+/// input spread's, or the hex max's when it has signal-strength inputs;
+/// the decoder's when it has one input line; the register's when it
 /// has a button, which only a register's writes and a sequential
 /// multiplier's lines are; the ALU's when it has more than one lone lever,
 /// its control lines; else the adder's.
@@ -688,9 +688,13 @@ fn fault_of<'f>(
         .filter(|run| run.bits.len() == 1)
         .count();
     let order: &[Kind] = match () {
-        () if !report.digits.is_empty() => {
-            &[Kind::HexAdder, Kind::HexToBinary, Kind::Adder]
-        }
+        () if !report.digits.is_empty() => &[
+            Kind::HexAdder,
+            Kind::HexToBinary,
+            Kind::HexInputSpread,
+            Kind::HexMax,
+            Kind::Adder,
+        ],
         () if report.inputs.len() == 1 => {
             &[Kind::Decoder, Kind::Adder, Kind::Register]
         }
