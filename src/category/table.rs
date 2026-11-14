@@ -613,6 +613,7 @@ pub(super) const TABLE: [Facts; 38] = [
         label: "Hex Input Spread",
         noun: "hex input spread",
         section: Section::Conversion,
+        measures: &[Measure::Outputs],
         logic: Some(Logic::Stateless),
         aliases: &["hex fan out", "hex spread"],
         listed_as: "hex input spreads",

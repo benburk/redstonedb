@@ -99,6 +99,8 @@ fn keep_what_applies(details: &mut Details, category: &Category, listed: bool) {
         positive(specs.pulse).filter(|_| category.has(Measure::Pulse));
     specs.inputs =
         positive(specs.inputs).filter(|_| category.has(Measure::Inputs));
+    specs.outputs =
+        positive(specs.outputs).filter(|_| category.has(Measure::Outputs));
     details.flags = category::flags_among(&category.name, &details.flags)
         .into_iter()
         .map(|flag| flag.name.to_owned())

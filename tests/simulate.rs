@@ -1133,6 +1133,9 @@ fn a_hex_input_spread_gives_its_digit_on_every_output() {
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
     assert_eq!(timing.latency(), Some(2));
+    // Named for its eight copies out, as every spread takes one digit.
+    let found = read::derived("hex_input_spread", &interface::read(&blocks));
+    assert_eq!((found.outputs, found.width), (Some(8), Some(4)));
 }
 
 /// Torchless Hex Max, 4d7912fa: eight digits, each a comparator with air

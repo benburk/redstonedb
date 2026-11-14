@@ -35,6 +35,9 @@ named_values! {
         /// How many inputs it takes, as a hex max's digits, as in
         /// `8-input`.
         Inputs = "inputs", "Inputs";
+        /// How many outputs it gives, as a hex input spread's copies of its
+        /// digit, as in `8-output`.
+        Outputs = "outputs", "Outputs";
     }
 }
 
@@ -48,6 +51,7 @@ impl Measure {
             Measure::Pulse => format!("{n}-tick"),
             Measure::AtLeast => format!("At Least {n}"),
             Measure::Inputs => format!("{n}-input"),
+            Measure::Outputs => format!("{n}-output"),
         }
     }
 
@@ -61,6 +65,7 @@ impl Measure {
             Measure::Pulse => count("tick", "ticks"),
             Measure::AtLeast => format!("at least {n} on"),
             Measure::Inputs => count("input", "inputs"),
+            Measure::Outputs => count("output", "outputs"),
         }
     }
 
@@ -71,6 +76,7 @@ impl Measure {
             Measure::Pulse => format!("{n}t"),
             Measure::AtLeast => format!("at least {n}"),
             Measure::Inputs => format!("{n}-input"),
+            Measure::Outputs => format!("{n}-output"),
         }
     }
 }

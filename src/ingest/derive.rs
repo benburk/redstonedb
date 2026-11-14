@@ -113,6 +113,9 @@ impl Derived {
         if let Some(inputs) = found.inputs {
             self.specs.inputs = Some(inputs);
         }
+        if let Some(outputs) = found.outputs {
+            self.specs.outputs = Some(outputs);
+        }
         if let Some(flags) = read::derived_flags(category, &interface) {
             self.flags = flags;
         }

@@ -40,6 +40,7 @@ fn details(s: &Build) -> Vec<(&'static str, Option<String>)> {
         ("at least", number(s.specs.at_least)),
         ("pulse", number(s.specs.pulse)),
         ("inputs", number(s.specs.inputs)),
+        ("outputs", number(s.specs.outputs)),
         (
             "flags",
             list(s.flags.iter().map(|f| f.label.to_owned()).collect()),
