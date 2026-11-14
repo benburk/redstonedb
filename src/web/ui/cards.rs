@@ -117,7 +117,7 @@ pub(crate) fn card(s: &Build, note: &Markup, viewing: &Viewing) -> Markup {
                             p class="mt-auto truncate pt-1 text-meta text-muted" {
                                 (name_links(&s.credits.authors))
                                 @if !s.credits.contributors.is_empty() {
-                                    @if !s.credits.authors.is_empty() { " · " }
+                                    @if !s.credits.authors.is_empty() { " " }
                                     "with " (name_links(&s.credits.contributors))
                                 }
                             }
