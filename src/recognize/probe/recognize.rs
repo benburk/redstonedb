@@ -271,16 +271,16 @@ impl Subject {
     /// It read as a kind matching reads, or a register, its buses bent
     /// too, as operands split in two or outputs unevenly spaced, every case
     /// right: the first such kind, of those probing tries, or only the kind
-    /// `meant`, and what was found, its I/O unaligned. A reading whose test
-    /// ran and got cases wrong, a failing one, has its fault take the place
-    /// among `faults` of a strict reading's that couldn't run, so it is
-    /// shown as the kind it is.
+    /// `meant`, and what was found, its I/O unaligned. Each reading whose
+    /// test ran and got cases wrong, a failing one, has its fault take the
+    /// place among `faults` of its kind's strict reading's that couldn't
+    /// run, so it is shown as the kind it is; as does a register's, whose
+    /// loose reading gets as far as its strict one and further.
     fn loose(
         &self,
         meant: Option<Kind>,
         faults: &mut Vec<(Kind, Fault)>,
     ) -> anyhow::Result<Option<(Kind, Found)>> {
-        let mut wrong = None;
         for &(kind, how, test) in &Kind::probed() {
             let bends = matches!(how, Probe::Matched | Probe::Register);
             if !bends || meant.is_some_and(|meant| meant != kind) {
@@ -288,17 +288,14 @@ impl Subject {
             }
             match self.probe(kind, how, test, true, Order::default())? {
                 Ok(found) => return Ok(Some((kind, found))),
-                Err(fault) if fault.ran() && wrong.is_none() => {
-                    wrong = Some((kind, fault));
+                Err(fault) if fault.ran() || how == Probe::Register => {
+                    match faults.iter().position(|(k, _)| *k == kind) {
+                        Some(i) if !faults[i].1.ran() => faults[i].1 = fault,
+                        Some(_) => {}
+                        None => faults.push((kind, fault)),
+                    }
                 }
                 Err(_) => {}
-            }
-        }
-        if let Some((kind, fault)) = wrong {
-            match faults.iter().position(|(k, _)| *k == kind) {
-                Some(i) if !faults[i].1.ran() => faults[i].1 = fault,
-                Some(_) => {}
-                None => faults.push((kind, fault)),
             }
         }
         Ok(None)
@@ -489,7 +486,11 @@ impl Subject {
 fn unlabelled(kind: Kind, data: &[u8]) -> anyhow::Result<Vec<u8>> {
     let reads_signs = matches!(
         kind,
-        Kind::Alu | Kind::BarrelShifter | Kind::Register | Kind::Buffer
+        Kind::Alu
+            | Kind::BarrelShifter
+            | Kind::Register
+            | Kind::Ram
+            | Kind::Buffer
     );
     let blocks = Blocks::read(data)?;
     // A status line's sign hangs on the block holding its output up, which
@@ -661,13 +662,16 @@ fn plain_roles(
 
 /// Of the `faults` probing found as each kind it tried, the one to show:
 /// the one it is meant as, if any; else one whose test ran and got cases
-/// wrong, as nearest to holding, over those that could not run. Of either
+/// wrong, as nearest to holding, over those that could not run, but for
+/// one that got nine in ten of them or more wrong, which read the build as
+/// something it plainly isn't, as a multiplier's try does a register whose
+/// writes are buttons. Of either
 /// kind, the hex adder's or else the hex-to-binary converter's, the hex
 /// input spread's, or the hex max's when it has signal-strength inputs;
-/// the decoder's when it has one input line; the register's when it
-/// has a button, which only a register's writes and a sequential
-/// multiplier's lines are; the ALU's when it has more than one lone lever,
-/// its control lines; else the adder's.
+/// the decoder's when it has one input line; the register's when it has
+/// a button, which a sequential multiplier's lines are and a register's
+/// writes were, so it is told its writes are levers; the ALU's when it has
+/// more than one lone lever, its control lines; else the adder's.
 fn fault_of<'f>(
     blocks: &Blocks,
     report: &inspect::Report,
@@ -707,11 +711,13 @@ fn fault_of<'f>(
         () => &[Kind::Adder, Kind::Register, Kind::Alu],
     };
     let candidates: Vec<&Fault> = order.iter().filter_map(|&k| of(k)).collect();
-    candidates
-        .iter()
-        .find(|fault| fault.ran())
-        .or(candidates.first())
-        .copied()
+    let near = |fault: &&&Fault| match fault {
+        Fault::Wrong { wrong, cases, .. } => {
+            u128::from(*wrong) * 10 < u128::from(*cases) * 9
+        }
+        _ => false,
+    };
+    candidates.iter().find(near).or(candidates.first()).copied()
 }
 
 #[cfg(test)]

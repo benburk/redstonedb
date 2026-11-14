@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use app::{
-    category::Kind,
+    category::{Kind, Test},
     ingest::prepare::{self, Purpose},
     interface::{self, Orientation},
     schem::{self, Blocks, Direction, lines::Role},
@@ -784,9 +784,9 @@ fn an_adders_unsigned_carry_lines_are_named() {
         };
         let before = unnamed(&read.inputs) + unnamed(&read.outputs);
         let mut adder = interface::read(&blocks);
-        interface::name_lines(Kind::Adder.lines(), &blocks, &mut adder);
+        interface::name_lines(Kind::Adder.lines(), &mut adder);
         let mut other = interface::read(&blocks);
-        interface::name_lines(interface::Lines::Signed, &blocks, &mut other);
+        interface::name_lines(interface::Lines::Signed, &mut other);
         assert_eq!(
             unnamed(&adder.inputs) + unnamed(&adder.outputs),
             0,
@@ -811,30 +811,27 @@ fn an_adders_unsigned_carry_lines_are_named() {
 }
 
 /// A register's data buses show as data in and data out, and its unsigned
-/// magenta lines as writes, each on a button, and reads, each on a lever,
-/// as its test takes them.
+/// magenta lines, all levers, as controls, numbered, until its test tells
+/// its writes from its reads, as it names them.
 #[test]
 fn a_registers_lines_are_named_by_their_roles() {
     let blocks = Blocks::read(&raw("register-8-2-cells")).unwrap();
     let mut read = interface::read(&blocks);
-    interface::name_lines(Kind::Register.lines(), &blocks, &mut read);
-    let inputs: Vec<&str> =
-        read.inputs.iter().map(|p| p.name.as_str()).collect();
+    interface::name_lines(Kind::Register.lines(), &mut read);
+    let names = |interface: &interface::Interface| -> Vec<String> {
+        interface.inputs.iter().map(|p| p.name.clone()).collect()
+    };
+    let inputs = names(&read);
     let outputs: Vec<&str> =
         read.outputs.iter().map(|p| p.name.as_str()).collect();
-    println!("{inputs:?} {outputs:?}");
-    assert!(inputs.contains(&"data in"), "{inputs:?}");
+    assert!(inputs.contains(&"data in".to_owned()), "{inputs:?}");
     assert_eq!(outputs, ["data out"]);
-    assert_eq!(
-        inputs.iter().filter(|n| n.starts_with("write")).count(),
-        2,
-        "{inputs:?}"
-    );
-    assert_eq!(
-        inputs.iter().filter(|n| n.starts_with("read")).count(),
-        2,
-        "{inputs:?}"
-    );
+    let controls = inputs.iter().filter(|n| n.starts_with("control "));
+    assert_eq!(controls.count(), 4, "{inputs:?}");
+    let tested = names(&Test::Register.lines(&blocks).unwrap());
+    let count =
+        |word: &str| tested.iter().filter(|n| n.starts_with(word)).count();
+    assert_eq!((count("write"), count("read")), (2, 2), "{tested:?}");
 }
 
 /// `name` with its signs taken off: their blocks turned to air and their
@@ -863,7 +860,7 @@ fn an_incrementers_unsigned_line_is_its_increment() {
     let read = interface::read(&blocks);
     assert!(read.inputs.iter().any(|p| p.name == "unnamed control"));
     let mut named = interface::read(&blocks);
-    interface::name_lines(Kind::Incrementer.lines(), &blocks, &mut named);
+    interface::name_lines(Kind::Incrementer.lines(), &mut named);
     assert!(named.inputs.iter().any(|p| p.name == "increment"));
     let simulate::Report::Ran(run) =
         app::category::Test::Incrementer.run(&blocks)

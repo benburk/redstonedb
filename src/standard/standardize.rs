@@ -187,7 +187,6 @@ pub fn zeroed(
     let mut lines = interface::read(blocks);
     interface::name_lines(
         crate::category::behaviour(category).lines,
-        blocks,
         &mut lines,
     );
     let on: BTreeSet<Pos> = lines

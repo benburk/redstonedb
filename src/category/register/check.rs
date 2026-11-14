@@ -50,15 +50,16 @@ pub(super) fn check_on(
                 stored[cell],
             )?;
         }
-        // No cell may take the bus without its button.
+        // No cell may take the bus without its write.
         circuit.set(register.data, !value & all);
         circuit.settle()?;
         let none = shown(&register, &stored);
         let got = buses(&circuit, &register);
         ungated += u64::from(got != none);
-        let off = match kind {
-            Kind::Register => "every read off",
-            Kind::Buffer => "data in changed",
+        let off = if kind.reads() {
+            "every read off"
+        } else {
+            "data in changed"
         };
         tally.check(|| off.to_owned(), value, &none, got);
         for (i, (cell, &held)) in register.cells.iter().zip(&stored).enumerate()
@@ -99,6 +100,9 @@ pub(super) fn check_on(
             }
             read(&mut circuit, &register, &[])?;
         }
+        if kind == Kind::Register {
+            read_while_writing(&mut circuit, &register, &stored, &mut tally)?;
+        }
     }
     let shape = Shape {
         cells: register.cells.len(),
@@ -108,8 +112,7 @@ pub(super) fn check_on(
     if !exhaustive {
         run.patterns = patterns(register.width).len() as u64;
     }
-    if kind == Kind::Register && ungated == values.len() as u64 && run.wrong > 0
-    {
+    if kind.reads() && ungated == values.len() as u64 && run.wrong > 0 {
         run.hint = Some(
             "With every read lever off, the output still shows what the cells \
              hold, so its reads do not keep it off the bus."
@@ -125,6 +128,75 @@ pub(super) fn check_on(
         }
     }
     Ok((run, shape))
+}
+
+/// Each cell, holding `stored`, read while the next is written, as a CPU
+/// reads one register as it writes another: the next takes its value's
+/// complement, its write lever on and then off while the cell's read is
+/// on, which must show the cell's value throughout and nothing on any
+/// other bus, and the next must then read back what it took. A register of
+/// one cell has no other to write.
+fn read_while_writing(
+    circuit: &mut Circuit,
+    register: &Register,
+    stored: &[Value],
+    tally: &mut Tally,
+) -> Result<()> {
+    let cells = register.cells.len();
+    if cells < 2 {
+        return Ok(());
+    }
+    let none = shown(register, stored);
+    let first_read = |cell: usize| {
+        register.cells[cell]
+            .reads
+            .iter()
+            .find_map(|read| read.line.map(|line| (*read, line)))
+    };
+    for cell in 0..cells {
+        let next = (cell + 1) % cells;
+        let (Some((read_cell, line)), Some((read_next, next_line))) =
+            (first_read(cell), first_read(next))
+        else {
+            continue;
+        };
+        let held = stored[cell];
+        let written = !stored[next] & mask(register.width);
+        circuit.set(register.data, written);
+        read(circuit, register, &[line])?;
+        let mut expected = none.clone();
+        expected[read_cell.bus] = read_cell.shows(held, register.width);
+        let write_line = register.cells[next].write;
+        for (lines, step) in
+            [(vec![line, write_line], "on"), (vec![line], "off")]
+        {
+            read(circuit, register, &lines)?;
+            tally.check(
+                || {
+                    format!(
+                        "cell {} read, cell {} write {step}",
+                        cell + 1,
+                        next + 1
+                    )
+                },
+                held,
+                &expected,
+                buses(circuit, register),
+            );
+        }
+        read(circuit, register, &[next_line])?;
+        let mut expected = none.clone();
+        expected[read_next.bus] = read_next.shows(written, register.width);
+        tally.check(
+            || format!("cell {} read after its write", next + 1),
+            written,
+            &expected,
+            buses(circuit, register),
+        );
+        // It holds its value again for the round's next cell.
+        write(circuit, register, write_line, stored[next])?;
+    }
+    read(circuit, register, &[])
 }
 
 /// The cells' controls, and each fault the cells show from the build with
@@ -287,27 +359,6 @@ pub(super) fn telling(width: usize) -> Vec<Value> {
     values
 }
 
-/// What `writes` and `reads`, a build's control lines, are, as its
-/// faults say: so many buttons, so many levers, as `2 buttons, no levers`.
-fn switches(writes: &[Line], reads: &[Line]) -> String {
-    let lines = writes.len() + reads.len();
-    let buttons = writes
-        .iter()
-        .chain(reads)
-        .filter(|line| line.button)
-        .count();
-    let count = |n: usize, one: &str| match n {
-        0 => format!("no {one}s"),
-        1 => format!("1 {one}"),
-        n => format!("{n} {one}s"),
-    };
-    format!(
-        "{}, {}",
-        count(buttons, "button"),
-        count(lines - buttons, "lever")
-    )
-}
-
 /// The register's ports, and its circuit settled with its levers off,
 /// with its cells found.
 pub(super) fn ports(
@@ -352,72 +403,134 @@ pub(super) fn ports(
         .collect();
     let mut circuit = Circuit::new(blocks, interface)?;
     circuit.settle()?;
-    let any_button = controls.iter().any(|&port| {
+    if controls.iter().any(|&port| {
         (0..interface.inputs[port].bits.len())
             .any(|bit| circuit.is_button(port, bit))
-    });
-    let (mut writes, mut reads) = (Vec::new(), Vec::new());
-    for &port in &controls {
-        // A sign says which a line is; else a button writes and a lever
-        // reads, but in a buffer with no button, which reads nothing, a
-        // lever writes.
-        let says =
-            |word: &str| interface.inputs[port].words.iter().any(|w| w == word);
-        for (bit, at) in interface.inputs[port].bits.iter().enumerate() {
-            let line = Line {
-                port,
-                bit,
-                pos: at.pos,
-                button: circuit.is_button(port, bit),
-                active_low: false,
-            };
-            let writing = line.button || (kind == Kind::Buffer && !any_button);
-            if says("write") || (writing && !says("read")) {
-                writes.push(line);
-            } else {
-                reads.push(line);
-            }
-        }
-    }
-    let found = switches(&writes, &reads);
-    if writes.is_empty() {
+    }) {
         broken!(
             rule: Rule::WriteControls;
-            "Control lines: expected a button writing each cell, found {found}."
+            "A {what}'s writes are levers, each turned on and off, not \
+             buttons."
         );
-    }
-    match kind {
-        Kind::Register if reads.is_empty() => broken!(
-            rule: Rule::RegisterControls;
-            "Control lines: expected a button writing each cell and a lever \
-             reading it, found {found}."
-        ),
-        Kind::Buffer if !reads.is_empty() => broken!(
-            rule: Rule::BufferControls;
-            "Control lines: expected only writes, as a buffer shows what it \
-             holds, found {found}."
-        ),
-        _ => {}
     }
     let mut register = Register {
         data,
         width,
         buses,
         controls,
-        reads,
+        reads: Vec::new(),
         cells: Vec::new(),
         idle: Vec::new(),
     };
-    register.cells = match kind {
-        Kind::Register => cells(&mut circuit, &mut register, &writes)?,
-        Kind::Buffer => held(&mut circuit, interface, &register, &writes)?,
+    let (writes, reads) = split(&mut circuit, interface, &register)?;
+    let levers = writes.len() + reads.len();
+    if writes.is_empty() {
+        broken!(
+            rule: Rule::WriteControls;
+            "Control lines: none of its {levers} levers writes a cell."
+        );
+    }
+    match kind {
+        Kind::Register | Kind::Ram if reads.is_empty() => broken!(
+            rule: Rule::RegisterControls;
+            "Control lines: each of its {levers} levers writes a cell, and \
+             none reads one onto the bus."
+        ),
+        Kind::Buffer if !reads.is_empty() => broken!(
+            rule: Rule::BufferControls;
+            "Control lines: expected only writes, as a buffer shows what it \
+             holds, found {} of its {levers} levers reading.",
+            reads.len()
+        ),
+        _ => {}
+    }
+    register.reads = reads;
+    register.cells = if kind.reads() {
+        cells(&mut circuit, &mut register, &writes)?
+    } else {
+        held(&mut circuit, interface, &register, &writes)?
     };
     read(&mut circuit, &register, &[])?;
-    register.idle = match kind {
-        Kind::Register => self::buses(&circuit, &register),
-        Kind::Buffer => vec![0; register.buses.len()],
+    register.idle = if kind.reads() {
+        self::buses(&circuit, &register)
+    } else {
+        vec![0; register.buses.len()]
     };
     Ok((circuit, register))
+}
+
+/// Its control lines split into writes and reads, each in the order the
+/// interface lists them. A sign naming a line says which it is; else a
+/// lever writes when flicking it on and off, the data bus all ones,
+/// changes what the buses show, with every other lever off and with each
+/// on alone, from what they showed with every cell given 0, and one that
+/// changes nothing reads, as a register's read lever, which a buffer has
+/// none of.
+fn split(
+    circuit: &mut Circuit,
+    interface: &Interface,
+    register: &Register,
+) -> Result<(Vec<Line>, Vec<Line>)> {
+    let mut lines: Vec<(Line, Option<bool>)> = Vec::new();
+    for &port in &register.controls {
+        let says =
+            |word: &str| interface.inputs[port].words.iter().any(|w| w == word);
+        let writes = if says("write") {
+            Some(true)
+        } else if says("read") {
+            Some(false)
+        } else {
+            None
+        };
+        for (bit, at) in interface.inputs[port].bits.iter().enumerate() {
+            let line = Line {
+                port,
+                bit,
+                pos: at.pos,
+                active_low: false,
+            };
+            lines.push((line, writes));
+        }
+    }
+    let unknown: Vec<Line> = lines
+        .iter()
+        .filter(|(_, writes)| writes.is_none())
+        .map(|&(line, _)| line)
+        .collect();
+    let all = mask(register.width);
+    for &line in &unknown {
+        write(circuit, register, line, 0)?;
+    }
+    let seen = |circuit: &mut Circuit, line: Line| -> Result<Vec<Vec<Value>>> {
+        let mut seen = Vec::with_capacity(unknown.len());
+        read(circuit, register, &[])?;
+        seen.push(buses(circuit, register));
+        for &other in unknown.iter().filter(|other| !other.is(&line)) {
+            read(circuit, register, &[other])?;
+            seen.push(buses(circuit, register));
+        }
+        read(circuit, register, &[])?;
+        Ok(seen)
+    };
+    for (line, writes) in &mut lines {
+        if writes.is_some() {
+            continue;
+        }
+        let before = seen(circuit, *line)?;
+        write(circuit, register, *line, all)?;
+        circuit.set(register.data, 0);
+        circuit.settle()?;
+        let after = seen(circuit, *line)?;
+        write(circuit, register, *line, 0)?;
+        *writes = Some(after != before);
+    }
+    let (writes, reads): (Vec<_>, Vec<_>) = lines
+        .into_iter()
+        .partition(|&(_, writes)| writes == Some(true));
+    Ok((
+        writes.into_iter().map(|(line, _)| line).collect(),
+        reads.into_iter().map(|(line, _)| line).collect(),
+    ))
 }
 
 /// The cells, each write with the reads that show what it wrote, and
@@ -486,7 +599,7 @@ fn cells(
         if let Some(cell) = cells.iter().find(|cell| cell.reads.is_empty()) {
             let [x, y, z] = cell.write.pos;
             broken!(
-                "No read lever shows the cell the write button at ({x}, {y}, \
+                "No read lever shows the cell the write lever at ({x}, {y}, \
                  {z}) writes."
             );
         }
@@ -507,7 +620,7 @@ fn cells(
             .collect());
     }
     broken!(
-        "Its {} read levers could not be matched to its {} write buttons: \
+        "Its {} read levers could not be matched to its {} write levers: \
          each read should show one cell.",
         register.reads.len(),
         writes.len()
@@ -519,7 +632,7 @@ fn cells(
 /// ones, a bus that changes is the cell's, and shows it as it is: unlike a
 /// register's reads, a buffer's outputs may not show their cells inverted,
 /// so one that shows all ones as zeros gets its cases wrong. A write that
-/// changes the same buses as one before is a second button on that cell's
+/// changes the same buses as one before is a second lever on that cell's
 /// line, as each copy of a stacked buffer keeps its own, and the first
 /// stands for it. Each bus must show one cell.
 fn held(
@@ -601,9 +714,8 @@ fn look(
     Ok((saved, flipped))
 }
 
-/// Writes `value` into the cell `line` writes: sets the data bus, presses
-/// the button, or flicks the lever on and off, and waits until nothing
-/// changes.
+/// Writes `value` into the cell `line` writes: sets the data bus, flicks
+/// the lever on and off, and waits until nothing changes.
 pub(super) fn write(
     circuit: &mut Circuit,
     register: &Register,
@@ -612,14 +724,8 @@ pub(super) fn write(
 ) -> Result<()> {
     circuit.set(register.data, value);
     circuit.settle()?;
-    if line.button {
-        circuit.press(line.port, line.bit);
-    } else {
-        read(circuit, register, &[line])?;
-        set_reads(circuit, register, &[]);
-    }
-    circuit.settle()?;
-    Ok(())
+    read(circuit, register, &[line])?;
+    read(circuit, register, &[])
 }
 
 /// Turns on the levers `on`, reads or a write, and the rest off, without
@@ -729,17 +835,17 @@ impl Tally {
         exhaustive: bool,
     ) -> Run {
         let cells = register.cells.len();
-        let inverted = kind == Kind::Register
+        let inverted = kind.reads()
             && register
                 .cells
                 .iter()
                 .any(|cell| cell.reads.iter().any(|read| read.inverted));
         Run {
             pattern: {
-                let read = match (kind, inverted) {
-                    (Kind::Register, false) => "read",
-                    (Kind::Register, true) => "read inverted",
-                    (Kind::Buffer, _) => "shown",
+                let read = match (kind.reads(), inverted) {
+                    (true, false) => "read",
+                    (true, true) => "read inverted",
+                    (false, _) => "shown",
                 };
                 match cells {
                     1 => format!("written, then {read}"),

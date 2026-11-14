@@ -8,7 +8,6 @@ use anyhow::Result;
 use crate::{
     category::{self, Test, test::BySpec},
     interface::{self, Interface},
-    schem::Blocks,
     simulate::{
         Counts, Reading, Value,
         bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
@@ -193,31 +192,28 @@ pub(super) fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
 fn counting(
     kind: category::Kind,
     counts: Counts,
-    blocks: &Blocks,
     interface: &mut Interface,
 ) -> Result<Spec> {
-    interface::name_lines(kind.lines(), blocks, interface);
+    interface::name_lines(kind.lines(), interface);
     spec(interface, Some(counts))
 }
 
 /// An incrementer's test: its copies chain, its carry out the next's
 /// increment.
 pub(super) const INCREMENTER: BySpec = BySpec::stacked(
-    |blocks, interface| {
-        counting(category::Kind::Incrementer, Counts::Up, blocks, interface)
-    },
+    |_, interface| counting(category::Kind::Incrementer, Counts::Up, interface),
     |data| super::stacks::chained(data, Test::Incrementer),
 );
 
 pub(super) const DECREMENTER: BySpec = BySpec::stacked(
-    |blocks, interface| {
-        counting(category::Kind::Decrementer, Counts::Down, blocks, interface)
+    |_, interface| {
+        counting(category::Kind::Decrementer, Counts::Down, interface)
     },
     |data| super::stacks::chained(data, Test::Decrementer),
 );
 
-pub(super) const INC_DEC: BySpec = BySpec::spec(|blocks, interface| {
-    counting(category::Kind::IncDec, Counts::Either, blocks, interface)
+pub(super) const INC_DEC: BySpec = BySpec::spec(|_, interface| {
+    counting(category::Kind::IncDec, Counts::Either, interface)
 });
 
 #[cfg(test)]

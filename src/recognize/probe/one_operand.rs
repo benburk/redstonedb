@@ -114,7 +114,7 @@ mod tests {
             ("negator-8", "negator"),
             ("inc-8", "incrementer"),
             ("barrel-shifter-8", "barrel_shifter"),
-            ("buffer-2-button", "buffer"),
+            ("buffer-2", "buffer"),
             ("monostable-3-inverted", "monostable"),
             ("threshold-3-raw", "threshold"),
             ("popcount-8-strength", "popcount"),

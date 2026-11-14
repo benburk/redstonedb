@@ -264,7 +264,7 @@ fn fault(
 /// alone, then off, and every bit together, each from rest.
 fn cases(blocks: &Blocks) -> Result<Cases> {
     let mut interface = interface::read(blocks);
-    interface::name_lines(Kind::Monostable.lines(), blocks, &mut interface);
+    interface::name_lines(Kind::Monostable.lines(), &mut interface);
     let [input] = interface.inputs.as_slice() else {
         broken!(
             "A monostable takes one input, A, but this has {}.",
@@ -535,7 +535,7 @@ pub fn throughput(blocks: &Blocks, timing: &Timing) -> Result<Option<i32>> {
         return Ok(None);
     };
     let mut interface = interface::read(blocks);
-    interface::name_lines(Kind::Monostable.lines(), blocks, &mut interface);
+    interface::name_lines(Kind::Monostable.lines(), &mut interface);
     let outputs = output_bits(&interface)?;
     let width = interface.inputs[0].bits.len();
     let all = mask(width);

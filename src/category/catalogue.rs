@@ -283,7 +283,10 @@ pub fn inverts(category: &str, flag: &str) -> Option<Inverts> {
             Flag::INVERTED_CARRY_OUT,
         ) => Inverts::Output(Role::Status),
         (
-            Kind::Register | Kind::Monostable | Kind::DualEdgeMonostable,
+            Kind::Register
+            | Kind::Ram
+            | Kind::Monostable
+            | Kind::DualEdgeMonostable,
             "inverted",
         ) => Inverts::Outputs,
         _ => return None,
@@ -396,12 +399,10 @@ mod tests {
 
     #[test]
     fn a_name_made_from_a_recognized_category_is_refused() {
-        for name in ["8-bit_adder", "unrecognized_register"] {
+        for name in ["8-bit_adder", "unrecognized_register", "8-bit_ram"] {
             assert!(check_category(name, None).is_err(), "{name}");
         }
-        // The site recognizes no RAM yet, so one goes under a name made
-        // from it.
-        for name in ["8-bit_ram", "eight-bit_adder", "8-bit_horizontal_diode"] {
+        for name in ["eight-bit_adder", "8-bit_horizontal_diode"] {
             assert!(check_category(name, None).is_ok(), "{name}");
         }
     }

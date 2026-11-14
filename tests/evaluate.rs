@@ -447,7 +447,8 @@ fn a_register_is_read_whole_from_its_file() {
 
 /// Writing one cell of this register changes another, which a round that
 /// writes its cells in one order hides, as the later write puts it right:
-/// each round starts its writes a cell on, so it fails.
+/// each round starts its writes a cell on, so it fails, as a register or
+/// as a RAM, whose test writes as a register's does.
 #[test]
 fn a_register_whose_write_disturbs_another_cell_fails() {
     let e = evaluate(
@@ -455,7 +456,11 @@ fn a_register_whose_write_disturbs_another_cell_fails() {
             .unwrap(),
     )
     .unwrap();
-    assert_eq!(e.category, Some("register"));
+    assert!(
+        matches!(e.category, Some("register" | "ram")),
+        "{:?}",
+        e.category
+    );
     assert!(!e.passes(), "{:?}", e.report);
 }
 
@@ -583,7 +588,7 @@ fn a_monostable_is_read_whole_from_its_file() {
 /// throughput is how often a cell can take a new value.
 #[test]
 fn a_buffer_is_read_whole_from_its_file() {
-    let e = evaluate(&uploaded("buffer-2-button")).unwrap();
+    let e = evaluate(&uploaded("buffer-2")).unwrap();
     assert_eq!(e.category, Some("buffer"));
     assert!(e.passes(), "{:?}", e.report);
     assert_eq!(e.logic, Some(Logic::Stateful));

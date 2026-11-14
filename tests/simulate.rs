@@ -634,13 +634,13 @@ fn register(name: &str) -> (Vec<u8>, Blocks) {
     (data, blocks)
 }
 
-/// Two staggered cells of an 8-bit register, each a write button and a
+/// Two staggered cells of an 8-bit register, each a write lever and a
 /// read lever on unsigned magenta lines, sharing lime data in and yellow
 /// data out. Each cell takes every value, the bus stays empty with every
-/// read off, and each read shows its cell alone; a write shows 8 ticks
-/// after its button. Timed from its data changing, its write pressed and
-/// read turned on where they let the data pass soonest, data out settles
-/// at 4, its latency, and each write has a window to be pressed in.
+/// read off, each read shows its cell alone, and each cell reads right
+/// while the other is written: 9 cases a value. Timed from its data
+/// changing, its write and read turned on where they let the data pass
+/// soonest, data out settles at 4, its latency.
 #[test]
 fn a_register_stores_and_reads_each_cell() {
     let (_, blocks) = register("register-8-2-cells");
@@ -648,13 +648,13 @@ fn a_register_stores_and_reads_each_cell() {
         panic!("the register was not simulated");
     };
     assert_eq!(run.pattern, "each of 2 cells written, then read");
-    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!((run.cases, run.wrong), (9 * 256, 0));
     assert!(run.exhaustive);
     let timing = Test::Register
         .time(&blocks, &AtomicBool::new(false))
         .unwrap();
     assert_eq!((timing.read(), timing.synced), (Some(4), true));
-    // A write shows 8 ticks after its button, but its latency is data in
+    // A write shows 8 ticks after its lever, but its latency is data in
     // to data out, its controls switched in time: 4.
     assert_eq!(timing.write, Some(8));
     assert_eq!((timing.data, timing.latency()), (Some(4), Some(4)));
@@ -666,13 +666,6 @@ fn a_register_stores_and_reads_each_cell() {
         .collect();
     assert_eq!(names, ["data in", "write 1", "read 1", "write 2", "read 2"]);
     assert_eq!(timing.inputs[0].tick, Some(0));
-    for write in timing.inputs.iter().filter(|i| i.name.starts_with("write")) {
-        let (Some(earliest), Some(latest)) = (write.earliest, write.tick)
-        else {
-            panic!("{} has no window", write.name);
-        };
-        assert!(earliest < latest, "{}: {earliest} to {latest}", write.name);
-    }
     let guess = app::category::guess(&blocks).unwrap();
     assert_eq!(guess.category, "register");
 }
@@ -736,19 +729,16 @@ fn a_register_cell_that_takes_its_data_as_its_write_closes_is_timed_from_it() {
     assert_eq!(timing.latency(), Some(4));
 }
 
-/// A cell like it written by a button, which holds its write open for ten
-/// ticks: it takes its data as the button springs back, so it is timed
-/// from then, as the lever's is from turning off, not from the press.
+/// A cell like it written by a button: a register's writes are levers,
+/// each turned on and off, so it is no register, and is told so.
 #[test]
-fn a_register_cell_written_by_a_button_is_timed_from_its_release() {
+fn a_register_cell_written_by_a_button_is_told_its_writes_are_levers() {
     let data = read_fixture("tests/fixtures/register-1-button.schem").unwrap();
     let blocks = Blocks::read(&data).unwrap();
-    let timing = Test::Register
-        .time(&blocks, &AtomicBool::new(false))
-        .unwrap();
-    assert_eq!(timing.takes, Takes::Closing);
-    assert_eq!((timing.write, timing.data), (Some(3), Some(4)));
-    assert_eq!(timing.latency(), Some(4));
+    let Report::Broken { reason } = Test::Register.run(&blocks) else {
+        panic!("the button's register was simulated");
+    };
+    assert!(reason.contains("writes are levers"), "{reason}");
 }
 
 /// The same register with barrels of 1 signal strength where its read
@@ -764,25 +754,25 @@ fn a_register_whose_reads_are_not_gated_fails() {
     assert!(run.hint.unwrap().contains("every read lever off"));
 }
 
-/// A 2-bit latch, embizone's upload with its write lever a button: a
-/// register with no read, whose output shows what it holds all the time.
-/// The register test finds no read and says it may be a buffer; the buffer
-/// test stores every value, keeps it as data in changes, and is timed from
-/// the button, data passing through in 2 ticks while it is held. A bit
-/// turning on settles a tick before one turning off, so it is not synced.
+/// A 2-bit latch, embizone's upload, its write a lever: a register with no
+/// read, whose output shows what it holds all the time. The register test
+/// finds no read and says it may be a buffer; the buffer test stores every
+/// value, keeps it as data in changes, and is timed from the lever, data
+/// passing through in 2 ticks while it is held. A bit turning on settles a
+/// tick before one turning off, so it is not synced.
 #[test]
 fn a_buffer_shows_what_it_holds_without_a_read() {
-    let (_, blocks) = register("buffer-2-button");
+    let (_, blocks) = register("buffer-2");
     let mut read = interface::read(&blocks);
-    interface::name_lines(Kind::Buffer.lines(), &blocks, &mut read);
+    interface::name_lines(Kind::Buffer.lines(), &mut read);
     let names: Vec<&str> =
         read.inputs.iter().map(|port| port.name.as_str()).collect();
     assert_eq!(names, ["data in", "write"]);
     let Report::Broken { reason } = Test::Register.run(&blocks) else {
         panic!("the buffer passed as a register");
     };
-    // Its lines are said: a write button, and no lever to read.
-    assert!(reason.contains("found 1 button, no levers"), "{reason}");
+    // Its lines are said: a lever that writes, and none to read.
+    assert!(reason.contains("none reads one"), "{reason}");
     let Report::Ran(run) = Test::Buffer.run(&blocks) else {
         panic!("the buffer was not simulated");
     };
@@ -796,12 +786,12 @@ fn a_buffer_shows_what_it_holds_without_a_read() {
 }
 
 /// Copies of the buffer 4 west share its write line and make more bits.
-/// Its button, alone on its east face, is the first copy's, and from a
+/// Its lever, alone on its east face, is the first copy's, and from a
 /// fourth copy on the write no longer reaches the last one along the line,
 /// so three make 6 bits.
 #[test]
 fn a_buffer_stacks_west_into_more_bits() {
-    let (data, _) = register("buffer-2-button");
+    let (data, _) = register("buffer-2");
     let Some(Stacking::Wider {
         step,
         copies,
@@ -867,7 +857,7 @@ fn a_register_whose_reads_are_saved_reading_passes() {
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
-    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!((run.cases, run.wrong), (9 * 256, 0));
     assert_eq!(run.pattern, "each of 2 cells written, then read");
 }
 
@@ -879,7 +869,7 @@ fn a_register_whose_data_levers_are_saved_on_reads_plainly() {
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
-    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!((run.cases, run.wrong), (9 * 256, 0));
     assert_eq!(run.pattern, "each of 2 cells written, then read");
 }
 
@@ -892,7 +882,7 @@ fn an_inverted_register_reads_and_stacks() {
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
-    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!((run.cases, run.wrong), (9 * 256, 0));
     assert_eq!(run.pattern, "each of 2 cells written, then read inverted");
     let Some(Stacking::Registers {
         step,
@@ -919,7 +909,7 @@ fn a_register_whose_data_levers_are_inside_its_box_does_not_stack() {
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
-    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!((run.cases, run.wrong), (9 * 256, 0));
     assert!(matches!(
         Test::Register.stacking(&data),
         Some(Stacking::Not { .. })
@@ -937,7 +927,7 @@ fn a_register_whose_data_levers_land_on_its_data_line_stacks() {
     let Report::Ran(run) = Test::Register.run(&blocks) else {
         panic!("the register was not simulated");
     };
-    assert_eq!((run.cases, run.wrong), (3 * 256, 0));
+    assert_eq!((run.cases, run.wrong), (9 * 256, 0));
     let Some(Stacking::Registers {
         step,
         registers,

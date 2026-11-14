@@ -276,7 +276,7 @@ impl Evaluation {
             self.flags
                 .extend(variant.flags().into_iter().map(str::to_owned));
         }
-        if test == Test::Register && run.reads_inverted() {
+        if matches!(test, Test::Register | Test::Ram) && run.reads_inverted() {
             self.flags.push(INVERTED.to_owned());
         }
         if let Some(pulse) = timing.pulse {

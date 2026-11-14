@@ -75,7 +75,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
 }
 
 /// A negator's test: its lone control line is named for its role, negate.
-pub(super) const NEGATOR: BySpec = BySpec::spec(|blocks, interface| {
-    interface::name_lines(super::Kind::Negator.lines(), blocks, interface);
+pub(super) const NEGATOR: BySpec = BySpec::spec(|_, interface| {
+    interface::name_lines(super::Kind::Negator.lines(), interface);
     spec(interface)
 });

@@ -100,8 +100,8 @@ pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
 /// An inverter's test: its lone control line is named for its role,
 /// invert.
 pub(super) const INVERTER: BySpec = BySpec::stacked(
-    |blocks, interface| {
-        interface::name_lines(super::Kind::Inverter.lines(), blocks, interface);
+    |_, interface| {
+        interface::name_lines(super::Kind::Inverter.lines(), interface);
         spec(interface)
     },
     stacker,
