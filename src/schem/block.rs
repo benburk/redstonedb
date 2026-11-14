@@ -151,10 +151,11 @@ pub fn solid(state: &str) -> bool {
 /// Whether a block id without its namespace is one a lever of a build's
 /// input can hang on and dust stand on, as the check of a build's inputs
 /// asks: any block but air, glass, a slab, stairs, a sign, or a redstone
-/// component, and a lamp, a full block that carries power as any other
-/// does. It asks less than [`solid`]: leaves, ice, and fences pass.
+/// component, and a lamp or a target, full blocks that carry a lever's
+/// power as any other does. It asks less than [`solid`]: leaves, ice, and
+/// fences pass.
 pub fn holds_input(name: &str) -> bool {
-    name == "redstone_lamp"
+    matches!(name, "redstone_lamp" | "target")
         || !is_component(name)
             && !name.contains("glass")
             && !name.ends_with("slab")
@@ -367,7 +368,7 @@ mod tests {
             kind("minecraft:redstone_lamp[lit=false]"),
             [T, T, T, T, T, F]
         );
-        assert_eq!(kind("minecraft:target"), [T, T, T, T, F, F]);
+        assert_eq!(kind("minecraft:target"), [T, T, T, T, T, F]);
         assert_eq!(kind("minecraft:observer"), [T, T, F, F, F, F]);
         assert_eq!(kind("minecraft:redstone_block"), [T, T, F, F, F, F]);
         assert_eq!(kind("minecraft:hopper"), [T, F, F, F, F, F]);
