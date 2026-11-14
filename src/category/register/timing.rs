@@ -13,7 +13,6 @@ use super::{
     check::{buses, ports, read, set_reads, telling, values, write},
 };
 use crate::{
-    category,
     interface::{self, Interface},
     schem::{Blocks, Pos},
     simulate::{
@@ -28,8 +27,8 @@ use crate::{
 
 /// When a register's reads settle: from a read lever turning on, with its
 /// cell holding each value in turn, until its bus shows it, the bits'
-/// changes tick by tick. Its writes too: from a button's press, with the
-/// cell's read held on, until the bus shows the new value. A buffer, which
+/// changes tick by tick. Its writes too: from a write lever turning on,
+/// with the cell's read held on, until the bus shows the new value. A buffer, which
 /// has no reads, is timed from its writes: from a write opening, or for a
 /// cell that takes its data as its write closes, from it closing, its cell
 /// holding each value's complement, until its bus shows the value.
@@ -62,7 +61,7 @@ pub fn time(
     // A register is timed from its data changing, its controls where they
     // let it pass soonest; a buffer, or a cell taking its data as its
     // write closes, from its write.
-    if kind == Kind::Register
+    if kind.reads()
         && !closing
         && let Some(timing) = from_data(
             &mut circuit,
@@ -91,8 +90,8 @@ pub fn time(
                     circuit.settle()?;
                     open_write(&mut circuit, &register, cell.write, None);
                     if closing {
-                        hold_write(&mut circuit, cell.write, |_| false)?;
-                        close_write(&mut circuit, &register, cell.write, None);
+                        circuit.settle()?;
+                        close_write(&mut circuit, &register, None);
                     }
                 }
                 let changes = watch(&mut circuit, &register)?;
@@ -137,9 +136,10 @@ pub fn time(
 /// The line a `kind`'s timing starts from, by name, and its start: a
 /// register's read, a buffer's write.
 fn opened(kind: Kind) -> (&'static str, Start) {
-    match kind {
-        Kind::Register => ("read", Start::Read),
-        Kind::Buffer => ("write", Start::Write),
+    if kind.reads() {
+        ("read", Start::Read)
+    } else {
+        ("write", Start::Write)
     }
 }
 
@@ -148,12 +148,10 @@ fn opened(kind: Kind) -> (&'static str, Start) {
 const REACH: i32 = 20;
 
 /// When a register's controls switch, in ticks from its data in changing:
-/// the window its write may open in and still store the new value; the
-/// latest of those whose bus shows it soonest, `write`; and the latest its
-/// read may turn on and still show it then, `read`, with `latency` that
-/// tick.
+/// of the ticks its write may open on and still store the new value, the
+/// latest whose bus shows it soonest, `write`; and the latest its read may
+/// turn on and still show it then, `read`, with `latency` that tick.
 struct Offsets {
-    window: (i32, i32),
     write: i32,
     read: Option<i32>,
     latency: i32,
@@ -204,7 +202,7 @@ fn timed(
                 read_line.line.filter(|_| reading),
             );
         } else if Some(t) == read_at {
-            let open = !cell.write.button && t > write_at;
+            let open = t > write_at;
             let on: Vec<Line> = read_line
                 .line
                 .into_iter()
@@ -212,9 +210,7 @@ fn timed(
                 .collect();
             set_reads(circuit, register, &on);
         }
-        let down = cell.write.button
-            && circuit.pressed(cell.write.port, cell.write.bit);
-        if t >= end && !down && !circuit.pending() {
+        if t >= end && !circuit.pending() {
             break;
         }
         if t - start > i32::try_from(MAX_TICKS).unwrap_or(i32::MAX) {
@@ -231,8 +227,8 @@ fn timed(
         }
         before = now;
     }
-    // A lever's write stays open until now; it closes holding the value.
-    close_write(circuit, register, cell.write, read_line.line);
+    // The write stays open until now; it closes holding the value.
+    close_write(circuit, register, read_line.line);
     circuit.settle()?;
     let stored = buses(circuit, register)[read_line.bus]
         == read_line.shows(value, register.width);
@@ -285,9 +281,7 @@ fn offsets(
             stores.push((write_at, settles));
         }
     }
-    let (Some(&(earliest, _)), Some(&(latest, _))) =
-        (stores.first(), stores.last())
-    else {
+    let Some(&(earliest, _)) = stores.first() else {
         return Ok(None);
     };
     let soonest = stores
@@ -316,7 +310,6 @@ fn offsets(
         }
     }
     Ok(Some(Offsets {
-        window: (earliest, latest),
         write,
         read,
         latency: soonest,
@@ -325,7 +318,7 @@ fn offsets(
 
 /// The register's timing from its data changing, as `aligned` takes it at
 /// the offsets its controls let it pass soonest, with its write latency
-/// from the button; `None` when no write in reach stores its data.
+/// from its lever; `None` when no write in reach stores its data.
 fn from_data(
     circuit: &mut Circuit,
     (blocks, interface): (&Blocks, &Interface),
@@ -337,8 +330,7 @@ fn from_data(
         return Ok(None);
     };
     // The lines as a register's are named, to say which is which.
-    let mut named = interface::read(blocks);
-    interface::name_lines(category::Kind::Register.lines(), blocks, &mut named);
+    let named = super::named(blocks, register, Kind::Register);
     let mut timing = aligned(
         circuit,
         (interface, &named),
@@ -399,7 +391,7 @@ fn aligned(
         .all(|bus| bus.glitches == 0 && bus.staggered == 0);
     let (median, p99, slowest, slowest_value) = spread(&settled);
     // The data in first, t = 0; then each control by its name, a write
-    // with its window, a read by the latest it may turn on.
+    // by the tick it opens on, a read by the latest it may turn on.
     let name_at = |pos: Pos| {
         named
             .inputs
@@ -416,13 +408,12 @@ fn aligned(
         tick: Some(0),
         earliest: None,
     }];
-    // A write may come as late as it lets the data pass soonest, and as
-    // early as a button's press still holds when the data arrives.
+    // A write may come as late as it lets the data pass soonest.
     for cell in &register.cells {
         inputs.push(InputTiming {
             name: name_at(cell.write.pos),
             tick: Some(found.write),
-            earliest: cell.write.button.then_some(found.window.0),
+            earliest: None,
         });
         for read in cell.reads.iter().filter_map(|read| read.line) {
             inputs.push(InputTiming {
@@ -492,77 +483,26 @@ fn watch(
 }
 
 /// Opens `write` with `read`, if any, on: turns its lever on with the
-/// read, or presses its button. Settles nothing.
+/// read. Settles nothing.
 fn open_write(
     circuit: &mut Circuit,
     register: &Register,
     write: Line,
     read: Option<Line>,
 ) {
-    if write.button {
-        circuit.press(write.port, write.bit);
-    } else {
-        let on: Vec<Line> = read.into_iter().chain([write]).collect();
-        set_reads(circuit, register, &on);
-    }
+    let on: Vec<Line> = read.into_iter().chain([write]).collect();
+    set_reads(circuit, register, &on);
 }
 
-/// Holds a write `open_write` opened until it may close, and says whether
-/// `shows` held at any point while it was open: a lever's write settled,
-/// or a button's every tick until it springs back.
-fn hold_write(
-    circuit: &mut Circuit,
-    write: Line,
-    shows: impl Fn(&Circuit) -> bool,
-) -> Result<bool> {
-    if !write.button {
-        circuit.settle()?;
-        return Ok(shows(circuit));
-    }
-    let mut seen = shows(circuit);
-    let mut ticks = 0;
-    while circuit.pressed(write.port, write.bit) {
-        if ticks > MAX_TICKS {
-            bail!("A write button stayed down {MAX_TICKS} ticks.");
-        }
-        circuit.tick();
-        ticks += 1;
-        seen |= shows(circuit);
-    }
-    Ok(seen)
-}
-
-/// How many ticks the button on `write` stays down once pressed.
-fn press_ticks(circuit: &mut Circuit, write: Line) -> Result<u32> {
-    circuit.press(write.port, write.bit);
-    let mut ticks = 0;
-    while circuit.pressed(write.port, write.bit) {
-        if ticks > MAX_TICKS {
-            bail!("A write button stayed down {MAX_TICKS} ticks.");
-        }
-        circuit.tick();
-        ticks += 1;
-    }
-    circuit.settle()?;
-    Ok(ticks)
-}
-
-/// Closes a write `hold_write` held, with `read`, if any, left on: turns
-/// its lever off; a button has sprung back already. Settles nothing.
-fn close_write(
-    circuit: &mut Circuit,
-    register: &Register,
-    write: Line,
-    read: Option<Line>,
-) {
-    if !write.button {
-        set_reads(circuit, register, read.as_slice());
-    }
+/// Closes a write `open_write` opened, with `read`, if any, left on: turns
+/// its lever off. Settles nothing.
+fn close_write(circuit: &mut Circuit, register: &Register, read: Option<Line>) {
+    set_reads(circuit, register, read.as_slice());
 }
 
 /// Whether the register's cells take their data as their writes close,
-/// their lever turning off or their button springing back: some cell, its
-/// read on and its write open, never shows a value it was given, as a cell
+/// their lever turning off: some cell, its read on and its write open,
+/// settled, never shows a value it was given, as a cell
 /// whose read is cut while it writes does, and shows it once its write
 /// closes.
 fn takes_data_closing(
@@ -583,8 +523,9 @@ fn takes_data_closing(
                     == read_line.shows(value, register.width)
             };
             open_write(circuit, register, cell.write, read_line.line);
-            let held = hold_write(circuit, cell.write, shows)?;
-            close_write(circuit, register, cell.write, read_line.line);
+            circuit.settle()?;
+            let held = shows(circuit);
+            close_write(circuit, register, read_line.line);
             circuit.settle()?;
             let closed = shows(circuit);
             read(circuit, register, &[])?;
@@ -670,9 +611,9 @@ fn data_latency(
 }
 
 /// `data_latency` for cells that take their data as their writes close:
-/// from the data changing as the write closes, its lever turning off or
-/// its button springing back, the write held open before with the old
-/// value, until the bus shows the new one and keeps it.
+/// from the data changing as the write closes, its lever turning off, the
+/// write held open before with the old value, until the bus shows the new
+/// one and keeps it.
 fn closing_data_latency(
     circuit: &mut Circuit,
     register: &Register,
@@ -685,31 +626,15 @@ fn closing_data_latency(
             continue;
         };
         let port = register.buses[read_line.bus];
-        // A button springs back a set time after its press, so the data
-        // changes just before the tick it does, as with a lever turned off.
-        let down = if cell.write.button {
-            Some(press_ticks(circuit, cell.write)?)
-        } else {
-            None
-        };
         for value in telling(register.width) {
             let old = !value & all;
             write(circuit, register, cell.write, old)?;
             circuit.set(register.data, old);
             read(circuit, register, read_line.line.as_slice())?;
             open_write(circuit, register, cell.write, read_line.line);
-            match down {
-                Some(ticks) => {
-                    for _ in 1..ticks {
-                        circuit.tick();
-                    }
-                }
-                None => {
-                    circuit.settle()?;
-                }
-            }
+            circuit.settle()?;
             circuit.set(register.data, value);
-            close_write(circuit, register, cell.write, read_line.line);
+            close_write(circuit, register, read_line.line);
             let changes = watch(circuit, register)?;
             if buses(circuit, register)[read_line.bus]
                 != read_line.shows(value, register.width)
@@ -724,8 +649,8 @@ fn closing_data_latency(
     Ok(slowest)
 }
 
-/// The most ticks from opening a cell's write, pressing its button or
-/// turning its lever on, its read held on, until its bus shows the value
+/// The most ticks from opening a cell's write, turning its lever on, its
+/// read held on, until its bus shows the value
 /// written and keeps it, less the ticks `carried` its repeaters take to
 /// carry it out, as every other latency is; or for cells `closing`, from
 /// the write closing, their data set while it was open.
@@ -748,8 +673,8 @@ fn write_latency(
             circuit.settle()?;
             open_write(circuit, register, cell.write, line);
             if closing {
-                hold_write(circuit, cell.write, |_| false)?;
-                close_write(circuit, register, cell.write, line);
+                circuit.settle()?;
+                close_write(circuit, register, line);
             }
             let changes = watch(circuit, register)?;
             let port = register.buses[bus];

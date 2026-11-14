@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     interface,
-    schem::{Blocks, Pos},
+    schem::Blocks,
     simulate::{
         Value,
         bench::mask,
@@ -42,15 +42,12 @@ pub fn stacker(data: &[u8], kind: Kind) -> Option<Stacker<'_>> {
             format!("{copies} copies don't store and read right as more bits.")
         })
     };
-    let not = match kind {
-        Kind::Register => {
-            "No pitch west or up makes copies whose every cell stores and \
-             reads right as more bits."
-        }
-        Kind::Buffer => {
-            "No pitch west or up makes copies whose every cell stores and \
-             shows right as more bits."
-        }
+    let not = if kind.reads() {
+        "No pitch west or up makes copies whose every cell stores and reads \
+         right as more bits."
+    } else {
+        "No pitch west or up makes copies whose every cell stores and shows \
+         right as more bits."
     };
     let ways = (single.width, bit_ways(&interface, single.width));
     Some(Stacker::new(
@@ -87,8 +84,9 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
         .map(Way::across)
         .filter(|way| !taken.contains(way))
         .collect();
-    let words = (kind == Kind::Register)
-        .then(|| words(data, &blocks, &single, &across))
+    let words = kind
+        .reads()
+        .then(|| words(data, kind, &blocks, &single, &across))
         .flatten();
     Some(match (found, words) {
         (Ok(mut ways), words) => {
@@ -113,32 +111,33 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
         },
         (Err((step, reason)), None) => Stacking::Not {
             step,
-            reason: match kind {
-                Kind::Register => format!(
+            reason: if kind.reads() {
+                format!(
                     "{reason} No step across its bits, up to its width, \
                      makes copies whose every cell stores and reads right \
                      as more words."
-                ),
-                Kind::Buffer => reason,
+                )
+            } else {
+                reason
             },
         },
     })
 }
 
-/// How copies of the register in `data`, `blocks`, one copy shaped
-/// `single`, stack as more words on its shared data buses, each of `ways`
+/// How copies of the register or RAM, a `kind`, in `data`, `blocks`, one
+/// copy shaped `single`, stack as more words on its shared data buses, each of `ways`
 /// in turn: the shortest step, up to how far it reaches that way, whose
 /// copies touch and all store and read right, quickly and then in full,
 /// then the most copies that do, up to `MOST_COPIES`, as a shared bus that
 /// runs too far fails.
 fn words(
     data: &[u8],
+    kind: Kind,
     blocks: &Blocks,
     single: &Shape,
     ways: &[Way],
 ) -> Option<Apart> {
     let (low, high) = interface::measured(blocks);
-    let kind = Kind::Register;
     let works = |step: Step, copies: usize, quick: bool| {
         let buses = word_buses(kind, step);
         copies_work(data, kind, single, (step, copies), buses, false, quick)
@@ -247,7 +246,7 @@ pub fn stacks_at(
     let mut why = String::new();
     for bits in [false, true]
         .into_iter()
-        .filter(|&bits| bits || kind == Kind::Register)
+        .filter(|&bits| bits || kind.reads())
     {
         let buses = if bits {
             let way = Way::of(step).unwrap_or(Way::West);
@@ -281,8 +280,7 @@ const LONG_STEPS: usize = 1024;
 /// access, as a CPU's clock drives it: each period the data bus takes a
 /// new value, and a cell is read, or written, its write open for some
 /// ticks of the period, timed against the data, both as works best, as a
-/// control line is. Its write buttons are driven as levers, as a clock's
-/// pulse is not a press. Each read must show what was last written into
+/// control line is. Each read must show what was last written into
 /// its cell, some ticks after it starts, the same for every read, no
 /// sooner than its bus's latency: a read that follows another may take
 /// longer, as the bus lets go of the last. The shortest period that holds,
@@ -299,24 +297,6 @@ pub fn throughput(
     let blocks = Blocks::read(data)?;
     let interface = interface::read(&blocks);
     let (_, register) = ports(&blocks, &interface, kind)?;
-    // Its writes' buttons as levers on the same blocks.
-    let writes: Vec<Pos> = register
-        .cells
-        .iter()
-        .filter(|cell| cell.write.button)
-        .map(|cell| cell.write.pos)
-        .collect();
-    let levers: std::collections::BTreeMap<Pos, String> = blocks
-        .switches()
-        .into_iter()
-        .filter(|switch| switch.button && writes.contains(&switch.block))
-        .map(|switch| {
-            let state = blocks.get(switch.pos);
-            let properties = state.split_once('[').map_or("", |(_, p)| p);
-            (switch.pos, format!("minecraft:lever[{properties}"))
-        })
-        .collect();
-    let levered = Blocks::read(&crate::schem::edit(data, &levers)?)?;
     // Each bus's latency as it arrives at the repeaters or comparators
     // carrying it out, as its timing gives it, each bit read as many ticks
     // later as its own takes to give it out.
@@ -325,7 +305,7 @@ pub fn throughput(
     if latency.len() != register.buses.len() {
         return Ok(None);
     }
-    let carried = Circuit::new(&levered, &interface::read(&levered))?.carried();
+    let carried = Circuit::new(&blocks, &interface)?.carried();
     let carried: Vec<Vec<(i32, Value)>> = register
         .buses
         .iter()
@@ -344,8 +324,7 @@ pub fn throughput(
     let short = accesses(&register, STEPS, kind);
     let long = accesses(&register, LONG_STEPS, kind);
     let right = |stream: Stream, steps: &[Access]| -> Result<Vec<i32>> {
-        let interface = interface::read(&levered);
-        let mut circuit = Circuit::new(&levered, &interface)?;
+        let mut circuit = Circuit::new(&blocks, &interface)?;
         stream.right(&mut circuit, steps)
     };
     for period in 2..=2 * slowest {

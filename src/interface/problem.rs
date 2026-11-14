@@ -50,12 +50,13 @@ pub enum Rule {
     /// An input that takes a signal strength where its category takes
     /// levers.
     WithoutLevers,
-    /// A register's cells without a button writing each and a lever
+    /// A register's cells without a lever writing each and a lever
     /// reading it.
     RegisterControls,
     /// A buffer with read levers.
     BufferControls,
-    /// Cells without a button writing each.
+    /// Cells without a lever writing each, as when its writes are
+    /// buttons.
     WriteControls,
     TooManyControlLines,
     /// Its test ran and got cases wrong.
@@ -214,15 +215,18 @@ impl Rule {
                  it as a Hex Adder."
             }
             Rule::RegisterControls => {
-                "Give each cell a button that writes it and a lever that \
-                 reads it onto the bus. One that shows what it holds all \
-                 the time is a Buffer."
+                "Give each cell a lever that writes it, turned on and off, \
+                 and a lever that reads it onto the bus. One that shows \
+                 what it holds all the time is a Buffer."
             }
             Rule::BufferControls => {
                 "Take out its read levers, or upload it as a Register, \
                  which reads each cell with a lever."
             }
-            Rule::WriteControls => "Give each cell a button that writes it.",
+            Rule::WriteControls => {
+                "Give each cell a lever that writes it, turned on and off, \
+                 in place of a button."
+            }
             Rule::TooManyControlLines => {
                 "Take out every control line but the one its category \
                  takes, so a multiplier keeps only calculate."

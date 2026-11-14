@@ -89,7 +89,7 @@ async fn stacking_that_does_not_fit_is_refused() {
     // Two copies this far apart make a stack too large to build.
     let apart = Details {
         stacking: vec!["west=100000".parse::<StackDirection>().unwrap()],
-        ..given("8-bit ram")
+        ..given("8-bit horizontal diode")
     };
     let refused = check(&db, apart.clone()).await.err().unwrap();
     assert!(refused.contains("don't fit"), "{refused}");

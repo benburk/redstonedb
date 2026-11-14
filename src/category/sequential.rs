@@ -188,7 +188,7 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
     let mut interface = interface::read(blocks);
     // A counter's button is its clock and its lever its write enable, and
     // a T flip-flop's one control line its toggle.
-    interface::name_lines(kind.category().lines(), blocks, &mut interface);
+    interface::name_lines(kind.category().lines(), &mut interface);
     let mut data = None;
     let mut controls = Vec::new();
     for (i, port) in interface.inputs.iter().enumerate() {

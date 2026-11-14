@@ -14,9 +14,10 @@ use crate::{
     simulate,
 };
 
-/// A register as probing found it: its data bus in, its controls, writes on
-/// buttons and reads on levers, its data bus out, the file carrying their
-/// roles, as the register test reads them, and that test's run.
+/// A register as probing found it: its data bus in, its controls, its
+/// writes and reads, which its test tells apart, its data bus out, the
+/// file carrying their roles, as the register test reads them, and that
+/// test's run.
 pub struct RegisterProbed {
     pub data_in: Vec<Pos>,
     pub controls: Vec<Pos>,
@@ -27,9 +28,9 @@ pub struct RegisterProbed {
 
 /// The register the file in `data` is, from `report`'s levers and outputs:
 /// its one output line the data bus out, an input line as wide the data bus
-/// in, and every other switch a control; each way of choosing the bus in
-/// given those roles and run through the register test, quick cases first.
-/// With `loose`, its output lines, however many, are the data bus out
+/// in, and every other switch a control, which the test finds a write or
+/// a read; each way of choosing the bus in given those roles and run
+/// through the register test, quick cases first. With `loose`, its output lines, however many, are the data bus out
 /// together. Or why none holds.
 pub fn register(
     data: &[u8],
@@ -65,7 +66,8 @@ pub fn register(
         .iter()
         .flat_map(|run| run.bits.clone())
         .collect();
-    // A data line is levers; a lone button is a write.
+    // A data line is levers; a button is no data, and the test refuses it
+    // as a control.
     let buses: Vec<&Run> = report
         .inputs
         .iter()
@@ -87,13 +89,6 @@ pub fn register(
             .filter(|bit| !bus.bits.contains(bit))
             .copied()
             .collect();
-        // A buffer's writes may all be levers, as it has no reads.
-        if test == Test::Register
-            && !controls.iter().any(|bit| buttons.contains(bit))
-        {
-            why = Fault::Unfit("Controls: no write button".to_owned());
-            continue;
-        }
         let mut roles = Roles::default();
         roles.mark(Role::Operand(0), &bus.bits);
         roles.mark(Role::Control, &controls);
@@ -135,18 +130,19 @@ mod tests {
         assert!(as_adder.found.is_none());
     }
 
-    /// Its lowest bit's output stands below the others, out of line, so
-    /// its outputs are two lines: read loosely, together they are its
-    /// data bus out.
+    /// A RAM of two words whose lowest bit's output stands below the
+    /// others, out of line, so its outputs are two lines: read loosely,
+    /// together they are its data bus out. Writing a word blanks the bus,
+    /// so it is no register, whose cells are read as others are written.
     #[test]
-    fn a_register_whose_low_bit_stands_apart_is_found() {
-        let data = uncoloured("register-8-low-bit-apart");
+    fn a_ram_whose_low_bit_stands_apart_is_found() {
+        let data = uncoloured("ram-8-low-bit-apart");
         let found = recognize(&data).unwrap();
         assert!(
             found
                 .found
                 .as_deref()
-                .is_some_and(|f| f.starts_with("a register")),
+                .is_some_and(|f| f.starts_with("a RAM")),
             "{:?} {:?}",
             found.found,
             found.problems

@@ -42,8 +42,11 @@ pub enum Test {
     Multiplier,
     /// Each operation an ALU's control lines name, and any other they give.
     Alu,
-    /// Each value written into every cell, then read.
+    /// Each value written into every cell, then read, and each cell read
+    /// while another is written.
     Register,
+    /// Each value written into every word, then read, one at a time.
+    Ram,
     /// Each value written into every cell, then shown with no read, as
     /// data in changes.
     Buffer,
@@ -318,6 +321,7 @@ impl Test {
             Test::Multiplier => Kind::Multiplier,
             Test::Alu => Kind::Alu,
             Test::Register => Kind::Register,
+            Test::Ram => Kind::Ram,
             Test::Buffer => Kind::Buffer,
             Test::AbsoluteValue => Kind::AbsoluteValue,
             Test::Negator => Kind::Negator,
@@ -607,6 +611,7 @@ mod tests {
         assert_eq!(Test::of("adder", Some(65)), None);
         assert_eq!(Test::of("adder", None), None);
         assert_eq!(Test::of("register", Some(8)), Some(Test::Register));
+        assert_eq!(Test::of("ram", Some(8)), Some(Test::Ram));
         assert_eq!(Test::of("multiplier", Some(65)), None);
     }
 }

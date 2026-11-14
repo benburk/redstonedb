@@ -197,7 +197,7 @@ async fn a_file_published_as_suggested_goes_up_as_what_it_is() {
 
 /// A build whose buses bend the conventions, its top bits out of line, its
 /// outputs unevenly spaced, or its levers climbing a staircase, is found
-/// by matching, or a register by its probe read loosely, where probing
+/// by matching, or a register or RAM by its probe read loosely, where probing
 /// finds none, kept standardized in its category, and unaligned; a build
 /// whose buses keep them is not.
 #[tokio::test]
@@ -208,7 +208,7 @@ async fn an_unaligned_build_is_kept_in_its_category() {
         ("gt-8", "greater_than", true),
         ("adder-8-lsb-top", "adder", true),
         ("negator-8-staircase", "negator", true),
-        ("register-8-low-bit-apart", "register", true),
+        ("ram-8-low-bit-apart", "ram", true),
         ("cca-16-raw", "adder", false),
     ] {
         let raw =

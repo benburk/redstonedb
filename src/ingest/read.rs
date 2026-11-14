@@ -20,7 +20,6 @@ impl Analysis {
         let mut interface = interface::read(blocks);
         interface::name_lines(
             category::behaviour(category).lines,
-            blocks,
             &mut interface,
         );
         Analysis { interface }

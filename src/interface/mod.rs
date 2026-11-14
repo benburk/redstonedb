@@ -162,9 +162,10 @@ pub enum Lines {
         status: &'static str,
         lone_output: bool,
     },
-    /// A register's: its unsigned control lines are its cells' writes, each
-    /// driven by a button, and reads, by a lever, and its data bus in and
-    /// out go by those roles.
+    /// A register's or a RAM's: its control lines are its cells' writes and
+    /// reads, each a lever, which only its test tells apart, so an unsigned
+    /// one is named for its place until a sign names it; its data bus in
+    /// and out go by those roles.
     Register,
     /// A comparison's: its one output, an output bus or a status line, is
     /// its result, which needs no sign and goes by this name, such as
@@ -175,9 +176,8 @@ pub enum Lines {
     /// `calculate`; it has no status line.
     Control(&'static str),
     /// A buffer's: its data bus in and out as a register's, and its
-    /// unsigned control lines its cells' writes, by a button, or by a lever
-    /// when none has a button, as it has no reads; a lone one needs no
-    /// sign.
+    /// unsigned control lines its cells' writes, each a lever, as it has no
+    /// reads; a lone one needs no sign.
     Buffer,
     /// A counter's: each control line a lever of its own, its clock or its
     /// write enable, which its test tells apart, a sign naming it.
@@ -188,12 +188,12 @@ pub enum Lines {
 /// as `lines` says, so a page shows what the simulator reads: an adder's
 /// lone control and status lines are its carry in and
 /// carry out; a register's data bus in and out are its data in and data
-/// out, and each of its control lines a write, driven by a button, or a
-/// read, by a lever, and a buffer's the same but every control line a
-/// write; a comparison's one output is its result, such as `A > B`; and an
+/// out, and each of its control lines a control, numbered, as only its
+/// test tells its writes from its reads, and a buffer's the same but every
+/// control line a write; a comparison's one output is its result, such as `A > B`; and an
 /// inverter's lone control line is its invert. A sign's name always
 /// stands.
-pub fn name_lines(lines: Lines, blocks: &Blocks, interface: &mut Interface) {
+pub fn name_lines(lines: Lines, interface: &mut Interface) {
     let lone = |ports: &mut Vec<Port>, role: Role, name: &str| {
         let mut lines = ports.iter_mut().filter(|p| p.role == Some(role));
         if let (Some(line), None) = (lines.next(), lines.next())
@@ -209,10 +209,8 @@ pub fn name_lines(lines: Lines, blocks: &Blocks, interface: &mut Interface) {
             status,
             lone_output,
         } => (control, status, lone_output),
-        Lines::Register => {
-            return name_register(blocks, interface, false);
-        }
-        Lines::Buffer => return name_register(blocks, interface, true),
+        Lines::Register => return name_register(interface, "control"),
+        Lines::Buffer => return name_register(interface, "write"),
         Lines::Counter => return name_counter(interface),
         Lines::Result(name) => {
             if let [out] = interface.outputs.as_mut_slice()
@@ -239,12 +237,11 @@ pub fn name_lines(lines: Lines, blocks: &Blocks, interface: &mut Interface) {
     }
 }
 
-/// `name_lines` for a register: its data bus in and out by their roles,
-/// and its unsigned control lines split into writes, each driven by a
-/// button, and reads, by a lever, numbered in order when there are more.
-/// A `buffer`'s are all writes when none has a button, as it has no
-/// reads.
-fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
+/// `name_lines` for a register or a buffer: its data bus in and out by
+/// their roles, and each bit of its unsigned control lines a line of its
+/// own named `word`, numbered in order when there are more: a buffer's are
+/// all writes, as it has no reads, and a register's each a control.
+fn name_register(interface: &mut Interface, word: &str) {
     let control = Port::control;
     let data: Vec<&mut Port> = interface
         .inputs
@@ -266,39 +263,31 @@ fn name_register(blocks: &Blocks, interface: &mut Interface, buffer: bool) {
     {
         "data out".clone_into(&mut out.name);
     }
-    let button = |bit: &Bit| button(blocks, bit);
-    let levers_write = buffer
-        && !interface
-            .inputs
-            .iter()
-            .filter(|port| control(port) && !port.labelled)
-            .flat_map(|port| &port.bits)
-            .any(button);
+    let count: usize = interface
+        .inputs
+        .iter()
+        .filter(|port| control(port) && !port.labelled)
+        .map(|port| port.bits.len())
+        .sum();
     let mut split = Vec::new();
+    let mut i = 0;
     for port in std::mem::take(&mut interface.inputs) {
         if !control(&port) || port.labelled {
             split.push(port);
             continue;
         }
-        let (writes, reads): (Vec<_>, Vec<_>) = port
-            .bits
-            .iter()
-            .cloned()
-            .partition(|bit| levers_write || button(bit));
-        for (bits, word) in [(writes, "write"), (reads, "read")] {
-            let count = bits.len();
-            for (i, bit) in bits.into_iter().enumerate() {
-                let name = if count > 1 {
-                    format!("{word} {}", i + 1)
-                } else {
-                    word.to_owned()
-                };
-                split.push(Port {
-                    name,
-                    bits: vec![bit],
-                    ..port.clone()
-                });
-            }
+        for bit in port.bits.clone() {
+            i += 1;
+            let name = if count > 1 {
+                format!("{word} {i}")
+            } else {
+                word.to_owned()
+            };
+            split.push(Port {
+                name,
+                bits: vec![bit],
+                ..port.clone()
+            });
         }
     }
     interface.inputs = split;
@@ -332,13 +321,6 @@ fn name_counter(interface: &mut Interface) {
         });
     }
     interface.inputs = split;
-}
-
-/// Whether a button, not a lever, drives input bit `bit`.
-fn button(blocks: &Blocks, bit: &Bit) -> bool {
-    bit.entry.is_some_and(|side| {
-        schem::id(blocks.get(schem::step(bit.pos, side))).ends_with("_button")
-    })
 }
 
 /// The bounds, inclusive, of the build itself: its box less any outer

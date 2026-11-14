@@ -128,8 +128,8 @@ fn multiplier_cases(widths: &[usize]) -> (Vec<Case>, u64) {
 
 /// A multiplier's test: its lone control line is named for its role,
 /// calculate.
-pub(super) const MULTIPLIER: BySpec = BySpec::spec(|blocks, interface| {
-    interface::name_lines(super::Kind::Multiplier.lines(), blocks, interface);
+pub(super) const MULTIPLIER: BySpec = BySpec::spec(|_, interface| {
+    interface::name_lines(super::Kind::Multiplier.lines(), interface);
     spec(interface)
 });
 

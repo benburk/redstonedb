@@ -152,6 +152,22 @@ const ADDER_WORDS: &[&str] = &[
 /// width alone, with no designs, flags, or aliases, which goes on no list,
 /// is never probed or guessed, and gets nothing special. Its kind, names,
 /// section, and logic every row gives.
+/// The words a sign may name a register's or a RAM's lines by.
+const REGISTER_WORDS: &[&str] =
+    &["write", "read", "write enable", "data in", "data out"];
+
+/// How a register or a RAM behaves, by its `test`: its cells' writes and
+/// reads named as a register's, its copies sharing buses, as more words,
+/// or lines, as more bits.
+const fn register_like(test: Test) -> Behaviour {
+    Behaviour {
+        lines: Lines::Register,
+        copies: Copies::SharedBuses,
+        group: Group::SharedLines,
+        ..evaluated(test, Stacking::Inferred)
+    }
+}
+
 const ROW: Facts = Facts {
     kind: Kind::Adder,
     name: "",
@@ -232,7 +248,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 38] = [
+pub(super) const TABLE: [Facts; 39] = [
     Facts {
         kind: Kind::Adder,
         runs: Some(&adder::ADDER),
@@ -836,13 +852,29 @@ pub(super) const TABLE: [Facts; 38] = [
         listed_as: "registers",
         probe: probed(220, Probe::Register),
         guess: Guess::Tried(190),
-        role_words: &["write", "read", "write enable", "data in", "data out"],
-        behaviour: Behaviour {
-            lines: Lines::Register,
-            copies: Copies::SharedBuses,
-            group: Group::SharedLines,
-            ..evaluated(Test::Register, Stacking::Inferred)
-        },
+        role_words: REGISTER_WORDS,
+        behaviour: register_like(Test::Register),
+        ..ROW
+    },
+    // Words of memory, each written or read at a time, as a register's
+    // cells are, but never read while another is written, as a register's
+    // may be; a register is one too, so it is probed after one.
+    Facts {
+        kind: Kind::Ram,
+        runs: Some(&register::Kind::Ram),
+        name: "ram",
+        label: "RAM",
+        plural: Some("RAM"),
+        noun: "RAM",
+        section: Section::Memory,
+        logic: Some(Logic::Stateful),
+        flags: &[flag("inverted", "Inverted reads")],
+        aliases: &["memory"],
+        listed_as: "RAM",
+        probe: probed(225, Probe::Register),
+        guess: Guess::Tried(195),
+        role_words: REGISTER_WORDS,
+        behaviour: register_like(Test::Ram),
         ..ROW
     },
     Facts {

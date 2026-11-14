@@ -84,6 +84,7 @@ pub enum Kind {
     Monostable,
     DualEdgeMonostable,
     Register,
+    Ram,
     Buffer,
     Counter,
     ShiftRegister,
