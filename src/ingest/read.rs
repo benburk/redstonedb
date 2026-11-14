@@ -41,6 +41,9 @@ pub struct FromFile {
     /// A's blocks, each an input, for a category ranked by its inputs, as
     /// a hex max is by its digits.
     pub inputs: Option<i64>,
+    /// Its outputs' blocks, status lines left out, for a category ranked by
+    /// its outputs, as a hex input spread is by the copies of its digit.
+    pub outputs: Option<i64>,
 }
 
 /// What `category` reads from a build with `interface`: nothing for a
@@ -51,12 +54,31 @@ pub fn derived(category: &str, interface: &Interface) -> FromFile {
         category::Reads::InputA => read_from_file(interface),
         category::Reads::Nothing => return FromFile::default(),
     };
-    let ranked = Kind::named(category)
-        .is_some_and(|kind| kind.facts().measures.contains(&Measure::Inputs));
+    let ranked = |measure: Measure| {
+        Kind::named(category)
+            .is_some_and(|kind| kind.facts().measures.contains(&measure))
+    };
     FromFile {
-        inputs: ranked.then(|| a_blocks(interface)).flatten(),
+        inputs: ranked(Measure::Inputs)
+            .then(|| a_blocks(interface))
+            .flatten(),
+        outputs: ranked(Measure::Outputs)
+            .then(|| output_blocks(interface))
+            .flatten(),
         ..found
     }
+}
+
+/// How many blocks the outputs of a build with `interface` have, status
+/// lines left out; `None` without any.
+fn output_blocks(interface: &Interface) -> Option<i64> {
+    let blocks: usize = interface
+        .outputs
+        .iter()
+        .filter(|port| !port.status())
+        .map(|port| port.bits.len())
+        .sum();
+    i64::try_from(blocks).ok().filter(|&n| n > 0)
 }
 
 /// How many blocks A, the unsigned first operand of a build with
@@ -84,6 +106,7 @@ fn read_from_output(interface: &Interface) -> FromFile {
             orientation: interface::orientation(port),
             encoding: Some(Encoding::Binary),
             inputs: None,
+            outputs: None,
         },
         None => FromFile::default(),
     }
@@ -110,6 +133,7 @@ pub fn read_from_file(interface: &Interface) -> FromFile {
                 Encoding::Binary
             }),
             inputs: None,
+            outputs: None,
         },
         None => FromFile::default(),
     }

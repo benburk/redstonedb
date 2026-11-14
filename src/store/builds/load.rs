@@ -92,7 +92,7 @@ async fn load(
     let rows = sqlx::query!(
         r#"SELECT build.id, build.category, width, orientation
             as "orientation: Orientation", encoding as "encoding: Encoding", latency,
-            synchronized as "synchronized: bool", throughput, at_least, pulse, inputs,
+            synchronized as "synchronized: bool", throughput, at_least, pulse, inputs, outputs,
             torches, works_from, works_from_by, size_x, size_y, size_z,
             built_on, imported_by, file.sha256 as "sha256!", added_at,
             edited_at, downloads, keeps_paste as "keeps_paste: bool",
@@ -169,6 +169,7 @@ async fn load(
                     throughput: row.throughput,
                     at_least: row.at_least,
                     inputs: row.inputs,
+                    outputs: row.outputs,
                     pulse: row.pulse,
                     design: row.design,
                     logic: row.own_logic,

@@ -25,6 +25,9 @@ pub struct Specs {
     /// For a category ranked by them, such as a hex max, how many inputs
     /// it takes.
     pub inputs: Option<i64>,
+    /// For a category ranked by them, such as a hex input spread, how many
+    /// outputs it gives.
+    pub outputs: Option<i64>,
     /// The design within its category, such as `carry_lookahead`; `None`
     /// for none.
     pub design: Option<String>,
@@ -41,6 +44,7 @@ impl Specs {
             Measure::AtLeast => self.at_least,
             Measure::Pulse => self.pulse,
             Measure::Inputs => self.inputs,
+            Measure::Outputs => self.outputs,
         }
     }
 }

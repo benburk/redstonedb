@@ -277,6 +277,9 @@ fn facts(s: &Build) -> Vec<String> {
     if let Some(n) = s.specs.inputs {
         facts.push(Measure::Inputs.term(n));
     }
+    if let Some(n) = s.specs.outputs {
+        facts.push(Measure::Outputs.term(n));
+    }
     // A monostable's name leads with its pulse, so its ticks find it too.
     if let Some(p) = s.specs.pulse {
         facts.push(format!("pulse:{p}"));
