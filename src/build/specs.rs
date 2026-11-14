@@ -22,6 +22,9 @@ pub struct Specs {
     pub at_least: Option<i64>,
     /// For a monostable, the ticks its pulse lasts.
     pub pulse: Option<i64>,
+    /// For a category ranked by them, such as a hex max, how many inputs
+    /// it takes.
+    pub inputs: Option<i64>,
     /// The design within its category, such as `carry_lookahead`; `None`
     /// for none.
     pub design: Option<String>,
@@ -37,6 +40,7 @@ impl Specs {
             Measure::Width => self.width,
             Measure::AtLeast => self.at_least,
             Measure::Pulse => self.pulse,
+            Measure::Inputs => self.inputs,
         }
     }
 }

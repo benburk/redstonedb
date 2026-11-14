@@ -32,6 +32,9 @@ named_values! {
         AtLeast = "at_least", "At least";
         /// A monostable's pulse, in ticks, as in `3-tick`.
         Pulse = "pulse", "Pulse";
+        /// How many inputs it takes, as a hex max's digits, as in
+        /// `8-input`.
+        Inputs = "inputs", "Inputs";
     }
 }
 
@@ -44,6 +47,7 @@ impl Measure {
             Measure::Width => format!("{n}-bit"),
             Measure::Pulse => format!("{n}-tick"),
             Measure::AtLeast => format!("At Least {n}"),
+            Measure::Inputs => format!("{n}-input"),
         }
     }
 
@@ -56,6 +60,7 @@ impl Measure {
             Measure::Width => count("bit", "bits"),
             Measure::Pulse => count("tick", "ticks"),
             Measure::AtLeast => format!("at least {n} on"),
+            Measure::Inputs => count("input", "inputs"),
         }
     }
 
@@ -65,6 +70,7 @@ impl Measure {
             Measure::Width => format!("{n}b"),
             Measure::Pulse => format!("{n}t"),
             Measure::AtLeast => format!("at least {n}"),
+            Measure::Inputs => format!("{n}-input"),
         }
     }
 }

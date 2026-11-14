@@ -128,10 +128,11 @@ pub async fn insert(
         r#"INSERT INTO build (id, category, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, logic,
-            throughput, at_least, pulse, torches, works_from, works_from_by,
-            keeps_paste, uploaded_by, unverified, unverified_wrong)
+            throughput, at_least, pulse, inputs, torches, works_from,
+            works_from_by, keeps_paste, uploaded_by, unverified,
+            unverified_wrong)
          VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?)
+            ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.id,
         details.category,
@@ -152,6 +153,7 @@ pub async fn insert(
         details.specs.throughput,
         details.specs.at_least,
         details.specs.pulse,
+        details.specs.inputs,
         facts.torches,
         facts.works_from.release,
         facts.works_from.because,
@@ -205,7 +207,8 @@ pub async fn set_details(
         "UPDATE build SET category = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?, description = ?, logic = ?, throughput = ?,
-            at_least = ?, pulse = ?, unverified = ?, unverified_wrong = ?,
+            at_least = ?, pulse = ?, inputs = ?, unverified = ?,
+            unverified_wrong = ?,
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
@@ -221,6 +224,7 @@ pub async fn set_details(
         details.specs.throughput,
         details.specs.at_least,
         details.specs.pulse,
+        details.specs.inputs,
         unverified,
         wrong,
         id,
@@ -437,7 +441,7 @@ pub async fn set_specs<'e, E: SqliteExecutor<'e>>(
     sqlx::query!(
         "UPDATE build SET width = ?, orientation = ?, encoding = ?,
             latency = ?, synchronized = ?, pulse = ?, at_least = ?,
-            throughput = ?, design = ?, logic = ?
+            inputs = ?, throughput = ?, design = ?, logic = ?
          WHERE id = ?",
         specs.width,
         specs.orientation,
@@ -446,6 +450,7 @@ pub async fn set_specs<'e, E: SqliteExecutor<'e>>(
         specs.synchronized,
         specs.pulse,
         specs.at_least,
+        specs.inputs,
         specs.throughput,
         specs.design,
         logic,

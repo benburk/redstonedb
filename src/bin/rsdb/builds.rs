@@ -456,6 +456,9 @@ pub(super) async fn show(db: &SqlitePool, id: &str) -> Result<()> {
     if let Some(k) = s.specs.at_least {
         println!("at least     {k} on");
     }
+    if let Some(n) = s.specs.inputs {
+        println!("inputs       {n}");
+    }
     if let Some(p) = s.specs.pulse {
         println!("pulse        {p} ticks");
     }
