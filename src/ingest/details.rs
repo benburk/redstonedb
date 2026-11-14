@@ -289,8 +289,8 @@ pub async fn unrecognized(
         return off("Couldn't read its file".to_owned());
     };
     // Inputs taking a strength, a hex digit per block, are only those of a
-    // kind that takes digits, a hex adder's or a hex-to-binary converter's,
-    // as a build kept as built says too.
+    // kind that takes digits, such as a hex adder's or a hex-to-binary
+    // converter's, as a build kept as built says too.
     let hex = crate::interface::takes_digits(&blocks);
     if !kind.digit_inputs() && hex {
         return off(WITHOUT_LEVERS.to_owned());

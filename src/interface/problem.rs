@@ -42,7 +42,8 @@ pub enum Rule {
     /// no fault until its line's role is known.
     BlockBehindLever,
     NotBusDrivable,
-    /// Lines that aren't a hex adder's or a hex-to-binary converter's.
+    /// Lines that aren't those of a kind that takes hex digits, such as a
+    /// hex adder's.
     HexLines,
     /// No line of levers as wide as the build, for an operand.
     Buses,

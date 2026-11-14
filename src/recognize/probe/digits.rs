@@ -1,6 +1,7 @@
-//! Probing for a hex-to-binary converter: its signal-strength input, a
-//! comparator with air behind a digit, as A, and its outputs as the bits
-//! of A, each line by its shape as [`repeater_outputs::interface`] reads
+//! Probing for a build of one input of hex digits, as a hex-to-binary
+//! converter, a hex input spread, and a hex max are: its signal-strength
+//! input, a comparator with air behind a digit, as A, and its outputs, the
+//! lowest first, each line by its shape as [`repeater_outputs::interface`] reads
 //! it, a lone one beside a bus taken as the bus's top bit or its bottom,
 //! whichever holds; given those roles and run through its test.
 
@@ -13,25 +14,26 @@ use crate::{
     simulate,
 };
 
-/// A hex-to-binary converter as probing found it: its digit inputs, each
-/// by the block under its comparator, the file carrying its lines' roles,
-/// as its test reads them, and that test's run.
-pub struct HexToBinaryProbed {
+/// A build of digits as probing found it: its digit inputs, each by the
+/// block under its comparator, the file carrying its lines' roles, as its
+/// test reads them, and that test's run.
+pub struct DigitsProbed {
     pub digits: Vec<Pos>,
     pub file: Vec<u8>,
     pub run: simulate::Run,
 }
 
-/// The hex-to-binary converter the file in `data`, of `blocks`, is, run
-/// through `test`: its digits A and its output lines A's bits, the lowest
-/// first, as their shapes give them, see [`repeater_outputs::interface`],
-/// then the other way round; or why it isn't one.
-pub fn hex_to_binary(
+/// The build of digits the file in `data`, of `blocks`, is, run through
+/// `test`: its digits A and its output lines what the test reads, the
+/// lowest first, as their shapes give them, see
+/// [`repeater_outputs::interface`], then the other way round; or why it
+/// isn't one.
+pub fn digits(
     data: &[u8],
     blocks: &Blocks,
     report: &inspect::Report,
     test: Test,
-) -> Result<HexToBinaryProbed, Fault> {
+) -> Result<DigitsProbed, Fault> {
     if report.digits.is_empty() {
         return Err(Fault::Breaks(
             Rule::HexLines,
@@ -42,8 +44,9 @@ pub fn hex_to_binary(
     let lines = repeater_outputs::interface(blocks);
     let [a] = lines.inputs.as_slice() else {
         return Err(Fault::Unfit(format!(
-            "Inputs: {} lines, a hex-to-binary converter takes its digits",
-            lines.inputs.len()
+            "Inputs: {} lines, {} takes its digits on one",
+            lines.inputs.len(),
+            test.kind().a()
         )));
     };
     if lines.outputs.is_empty() {
@@ -71,5 +74,5 @@ pub fn hex_to_binary(
         }
         Err(fault) => return Err(fault),
     };
-    Ok(HexToBinaryProbed { digits, file, run })
+    Ok(DigitsProbed { digits, file, run })
 }

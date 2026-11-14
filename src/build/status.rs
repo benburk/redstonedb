@@ -47,8 +47,8 @@ impl fmt::Display for Reason {
     }
 }
 
-/// Why a hex adder or hex-to-binary converter whose inputs are levers is
-/// not verified as one.
+/// Why a build of a kind that takes hex digits, such as a hex adder, whose
+/// inputs are levers is not verified as one.
 pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
 
 /// Why an adder whose B is subtracted is not verified as an adder.

@@ -20,8 +20,8 @@ use crate::{
 pub(crate) use crate::schem::lines::{Role, Roles};
 
 mod alu;
+mod digits;
 mod hex_adder;
-mod hex_to_binary;
 mod multiplier;
 mod one_operand;
 mod recognize;
@@ -30,8 +30,8 @@ mod sequential;
 mod shifter;
 
 pub use alu::{AluProbed, alu};
+pub use digits::{DigitsProbed, digits};
 pub use hex_adder::{HexAdderProbed, hex_adder};
-pub use hex_to_binary::{HexToBinaryProbed, hex_to_binary};
 pub use multiplier::{MultiplierProbed, multiplier};
 pub use one_operand::{OneInputProbed, one_operand};
 pub use recognize::{

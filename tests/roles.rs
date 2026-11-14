@@ -145,3 +145,21 @@ fn the_dust_joining_a_register_files_bus_stays() {
         0
     );
 }
+
+/// Torchless Hex Max, 4d7912fa, built with cakes giving its constants: the
+/// cakes are barrels once uploaded, which need nothing under them, so the
+/// two blocks that held up its top cakes are taken out, and nothing else.
+#[test]
+fn the_blocks_under_a_hex_maxs_barrels_are_taken_out() {
+    let data = read_fixture("tests/fixtures/hex-max-8.schem").unwrap();
+    let found = app::recognize::probe::recognize(&data).unwrap();
+    let blocks = Blocks::read(&found.file).unwrap();
+    let pruned = roles::prune(&found.file, &[], stack::Buses::own())
+        .unwrap()
+        .expect("it has blocks to take out");
+    assert_eq!(pruned.gone.len(), 2);
+    for pos in pruned.gone {
+        let above = schem::step(pos, schem::Direction::Up);
+        assert_eq!(schem::short(blocks.get(above)), "barrel", "{pos:?}");
+    }
+}

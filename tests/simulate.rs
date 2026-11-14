@@ -1106,6 +1106,58 @@ fn a_hex_to_binary_converter_wrong_on_five_digits_is_told_so() {
     assert_eq!(digits, [2, 6, 7, 10, 14]);
 }
 
+/// Torchless Hex Input Spread, b01a00dc: one digit, a comparator with air
+/// behind, found by probing alone and given again on each of its eight
+/// outputs, a digit a block, for each of the 16 strengths, and timed by
+/// them.
+#[test]
+fn a_hex_input_spread_gives_its_digit_on_every_output() {
+    let data = read_fixture("tests/fixtures/hex-input-spread-8.schem").unwrap();
+    let found = app::recognize::probe::recognize(&data).unwrap();
+    assert_eq!(
+        found.found.as_deref(),
+        Some("a hex input spread: all 16 cases right, A on each copy"),
+        "{:?}",
+        found.problems
+    );
+    let blocks = Blocks::read(&found.file).unwrap();
+    let Report::Ran(run) = Test::HexInputSpread.run(&blocks) else {
+        panic!("the spread was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (16, 0), "{:?}", run.examples);
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "hex_input_spread"
+    );
+    let timing = Test::HexInputSpread
+        .time(&blocks, &AtomicBool::new(false))
+        .unwrap();
+    assert_eq!(timing.latency(), Some(2));
+}
+
+/// Torchless Hex Max, 4d7912fa: eight digits, each a comparator with air
+/// behind, found by probing alone, and the largest of them on its one
+/// output, each digit tried at every value against every value of the
+/// rest.
+#[test]
+fn a_hex_max_gives_the_largest_of_its_digits() {
+    let data = read_fixture("tests/fixtures/hex-max-8.schem").unwrap();
+    let found = app::recognize::probe::recognize(&data).unwrap();
+    assert_eq!(
+        found.found.as_deref(),
+        Some("a hex max: all 1944 cases right, largest digit of A"),
+        "{:?}",
+        found.problems
+    );
+    let blocks = Blocks::read(&found.file).unwrap();
+    let Report::Ran(run) = Test::HexMax.run(&blocks) else {
+        panic!("the max was not simulated");
+    };
+    assert_eq!(run.wrong, 0, "{:?}", run.examples);
+    assert!(run.by_digit);
+    assert_eq!(app::category::guess(&blocks).unwrap().category, "hex_max");
+}
+
 /// An 8-bit carry out: of A + B, only the carry, on one unsigned status
 /// line, in every one of its 65,536 cases, timed by that line, as it has no
 /// other output.

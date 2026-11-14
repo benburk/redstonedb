@@ -232,7 +232,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 36] = [
+pub(super) const TABLE: [Facts; 38] = [
     Facts {
         kind: Kind::Adder,
         runs: Some(&adder::ADDER),
@@ -582,10 +582,43 @@ pub(super) const TABLE: [Facts; 36] = [
         listed_as: "hex-to-binary converters",
         // Next to the hex adder, as only a build with a signal-strength
         // input can be one.
-        probe: probed(6, Probe::HexToBinary),
+        probe: probed(6, Probe::Digits),
         guess: Guess::Tried(135),
         digit_inputs: true,
         behaviour: evaluated(Test::HexToBinary, Stacking::Never),
+        ..ROW
+    },
+    Facts {
+        kind: Kind::HexInputSpread,
+        runs: Some(&converters::HEX_INPUT_SPREAD),
+        name: "hex_input_spread",
+        label: "Hex Input Spread",
+        noun: "hex input spread",
+        section: Section::Conversion,
+        logic: Some(Logic::Stateless),
+        aliases: &["hex fan out", "hex spread"],
+        listed_as: "hex input spreads",
+        probe: probed(7, Probe::Digits),
+        guess: Guess::Tried(136),
+        digit_inputs: true,
+        behaviour: evaluated(Test::HexInputSpread, Stacking::Never),
+        ..ROW
+    },
+    Facts {
+        kind: Kind::HexMax,
+        runs: Some(&converters::HEX_MAX),
+        name: "hex_max",
+        label: "Hex Max",
+        noun: "hex max",
+        plural: Some("Hex Max"),
+        section: Section::Conversion,
+        logic: Some(Logic::Stateless),
+        aliases: &["hex maximum", "max"],
+        listed_as: "hex maxes",
+        probe: probed(8, Probe::Digits),
+        guess: Guess::Tried(137),
+        digit_inputs: true,
+        behaviour: evaluated(Test::HexMax, Stacking::Never),
         ..ROW
     },
     Facts {

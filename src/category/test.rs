@@ -71,6 +71,10 @@ pub enum Test {
     BinaryToHex,
     /// A, a hex digit a block as its strength, in binary.
     HexToBinary,
+    /// A, a hex digit a block as its strength, again on each copy.
+    HexInputSpread,
+    /// The largest of A's digits, each a block's strength.
+    HexMax,
     /// Whether at least some number of A's bits are on.
     Threshold,
     /// Whether an odd number of A's bits are on, the xor of them all, or
@@ -326,6 +330,8 @@ impl Test {
             Test::Popcount => Kind::Popcount,
             Test::BinaryToHex => Kind::BinaryToHex,
             Test::HexToBinary => Kind::HexToBinary,
+            Test::HexInputSpread => Kind::HexInputSpread,
+            Test::HexMax => Kind::HexMax,
             Test::Threshold => Kind::Threshold,
             Test::Parity => Kind::Parity,
             Test::Xor => Kind::XorGate,
