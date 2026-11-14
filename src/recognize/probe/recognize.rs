@@ -268,13 +268,13 @@ fn recognize_laid(
 }
 
 impl Subject {
-    /// It read as a kind matching reads, its buses bent too, as operands
-    /// split in two or outputs unevenly spaced, every case right: the
-    /// first such kind, of those probing tries, or only the kind `meant`,
-    /// and what was found, its I/O unaligned. A reading whose test ran and
-    /// got cases wrong, a failing one, has its fault take the place among
-    /// `faults` of a strict reading's that couldn't run, so it is shown
-    /// as the kind it is.
+    /// It read as a kind matching reads, or a register, its buses bent
+    /// too, as operands split in two or outputs unevenly spaced, every case
+    /// right: the first such kind, of those probing tries, or only the kind
+    /// `meant`, and what was found, its I/O unaligned. A reading whose test
+    /// ran and got cases wrong, a failing one, has its fault take the place
+    /// among `faults` of a strict reading's that couldn't run, so it is
+    /// shown as the kind it is.
     fn loose(
         &self,
         meant: Option<Kind>,
@@ -282,8 +282,8 @@ impl Subject {
     ) -> anyhow::Result<Option<(Kind, Found)>> {
         let mut wrong = None;
         for &(kind, how, test) in &Kind::probed() {
-            if how != Probe::Matched || meant.is_some_and(|meant| meant != kind)
-            {
+            let bends = matches!(how, Probe::Matched | Probe::Register);
+            if !bends || meant.is_some_and(|meant| meant != kind) {
                 continue;
             }
             match self.probe(kind, how, test, true, Order::default())? {
@@ -455,7 +455,7 @@ impl Subject {
     ) -> anyhow::Result<Result<Found, Fault>> {
         let probed = match how {
             Probe::Matched => self.matched(kind, test, loose, order),
-            _ => self.probed(how, test, order),
+            _ => self.probed(how, test, loose, order),
         };
         let (inputs, file, run) = match probed {
             Ok(probed) => probed,
@@ -577,11 +577,13 @@ impl Subject {
     }
 
     /// It probed `how` a kind matching does not read is probed, by its
-    /// `test`, its operands in `order`.
+    /// `test`, its operands in `order`; a register's bent output lines read
+    /// as one bus with `loose`.
     fn probed(
         &self,
         how: Probe,
         test: Test,
+        loose: bool,
         order: Order,
     ) -> Result<Probed, Fault> {
         let (data, blocks, report) = (&self.data, &self.blocks, &self.report);
@@ -591,7 +593,7 @@ impl Subject {
                 .map(|probed| (probed.digits, probed.file, probed.run)),
             Probe::Digits => digits(data, blocks, report, test)
                 .map(|probed| (probed.digits, probed.file, probed.run)),
-            Probe::Register => register(data, report, test)
+            Probe::Register => register(data, report, test, loose)
                 .map(|probed| (probed.data_in, probed.file, probed.run)),
             Probe::Shifter => shifter(data, report)
                 .map(|probed| (probed.a, probed.file, probed.run)),

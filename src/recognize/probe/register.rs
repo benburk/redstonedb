@@ -1,7 +1,9 @@
 //! Probing for a register or a buffer: its one output line the data bus
 //! out, an input line as wide the data bus in, and every other switch a
 //! control, each way of choosing the bus in given those roles and run
-//! through the register test.
+//! through the register test. Read loosely, its output lines together are
+//! the data bus out, as when its lowest bit stands out of line with the
+//! rest, which makes it unaligned.
 
 use super::{Fault, Role, Roles, lengths, try_roles};
 use crate::interface::problem::Rule;
@@ -27,19 +29,29 @@ pub struct RegisterProbed {
 /// its one output line the data bus out, an input line as wide the data bus
 /// in, and every other switch a control; each way of choosing the bus in
 /// given those roles and run through the register test, quick cases first.
-/// Or why none holds.
+/// With `loose`, its output lines, however many, are the data bus out
+/// together. Or why none holds.
 pub fn register(
     data: &[u8],
     report: &inspect::Report,
     test: Test,
+    loose: bool,
 ) -> Result<RegisterProbed, Fault> {
-    let [out] = report.outputs.as_slice() else {
-        return Err(Fault::Unfit(format!(
-            "Output bus: line lengths {}",
-            lengths(&report.outputs)
-        )));
+    let out: Vec<Pos> = match report.outputs.as_slice() {
+        [out] => out.bits.clone(),
+        [_, _, ..] if loose => report
+            .outputs
+            .iter()
+            .flat_map(|run| run.bits.clone())
+            .collect(),
+        _ => {
+            return Err(Fault::Unfit(format!(
+                "Output bus: line lengths {}",
+                lengths(&report.outputs)
+            )));
+        }
     };
-    let width = out.bits.len();
+    let width = out.len();
     let blocks =
         Blocks::read(data).map_err(|err| Fault::Unfit(err.to_string()))?;
     let buttons: Vec<Pos> = blocks
@@ -85,13 +97,13 @@ pub fn register(
         let mut roles = Roles::default();
         roles.mark(Role::Operand(0), &bus.bits);
         roles.mark(Role::Control, &controls);
-        roles.mark(Role::Output(0), &out.bits);
+        roles.mark(Role::Output(0), &out);
         match try_roles(data, &roles, test, true)? {
             Ok((file, run)) => {
                 return Ok(RegisterProbed {
                     data_in: bus.bits.clone(),
                     controls,
-                    data_out: out.bits.clone(),
+                    data_out: out.clone(),
                     file,
                     run,
                 });
@@ -121,5 +133,23 @@ mod tests {
         );
         let as_adder = recognize_as(&data, Some("adder")).unwrap();
         assert!(as_adder.found.is_none());
+    }
+
+    /// Its lowest bit's output stands below the others, out of line, so
+    /// its outputs are two lines: read loosely, together they are its
+    /// data bus out.
+    #[test]
+    fn a_register_whose_low_bit_stands_apart_is_found() {
+        let data = uncoloured("register-8-low-bit-apart");
+        let found = recognize(&data).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.starts_with("a register")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
     }
 }
