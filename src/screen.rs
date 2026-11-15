@@ -71,14 +71,9 @@ impl Field {
         matches!(
             self,
             Field::Category
-                | Field::Status
                 | Field::Width
-                | Field::State
                 | Field::Orientation
                 | Field::Encoding
-                | Field::Design
-                | Field::Ticks
-                | Field::By
         )
     }
 
@@ -386,6 +381,11 @@ impl Picks {
         self.0.is_empty()
     }
 
+    /// Whether an address picks anything of `field`.
+    pub fn has(&self, field: Field) -> bool {
+        self.0.contains_key(&field)
+    }
+
     /// The fields with something picked and their picks, as an address
     /// writes them.
     pub fn given(&self) -> impl Iterator<Item = (Field, &[String])> {
@@ -504,13 +504,6 @@ pub struct Choice {
 pub struct Row {
     pub field: Field,
     pub choices: Vec<Choice>,
-}
-
-impl Row {
-    /// Whether anything is picked of it.
-    pub fn narrowed(&self) -> bool {
-        self.choices.iter().any(|choice| choice.chosen)
-    }
 }
 
 /// The fields to narrow `builds` by, each with its choices: those the
