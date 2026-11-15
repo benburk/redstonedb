@@ -31,6 +31,8 @@
 //   as soon as it sends.
 // - A `<details>` whose id the address names opens, as a build's check its
 //   stage's link goes to.
+// - A `<details data-keep>` with an id, open when a swap replaces it, is
+//   open in the answer too, as a listing's further filters.
 
 const notice = document.getElementById("notice");
 
@@ -129,6 +131,9 @@ const sender = (event) =>
 // Where focus was, to put it back once the swap replaces it.
 let focused = null;
 
+// The kept details open in what a swap replaces, by id, to open again.
+let kept = [];
+
 document.addEventListener("fx:before", (event) => {
   if (!event.target.matches(LIVE)) {
     sender(event).setAttribute("aria-busy", "true");
@@ -141,6 +146,9 @@ document.addEventListener("fx:before", (event) => {
       end: active.selectionEnd,
     }
     : null;
+  const { target } = event.detail.cfg;
+  kept = [...(target?.querySelectorAll("details[data-keep][open][id]") ?? [])]
+    .map((details) => details.id);
 });
 
 document.addEventListener("fx:finally", (event) => {
@@ -208,6 +216,13 @@ document.addEventListener("fx:swapped", () => {
     dialog.removeAttribute("data-show");
     dialog.showModal();
   }
+});
+
+document.addEventListener("fx:swapped", () => {
+  for (const id of kept) {
+    document.getElementById(id)?.setAttribute("open", "");
+  }
+  kept = [];
 });
 
 // A swap that took the focused element away puts focus back on its

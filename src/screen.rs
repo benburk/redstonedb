@@ -34,10 +34,10 @@ pub enum Field {
     Width,
     State,
     Orientation,
+    Encoding,
     Design,
     Ticks,
     By,
-    Encoding,
     Inputs,
     Buses,
     Stacks,
@@ -53,10 +53,10 @@ impl Field {
         Field::Width,
         Field::State,
         Field::Orientation,
+        Field::Encoding,
         Field::Design,
         Field::Ticks,
         Field::By,
-        Field::Encoding,
         Field::Inputs,
         Field::Buses,
         Field::Stacks,
@@ -66,20 +66,20 @@ impl Field {
     ];
 
     /// Whether it is one of the fields a page leads with, the rest
-    /// folding away under them until one is picked of. A design is its
-    /// category's, so it leads only within one, as `in_category` says.
-    pub fn leads(self, in_category: bool) -> bool {
-        match self {
+    /// folding away under them until one is picked of.
+    pub fn leads(self) -> bool {
+        matches!(
+            self,
             Field::Category
-            | Field::Status
-            | Field::Width
-            | Field::State
-            | Field::Orientation
-            | Field::Ticks
-            | Field::By => true,
-            Field::Design => in_category,
-            _ => false,
-        }
+                | Field::Status
+                | Field::Width
+                | Field::State
+                | Field::Orientation
+                | Field::Encoding
+                | Field::Design
+                | Field::Ticks
+                | Field::By
+        )
     }
 
     /// As an address names it, such as `width`.
@@ -583,7 +583,11 @@ pub fn rows(builds: &[&Build], picks: &Picks) -> Vec<Row> {
                     (c.key != "working", last.contains(&&*c.key), c.key.clone())
                 });
             }
-            (several || picks.0.contains_key(&field))
+            // A design is its category's, as a carry cancel is an adder's,
+            // so it has a row only within one.
+            let apart =
+                field == Field::Design && picks.of(Field::Category).len() != 1;
+            (picks.0.contains_key(&field) || several && !apart)
                 .then_some(Row { field, choices })
         })
         .collect()

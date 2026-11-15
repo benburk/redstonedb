@@ -111,26 +111,10 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 /// their menus in the results. In the box's end, a button opens the dialog
 /// for finding the builds most like a file.
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
-    let query = listing.map(|l| l.query).cloned().unwrap_or_default();
-    let picked = query.picked();
-    let HomeQuery {
-        view,
-        q: query,
-        tags,
-        ..
-    } = query;
+    let query = listing.map(|l| l.query.q.clone()).unwrap_or_default();
     html! {
         form id="search-form" action=(action) method="get" role="search" data-live
             fx-action=(action) fx-target="#listing" class="relative mb-3" {
-            @if view == View::List {
-                input type="hidden" name="view" value="list";
-            }
-            @for tag in tags {
-                input type="hidden" name="tag" value=(tag);
-            }
-            @for (name, picks) in picked {
-                input type="hidden" name=(name) value=(picks);
-            }
             label for="search" class="sr-only" { "Search builds" }
             div class="relative" {
                 input type="search" id="search" name="q" value=(query)
@@ -270,6 +254,9 @@ fn sort_menu(sort: &str) -> Markup {
     }
 }
 
+/// The part of the page a search or a pick redraws, as fixi targets it.
+const LISTING: &str = "#listing";
+
 /// How many choices a row of many, as of categories or people, shows
 /// before the rest fold away under it.
 const LEAD: usize = 8;
@@ -293,10 +280,13 @@ fn screen_row(row: &Row, here: &HomeQuery) -> Markup {
         .iter()
         .enumerate()
         .partition(|(i, choice)| !folds || *i < LEAD || choice.chosen);
+    // Each has an id, so the focus stays on it once its pick redraws the
+    // listing.
     let toggle = |choice: &Choice| {
         let to = here.picking(here.picks.toggled(field, &choice.key)).href();
         html! {
-            a href=(to) class={ (TOGGLE) @if choice.count == 0 && !choice.chosen { " opacity-50" } }
+            a id={ "pick-" (field.name()) "-" (choice.key) } href=(to) fx-action=(to) fx-target=(LISTING)
+                class={ (TOGGLE) @if choice.count == 0 && !choice.chosen { " opacity-50" } }
                 aria-pressed=(choice.chosen) {
                 (choice.label)
                 span class="ml-1.5 text-meta text-muted tabular-nums" { (choice.count) }
@@ -308,12 +298,13 @@ fn screen_row(row: &Row, here: &HomeQuery) -> Markup {
             (row_label(field.label()))
             div class="flex min-w-0 flex-col items-start gap-1" {
                 div class=(SWITCHES) {
-                    a href=(here.picking(here.picks.any(field)).href()) class=(TOGGLE)
-                        aria-pressed=(here.picks.of(field).is_empty()) { "All" }
+                    @let all = here.picking(here.picks.any(field)).href();
+                    a id={ "pick-" (field.name()) } href=(all) fx-action=(all) fx-target=(LISTING)
+                        class=(TOGGLE) aria-pressed=(here.picks.of(field).is_empty()) { "All" }
                     @for (_, choice) in &lead { (toggle(choice)) }
                 }
                 @if !rest.is_empty() {
-                    details {
+                    details id={ "more-" (field.name()) } data-keep {
                         summary class="cursor-pointer px-2 py-1 text-meta text-muted hover:text-ink" {
                             (rest.len()) " more"
                         }
@@ -335,11 +326,8 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
         tags: Vec::new(),
         ..here.clone()
     };
-    let in_category = here.category().is_some();
-    let (lead, rest): (Vec<&Row>, Vec<&Row>) = listing
-        .rows
-        .iter()
-        .partition(|row| row.field.leads(in_category));
+    let (lead, rest): (Vec<&Row>, Vec<&Row>) =
+        listing.rows.iter().partition(|row| row.field.leads());
     let tags = tag_filters(listing, here);
     // The rest stay open once one of them narrows the builds.
     let open = rest.iter().any(|row| row.narrowed()) || !here.tags.is_empty();
@@ -347,7 +335,7 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
         div class="mb-6 flex flex-col gap-2" {
             @for row in lead { (screen_row(row, here)) }
             @if !rest.is_empty() || !tags.0.is_empty() {
-                details open[open] {
+                details id="more-filters" data-keep open[open] {
                     summary class="w-fit cursor-pointer py-1 text-meta font-semibold text-muted hover:text-ink" {
                         "More filters"
                     }
@@ -375,6 +363,17 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
     } = *listing;
     let view = here.view;
     html! {
+            // What the search keeps as it is typed, here so a pick that
+            // redraws the listing brings them up to date.
+            @if view == View::List {
+                input type="hidden" form="search-form" name="view" value="list";
+            }
+            @for tag in &here.tags {
+                input type="hidden" form="search-form" name="tag" value=(tag);
+            }
+            @for (name, picks) in here.picked() {
+                input type="hidden" form="search-form" name=(name) value=(picks);
+            }
             (listing_header(listing, here, title))
             @if !terms.is_empty() {
                 div class="mb-4 flex flex-wrap items-center gap-1.5" {
@@ -546,7 +545,8 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                     @let label = filter.tag.label().replace(',', " or ");
                     li {
                         @if let Some(i) = filter.chosen {
-                            a href=(here.without_tag(i).href())
+                            @let to = here.without_tag(i).href();
+                            a id={ "pick-tag-" (filter.tag.name) } href=(to) fx-action=(to) fx-target=(LISTING)
                                 aria-label={ "Remove the tag filter " (label) }
                                 title=(filter.tag.about())
                                 class={ "badge " (filter.tag.class()) " gap-1.5 pr-2 ring-2 ring-brand ring-offset-1 ring-offset-canvas hover:no-underline" } {
@@ -556,7 +556,8 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                         } @else {
                             @let more: Vec<String> = here.tags.iter().cloned()
                                 .chain([filter.tag.name.clone()]).collect();
-                            a href=(HomeQuery { tags: more, ..here.clone() }.href())
+                            @let to = HomeQuery { tags: more, ..here.clone() }.href();
+                            a id={ "pick-tag-" (filter.tag.name) } href=(to) fx-action=(to) fx-target=(LISTING)
                                 aria-label={ "Only builds tagged " (label) ", " (filter.count) }
                                 title=(filter.tag.about())
                                 class={ "badge " (filter.tag.class()) " gap-1.5 hover:no-underline hover:brightness-95" } {
