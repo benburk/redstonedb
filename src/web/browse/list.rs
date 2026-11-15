@@ -17,13 +17,13 @@ use crate::{
     account::User,
     build::{Build, tag},
     category::Category,
-    leaderboard, search,
+    leaderboard, screen, search,
     store::{builds, users},
     web::{
         app_state::AppState,
         browse::{
             home_view::{self, Index, Tile},
-            list_view::{self, Facet, Listing},
+            list_view::{self, Listing},
             query::{HomeQuery, Sort, SortField},
             similar,
         },
@@ -190,49 +190,20 @@ async fn listing(
 ) -> Result<Response, AppError> {
     let terms = search::parse(&query.q);
     let all = builds::visible(&state.db, viewer).await?;
-    let categories = Category::all();
     let total = all.len();
-    let mut found: Vec<Build> = search::matching(&terms, all)
+    let found: Vec<Build> = search::matching(&terms, all)
         .into_iter()
         .filter(|s| has_tags(s, &query.tags))
         .collect();
-    // Builds not verified as their category list only when asked for; the
-    // listing says how many there are either way.
-    let unverified = found
-        .iter()
-        .filter(|s| {
-            !s.verified()
-                && (query.category.is_empty()
-                    || in_category(s, &query.category))
-        })
-        .count();
-    // Unaligned builds list as any verified build does, though they rank
-    // on no board, unless the switch hides them; the listing says how many
-    // there are either way.
-    let unaligned = found
-        .iter()
-        .filter(|s| {
-            s.verified()
-                && s.unaligned
-                && (query.category.is_empty()
-                    || in_category(s, &query.category))
-        })
-        .count();
-    if !query.unverified {
-        found.retain(Build::verified);
-    }
-    if query.hide_unaligned {
-        found.retain(|s| !s.unaligned);
-    }
-    let facets = facets(&categories, &found, &query.category);
-    let mut shown: Vec<Build> = if query.category.is_empty() {
-        found
-    } else {
-        found
-            .into_iter()
-            .filter(|s| in_category(s, &query.category))
-            .collect()
-    };
+    // Each field's choices count the builds the search and tags find that
+    // the other fields take. Only working builds list until the rest are
+    // asked for, and unaligned builds list as any working build does,
+    // though they rank on no board.
+    let rows = screen::rows(&found.iter().collect::<Vec<_>>(), &query.picks);
+    let mut shown: Vec<Build> = found
+        .into_iter()
+        .filter(|s| query.picks.take(s, None))
+        .collect();
     order(&mut shown, &query.sort);
     let viewing = viewing(&state.db, viewer).await?;
     let listing = Listing {
@@ -240,9 +211,8 @@ async fn listing(
         total,
         query: &query,
         terms: &terms,
-        unverified,
-        unaligned,
-        facets: &facets,
+        title: title(&query),
+        rows: &rows,
         viewing: &viewing,
     };
     // A search as it is typed redraws only the results, and puts the
@@ -318,35 +288,17 @@ fn in_category(s: &Build, category: &str) -> bool {
     })
 }
 
-/// How many of `found` each category has, for the menu: the standard
-/// categories alphabetically, then every other category together under
-/// Other.
-fn facets(
-    categories: &[Category],
-    found: &[Build],
-    chosen: &str,
-) -> Vec<Facet> {
-    let count =
-        |name: &str| found.iter().filter(|s| in_category(s, name)).count();
-    let mut facets: Vec<Facet> = categories
-        .iter()
-        .map(|f| Facet {
-            name: f.name.clone(),
-            label: f.plural.clone(),
-            count: count(&f.name),
-            section: f.section,
-        })
-        .collect();
-    facets.push(Facet {
-        name: OTHER.to_owned(),
-        label: "Other".to_owned(),
-        count: count(OTHER),
-        section: None,
-    });
-    // Every standard category shows, even with no builds yet; Other only
-    // when it has some or is chosen.
-    facets.retain(|f| f.name != OTHER || f.count > 0 || f.name == chosen);
-    facets
+/// The listing's title: the one category picked, such as `Adders`, or
+/// `Builds` for none or several.
+fn title(query: &HomeQuery) -> String {
+    match query.category() {
+        Some(OTHER) => "Other".to_owned(),
+        Some(name) => Category::all()
+            .into_iter()
+            .find(|category| category.name == name)
+            .map_or_else(|| "Builds".to_owned(), |category| category.plural),
+        None => "Builds".to_owned(),
+    }
 }
 
 /// What `viewer`'s cards show of them: their palette, and whether they

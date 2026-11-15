@@ -1,5 +1,6 @@
 //! The builds a search finds, as cards or a table, under the search and
-//! what narrows it: a category, tags, an order, and a layout.
+//! what narrows it: the rows that screen them, tags, an order, and a
+//! layout.
 
 use maud::{Markup, html};
 
@@ -12,12 +13,13 @@ use crate::{
     },
     category::Section,
     interface::Encoding,
+    screen::{Choice, Picks, Row},
     search::Term,
     web::{
         browse::query::{HomeQuery, View},
         href,
         ui::{
-            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, Tone,
+            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, TOGGLE, Tone,
             cards::{Viewing, badges, cards, stacked_note},
             icons::{self, icon},
             layout::base,
@@ -45,12 +47,10 @@ pub struct Listing<'a> {
     /// What its address asked for.
     pub query: &'a HomeQuery,
     pub terms: &'a [Term],
-    /// How many of the builds found are not verified as their category,
-    /// shown or not.
-    pub unverified: usize,
-    /// How many of the builds found are unaligned, verified, shown or not.
-    pub unaligned: usize,
-    pub facets: &'a [Facet],
+    /// The one category picked, such as `Adders`, or `Builds`.
+    pub title: String,
+    /// The fields to screen the builds by, each with its choices.
+    pub rows: &'a [Row],
     pub viewing: &'a Viewing,
 }
 
@@ -63,15 +63,6 @@ pub struct Facet {
     pub count: usize,
     /// Its sidebar section; `None` for Other.
     pub section: Option<Section>,
-}
-
-impl Listing<'_> {
-    /// Whether words are searched for, or tags outside a category, whose
-    /// page shows its tags chosen among its filters.
-    fn searching(&self) -> bool {
-        !self.query.q.is_empty()
-            || (!self.query.tags.is_empty() && self.query.category.is_empty())
-    }
 }
 
 /// The home page: the search, sent to `action` with what `listing` chose,
@@ -121,12 +112,11 @@ pub fn schematics(viewer: Option<&User>, listing: &Listing) -> Markup {
 /// for finding the builds most like a file.
 fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
     let query = listing.map(|l| l.query).cloned().unwrap_or_default();
+    let picked = query.picked();
     let HomeQuery {
         view,
         q: query,
         tags,
-        unverified,
-        hide_unaligned,
         ..
     } = query;
     html! {
@@ -138,11 +128,8 @@ fn search_form(action: &str, listing: Option<&Listing>) -> Markup {
             @for tag in tags {
                 input type="hidden" name="tag" value=(tag);
             }
-            @if unverified {
-                input type="hidden" name="unverified" value="show";
-            }
-            @if hide_unaligned {
-                input type="hidden" name="unaligned" value="hide";
+            @for (name, picks) in picked {
+                input type="hidden" name=(name) value=(picks);
             }
             label for="search" class="sr-only" { "Search builds" }
             div class="relative" {
@@ -181,14 +168,8 @@ fn search_help() -> Markup {
 /// The part of the home page a search redraws: the title, the terms
 /// searched for, and the builds found.
 pub fn home_results(listing: &Listing) -> Markup {
-    let here = listing.query;
-    let title = listing
-        .facets
-        .iter()
-        .find(|facet| facet.name == here.category)
-        .map_or("Builds", |facet| facet.label.as_str());
     html! {
-        div id="listing" { (listing_body(listing, here, title)) }
+        div id="listing" { (listing_body(listing, listing.query, &listing.title)) }
     }
 }
 
@@ -236,10 +217,10 @@ pub(crate) fn category_menu(
     }
 }
 
-/// The row under the search, its category, order, and layout, then the
-/// page's title and count.
+/// The row under the search, its order and layout, then the page's title
+/// and count.
 fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
-    let (shown, view, category) = (listing.shown, here.view, &here.category);
+    let (shown, view) = (listing.shown, here.view);
     let layout = |to: View, label: &str, glyph: &str| {
         html! {
             a href=(HomeQuery { view: to, ..here.clone() }.href()) aria-label=(label) title=(label)
@@ -250,68 +231,22 @@ fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
         }
     };
     html! {
-            // Paired with the search above it: what it searches in, the
-            // order, and the layout, which a phone, too narrow for the
-            // list's table, leaves at cards.
-            div class="mb-6 flex items-center gap-2" {
-                div class="min-w-0 flex-1 sm:flex-none" {
-                    (category_menu(listing.facets, category, "All categories", Some("search-form")))
+            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                h1 class=(PAGE_TITLE) { (title) }
+                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
+                    (shown.len()) span class="sr-only" { " builds" }
                 }
+                // Paired with the search above it: the order, and the
+                // layout, which a phone, too narrow for the list's table,
+                // leaves at cards.
                 (sort_menu(&here.sort.name()))
-                div class="ml-auto hidden shrink-0 sm:block" {
+                div class="hidden shrink-0 sm:block" {
                     nav aria-label="Layout" class=(SWITCHES) {
                         (layout(View::Cards, "Cards", icons::GRID))
                         (layout(View::List, "List", icons::LIST))
                     }
                 }
             }
-            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                h1 class=(PAGE_TITLE) { (title) }
-                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
-                    (shown.len()) span class="sr-only" { " builds" }
-                }
-                (switch(
-                    listing.unaligned,
-                    here.hide_unaligned,
-                    "Hide unaligned",
-                    &HomeQuery {
-                        hide_unaligned: !here.hide_unaligned,
-                        ..here.clone()
-                    },
-                ))
-                (switch(
-                    listing.unverified,
-                    here.unverified,
-                    "Show failing and untested",
-                    &HomeQuery { unverified: !here.unverified, ..here.clone() },
-                ))
-            }
-    }
-}
-
-/// A switch for some builds found, `count` of them, ticked when `on`, as
-/// a link going to `other`, the listing with it turned the other way,
-/// saying `label` and how many there are; nothing when there are none.
-/// Builds not verified as their category show when one is on, and
-/// unaligned builds hide when another is.
-pub(crate) fn switch(
-    count: usize,
-    on: bool,
-    label: &str,
-    other: &HomeQuery,
-) -> Markup {
-    html! {
-        @if count > 0 {
-            a href=(other.href())
-                aria-pressed=(on)
-                class="flex min-h-9 items-center gap-2 self-end text-meta text-muted hover:text-ink hover:no-underline" {
-                span class={ "flex size-4 items-center justify-center rounded-[4px] border "
-                    (if on { "border-brand bg-brand text-on-brand" } else { "border-boundary" }) } {
-                    @if on { (icon(icons::CHECK, "size-3")) }
-                }
-                span { (label) " (" span class="tabular-nums" { (count) } ")" }
-            }
-        }
     }
 }
 
@@ -335,8 +270,102 @@ fn sort_menu(sort: &str) -> Markup {
     }
 }
 
-/// The home page's title, the terms and tags searched for, and the builds
-/// found.
+/// How many choices a row of many, as of categories or people, shows
+/// before the rest fold away under it.
+const LEAD: usize = 8;
+
+/// A row's label, as a leaderboard's rows have theirs.
+fn row_label(label: &str) -> Markup {
+    html! {
+        span class="w-24 shrink-0 py-1 text-meta font-semibold text-muted desktop:py-2" aria-hidden="true" { (label) }
+    }
+}
+
+/// One field to screen the builds by: every choice of it a toggle, with
+/// how many builds it would leave, and All, which unpicks them. The picks
+/// of a row are alternatives, and the rows narrow together. A row of many
+/// folds all but its first and its picked choices away.
+fn screen_row(row: &Row, here: &HomeQuery) -> Markup {
+    let field = row.field;
+    let folds = field.by_count() && row.choices.len() > LEAD + 2;
+    let (lead, rest): (Vec<_>, Vec<_>) = row
+        .choices
+        .iter()
+        .enumerate()
+        .partition(|(i, choice)| !folds || *i < LEAD || choice.chosen);
+    let toggle = |choice: &Choice| {
+        let to = here.picking(here.picks.toggled(field, &choice.key)).href();
+        html! {
+            a href=(to) class={ (TOGGLE) @if choice.count == 0 && !choice.chosen { " opacity-50" } }
+                aria-pressed=(choice.chosen) {
+                (choice.label)
+                span class="ml-1.5 text-meta text-muted tabular-nums" { (choice.count) }
+            }
+        }
+    };
+    html! {
+        nav aria-label=(field.label()) class="flex flex-col gap-x-3 desktop:flex-row desktop:items-start" {
+            (row_label(field.label()))
+            div class="flex min-w-0 flex-col items-start gap-1" {
+                div class=(SWITCHES) {
+                    a href=(here.picking(here.picks.any(field)).href()) class=(TOGGLE)
+                        aria-pressed=(here.picks.of(field).is_empty()) { "All" }
+                    @for (_, choice) in &lead { (toggle(choice)) }
+                }
+                @if !rest.is_empty() {
+                    details {
+                        summary class="cursor-pointer px-2 py-1 text-meta text-muted hover:text-ink" {
+                            (rest.len()) " more"
+                        }
+                        div class={ (SWITCHES) " mt-1" } {
+                            @for (_, choice) in &rest { (toggle(choice)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The rows the builds are screened by: each field, then the tags, and a
+/// way back to every build once anything narrows them.
+fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
+    let cleared = HomeQuery {
+        picks: Picks::default(),
+        tags: Vec::new(),
+        ..here.clone()
+    };
+    let in_category = here.category().is_some();
+    let (lead, rest): (Vec<&Row>, Vec<&Row>) = listing
+        .rows
+        .iter()
+        .partition(|row| row.field.leads(in_category));
+    let tags = tag_filters(listing, here);
+    // The rest stay open once one of them narrows the builds.
+    let open = rest.iter().any(|row| row.narrowed()) || !here.tags.is_empty();
+    html! {
+        div class="mb-6 flex flex-col gap-2" {
+            @for row in lead { (screen_row(row, here)) }
+            @if !rest.is_empty() || !tags.0.is_empty() {
+                details open[open] {
+                    summary class="w-fit cursor-pointer py-1 text-meta font-semibold text-muted hover:text-ink" {
+                        "More filters"
+                    }
+                    div class="mt-2 flex flex-col gap-2" {
+                        @for row in rest { (screen_row(row, here)) }
+                        (tags)
+                    }
+                }
+            }
+            @if !here.picks.is_empty() || !here.tags.is_empty() {
+                a href=(cleared.href()) class="w-fit text-meta" { "Clear filters" }
+            }
+        }
+    }
+}
+
+/// The home page's title, the rows that screen its builds, the terms
+/// searched for, and the builds found.
 fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
     let Listing {
         shown,
@@ -347,61 +376,31 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
     let view = here.view;
     html! {
             (listing_header(listing, here, title))
-            @if !here.category.is_empty() {
-                (tag_filters(listing, here))
-            }
-            @if listing.searching() {
-                div class="mb-6 flex flex-wrap items-center gap-1.5" {
-                    // With no sidebar, the category searched in is one of
-                    // the things to remove.
-                    @if !here.category.is_empty() {
-                        (removable(
-                            &HomeQuery { category: String::new(), ..here.clone() }.href(),
-                            &format!("Search every category, not only {title}"),
-                            PLAIN_CHIP,
-                            &format!("in {title}"),
-                        ))
-                    }
-                    @if !terms.is_empty() {
-                        ul class="contents" aria-label="Search terms" {
-                            @for (i, term) in terms.iter().enumerate() {
-                                li {
-                                    (removable(
-                                        &HomeQuery { q: without(terms, i), ..here.clone() }.href(),
-                                        &format!("Remove {}", term.display()),
-                                        if term.negated { Tone::Bad.class() } else { PLAIN_CHIP },
-                                        &format!("{}{}", if term.negated { "not " } else { "" }, term.text),
-                                    ))
-                                }
+            @if !terms.is_empty() {
+                div class="mb-4 flex flex-wrap items-center gap-1.5" {
+                    ul class="contents" aria-label="Search terms" {
+                        @for (i, term) in terms.iter().enumerate() {
+                            li {
+                                (removable(
+                                    &HomeQuery { q: without(terms, i), ..here.clone() }.href(),
+                                    &format!("Remove {}", term.display()),
+                                    if term.negated { Tone::Bad.class() } else { PLAIN_CHIP },
+                                    &format!("{}{}", if term.negated { "not " } else { "" }, term.text),
+                                ))
                             }
                         }
                     }
-                    @if !here.tags.is_empty() && here.category.is_empty() {
-                        ul class="contents" aria-label="Tag filters" {
-                            @for (i, group) in here.tags.iter().enumerate() {
-                                @let shown = group.replace('_', " ").replace(',', " or ");
-                                li {
-                                    (removable(
-                                        &here.without_tag(i).href(),
-                                        &format!("Remove the tag filter {shown}"),
-                                        PLAIN_CHIP,
-                                        &format!("tag: {shown}"),
-                                    ))
-                                }
-                            }
-                        }
-                    }
-                    // A category's chosen tags stay, each removed from its
-                    // filters.
-                    @let kept = if here.category.is_empty() { Vec::new() } else { here.tags.clone() };
-                    a href=(HomeQuery { q: String::new(), tags: kept, ..here.clone() }.href()) class="px-1.5 text-meta" { "Clear" }
+                    a href=(HomeQuery { q: String::new(), ..here.clone() }.href()) class="px-1.5 text-meta" { "Clear" }
                 }
+            }
+            @if total > 0 {
+                (screen_rows(listing, here))
             }
             @if total == 0 {
                 p class="text-muted" { "No builds yet." }
             } @else if shown.is_empty() {
                 p class="max-w-prose text-muted" {
-                    "No builds match. " (search_help()) " Remove a term to widen the search."
+                    "No builds match. " (search_help()) " Remove a term or a filter to widen the search."
                 }
             } @else if view == View::Cards {
                 (cards(shown, terms, listing.viewing))
@@ -509,13 +508,40 @@ pub(crate) fn filters(shown: &[Build], chosen: &[String]) -> Vec<Filter> {
     filters
 }
 
-/// Under a category's title, its tags to narrow it by, each with how many
-/// of its builds carry it, and those chosen marked, each to remove.
+/// Whether a row of its own says what `tag` does of the builds `shown`:
+/// their design, orientation, standing, buses, inputs, timing, or how
+/// their copies stack.
+fn in_a_row(tag: &Tag, shown: &[Build]) -> bool {
+    let named = [
+        tag::FAILING,
+        tag::UNTESTED,
+        tag::UNALIGNED,
+        tag::INTERLEAVED_INPUTS,
+        tag::SYNCED,
+        tag::UNSYNCED,
+        tag::STACKABLE,
+    ];
+    named.contains(&tag.name.as_str())
+        || (tag::is_pitch_stackable(&tag.name)
+            && !tag::is_word_stackable(&tag.name))
+        || shown.iter().any(|s| {
+            s.specs.design.as_deref() == Some(tag.name.as_str())
+                || s.specs.orientation.label().eq_ignore_ascii_case(&tag.name)
+        })
+}
+
+/// The last row the builds are screened by: the tags some of them carry
+/// that no row above says, each with how many carry it, and those chosen
+/// marked, each to remove. Unlike a row's picks, the tags chosen narrow
+/// together, a build carrying them all.
 fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
-    let filters = filters(listing.shown, &here.tags);
+    let mut filters = filters(listing.shown, &here.tags);
+    filters.retain(|f| f.chosen.is_some() || !in_a_row(&f.tag, listing.shown));
     html! {
         @if !filters.is_empty() {
-            ul aria-label="Filter by tag" class="mb-6 flex flex-wrap gap-1.5" {
+            div class="flex flex-col gap-x-3 desktop:flex-row desktop:items-start" {
+            (row_label("Tags"))
+            ul aria-label="Filter by tag" class="flex flex-wrap gap-1.5 py-1" {
                 @for filter in &filters {
                     @let label = filter.tag.label().replace(',', " or ");
                     li {
@@ -540,6 +566,7 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                         }
                     }
                 }
+            }
             }
         }
     }

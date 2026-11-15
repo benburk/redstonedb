@@ -25,6 +25,10 @@ pub(crate) const TABLE_CELL: &str =
 /// One link of a segmented control, such as Cards and List; the chosen one
 /// carries `aria-current`.
 pub(crate) const SWITCH: &str = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-[current=page]:bg-raised aria-[current=page]:font-semibold aria-[current=page]:text-ink aria-[current=page]:shadow-sm";
+/// One choice of a bar where several may be picked at once, such as a
+/// listing's widths; each picked one carries `aria-pressed`, marked as
+/// `SWITCH` marks its link.
+pub(crate) const TOGGLE: &str = "rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink hover:no-underline aria-pressed:bg-raised aria-pressed:font-semibold aria-pressed:text-ink aria-pressed:shadow-sm";
 /// One choice of a segmented control in a form: a label around a hidden
 /// radio, the chosen one marked as `SWITCH` marks its link.
 pub(crate) const CHOICE: &str = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
