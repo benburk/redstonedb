@@ -114,7 +114,8 @@ pub fn base_previewed(
                 }
                 (sidebar(viewer, current_path))
                 div class="min-w-0 flex-1" {
-                    main id="main" class="mx-auto w-full max-w-wide px-4 py-8 desktop:px-8" {
+                    // A page of cards is let wider, for five to a row.
+                    main id="main" class="mx-auto w-full max-w-wide px-4 py-8 has-[.cards]:max-w-[96rem] desktop:px-8" {
                         (content)
                     }
                 }
