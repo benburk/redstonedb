@@ -269,7 +269,7 @@ fn about_category(kind: Kind) -> Markup {
             facts
                 .flags
                 .iter()
-                .filter(|flag| flag.group() == group)
+                .filter(|flag| flag.group() == Some(group))
                 .map(|flag| flag.label.to_owned())
                 .collect(),
         )
@@ -437,6 +437,64 @@ fn screen_row(row: &Row, here: &HomeQuery, shown: &str, copy: &str) -> Markup {
     }
 }
 
+/// On a category's page, the categories of its section with builds, each
+/// leading to its own page, so a subtractor is a step from the adders: a
+/// build of one may do where one of another was looked for.
+fn near_categories(listing: &Listing, here: &HomeQuery) -> Markup {
+    let section = here
+        .category()
+        .and_then(Kind::named)
+        .map(|kind| kind.facts().section);
+    let near: Vec<&Choice> = listing
+        .rows
+        .iter()
+        .filter(|row| row.field == Field::Category)
+        .flat_map(|row| &row.choices)
+        .filter(|choice| {
+            let of = Kind::named(&choice.key).map(|kind| kind.facts().section);
+            section.is_some() && of == section
+        })
+        .collect();
+    // A section of many folds all but its first, and the page's own, away.
+    let folds = near.len() > LEAD + 2;
+    let (lead, rest): (Vec<_>, Vec<_>) = near
+        .iter()
+        .enumerate()
+        .partition(|(i, choice)| !folds || *i < LEAD || choice.chosen);
+    let link = |choice: &Choice| {
+        html! {
+            a href=(HomeQuery::in_category(&choice.key).href()) class=(SWITCH)
+                aria-current=[choice.chosen.then_some("page")] {
+                (choice.label)
+                span class="ml-1.5 text-meta text-muted tabular-nums" { (choice.count) }
+            }
+        }
+    };
+    html! {
+        @if let (Some(section), true) = (section, near.len() > 1) {
+            nav aria-label={ (section.label()) " categories" }
+                class={ "flex flex-col gap-x-3 desktop:flex-row desktop:items-start " (PAST_PHONE) } {
+                (row_label(section.label()))
+                div class="flex min-w-0 flex-col items-start gap-1" {
+                    div class=(SWITCHES) {
+                        @for (_, choice) in &lead { (link(choice)) }
+                    }
+                    @if !rest.is_empty() {
+                        details id="more-near" data-keep {
+                            summary class="cursor-pointer px-2 py-1 text-meta text-muted hover:text-ink" {
+                                (rest.len()) " more"
+                            }
+                            div class={ (SWITCHES) " mt-1" } {
+                                @for (_, choice) in &rest { (link(choice)) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The rows the builds are screened by: each field, then the tags, and a
 /// way back to every build once anything narrows them.
 fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
@@ -469,6 +527,7 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
     let folded = rest.len() + usize::from(!tags.0.is_empty());
     html! {
         div class="mb-6 flex flex-col gap-2" {
+            (near_categories(listing, here))
             @for row in &above {
                 (screen_row(row, here, if picked(row) { "" } else { PAST_PHONE }, ""))
             }
