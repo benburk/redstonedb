@@ -62,10 +62,7 @@ pub fn home_index(index: &Index) -> Markup {
                     // narrows, and never fewer than two.
                     ul aria-labelledby={ "tiles-" (id) } class="grid grid-cols-[repeat(auto-fill,minmax(min(13rem,calc(50%_-_0.5rem)),1fr))] gap-4" {
                     @for tile in tiles {
-                        @let href = HomeQuery {
-                            category: tile.category.clone(),
-                            ..HomeQuery::default()
-                        }.href();
+                        @let href = HomeQuery::in_category(&tile.category).href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
                             img src=(thumbnail_src(tile.best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
                                 class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";

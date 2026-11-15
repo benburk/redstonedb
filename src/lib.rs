@@ -86,6 +86,7 @@ pub mod leaderboard;
 pub mod players;
 pub mod recognize;
 pub mod schem;
+pub mod screen;
 pub mod search;
 pub mod simulate;
 pub mod stack;
