@@ -31,6 +31,7 @@ mod one_operand;
 mod recognize;
 mod register;
 mod sequential;
+mod shape;
 mod shifter;
 
 pub use alu::{AluProbed, alu};

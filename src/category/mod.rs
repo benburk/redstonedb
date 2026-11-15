@@ -11,6 +11,7 @@ mod adder;
 mod alu;
 mod catalogue;
 mod converters;
+pub(crate) use converters::MIN_POPCOUNT;
 mod decoder;
 mod design;
 mod gate;

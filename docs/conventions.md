@@ -42,7 +42,7 @@ A build is on the list only when probing recognizes it as a standard category: a
 
 ## What the site does
 
-1. Probes the levers, buttons, and outputs, trying each standard category's test.
+1. Probes the levers, buttons, and outputs, trying each standard category's test whose lines they could be: how many buses, of what widths, how many lone levers, any hex digit inputs, and how many output bits rule most categories out before anything is simulated, and a build whose lines no category takes is turned away at once.
 2. Once recognized, colours each line by its role and standardizes the rest:
 
    | Role         | Block                                   |
