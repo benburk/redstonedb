@@ -33,9 +33,9 @@ use crate::{
 /// other order of the fields in [`Sort`] works in the address too.
 const SORTS: [(&str, &str); 4] = [
     ("", "Newest"),
-    ("volume", "Smallest"),
     ("latency", "Fastest"),
-    ("-downloads", "Popular"),
+    ("volume", "Smallest"),
+    ("-downloads", "Downloads"),
 ];
 
 /// The home page's schematics and how they were asked for.
@@ -201,36 +201,35 @@ pub(crate) fn category_menu(
     }
 }
 
-/// The row under the search, its order and layout, then the page's title
-/// and count.
-fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
-    let (shown, view) = (listing.shown, here.view);
+/// The page's title and count.
+fn listing_header(listing: &Listing, title: &str) -> Markup {
+    html! {
+            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                h1 class=(PAGE_TITLE) { (title) }
+                p class="self-end pb-1 text-muted tabular-nums" {
+                    (listing.shown.len()) span class="sr-only" { " builds" }
+                }
+            }
+    }
+}
+
+/// The layout to list the builds in, cards or a table, which a phone, too
+/// narrow for the table, leaves at cards.
+fn layout_switch(here: &HomeQuery) -> Markup {
     let layout = |to: View, label: &str, glyph: &str| {
         html! {
             a href=(HomeQuery { view: to, ..here.clone() }.href()) aria-label=(label) title=(label)
                 class={ (SWITCH) " flex items-center px-2" }
-                aria-current=[(view == to).then_some("page")] {
+                aria-current=[(here.view == to).then_some("page")] {
                 (icon(glyph, "size-4"))
             }
         }
     };
     html! {
-            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                h1 class=(PAGE_TITLE) { (title) }
-                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
-                    (shown.len()) span class="sr-only" { " builds" }
-                }
-                // Paired with the search above it: the order, and the
-                // layout, which a phone, too narrow for the list's table,
-                // leaves at cards.
-                (sort_menu(&here.sort.name()))
-                div class="hidden shrink-0 sm:block" {
-                    nav aria-label="Layout" class=(SWITCHES) {
-                        (layout(View::Cards, "Cards", icons::GRID))
-                        (layout(View::List, "List", icons::LIST))
-                    }
-                }
-            }
+        nav aria-label="Layout" class={ (SWITCHES) " " (PAST_PHONE) } {
+            (layout(View::Cards, "Cards", icons::GRID))
+            (layout(View::List, "List", icons::LIST))
+        }
     }
 }
 
@@ -350,22 +349,30 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
             @for row in &above {
                 (screen_row(row, here, if picked(row) { "" } else { PAST_PHONE }, ""))
             }
-            @if folded > 0 || !lead.is_empty() {
-                details id="more-filters" data-keep open[!here.tags.is_empty()]
-                    class=(if folded == 0 { PHONE_ONLY } else { "" }) {
-                    // A button in place of the marker a summary has, filled
-                    // while its filters are open.
-                    summary class="btn btn-quiet w-fit list-none in-open:bg-selection [&::-webkit-details-marker]:hidden" {
-                        (icon(icons::FUNNEL, "size-4"))
-                        span class=(PAST_PHONE) { "More filters" }
-                        span class=(PHONE_ONLY) { "Filters" }
-                        span class={ "font-normal text-muted tabular-nums " (PAST_PHONE) } { (folded) }
-                        span class={ "font-normal text-muted tabular-nums " (PHONE_ONLY) } { (folded + lead.len()) }
-                    }
-                    div class="mt-3 flex flex-col gap-2" {
-                        @for row in &lead { (screen_row(row, here, PHONE_ONLY, "-phone")) }
-                        @for row in rest { (screen_row(row, here, "", "")) }
-                        (tags)
+            // What stands right over the builds: their order, then the
+            // further filters, side by side, and the layout at the far end.
+            // The order and layout float, so the filters' button sits
+            // between them and its rows open full width below all three.
+            div class="mt-1 flow-root" {
+                div class="float-right" { (layout_switch(here)) }
+                div class="float-left mr-2" { (sort_menu(&here.sort.name())) }
+                @if folded > 0 || !lead.is_empty() {
+                    details id="more-filters" data-keep open[!here.tags.is_empty()]
+                        class=(if folded == 0 { PHONE_ONLY } else { "" }) {
+                        // A button in place of the marker a summary has,
+                        // filled while its filters are open.
+                        summary class="btn btn-quiet w-fit list-none align-top in-open:bg-selection [&::-webkit-details-marker]:hidden" {
+                            (icon(icons::FUNNEL, "size-4"))
+                            span class=(PAST_PHONE) { "More filters" }
+                            span class=(PHONE_ONLY) { "Filters" }
+                            span class={ "font-normal text-muted tabular-nums " (PAST_PHONE) } { (folded) }
+                            span class={ "font-normal text-muted tabular-nums " (PHONE_ONLY) } { (folded + lead.len()) }
+                        }
+                        div class="clear-both flex flex-col gap-2 pt-3" {
+                            @for row in &lead { (screen_row(row, here, PHONE_ONLY, "-phone")) }
+                            @for row in rest { (screen_row(row, here, "", "")) }
+                            (tags)
+                        }
                     }
                 }
             }
@@ -398,7 +405,7 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
             @for (name, picks) in here.picked() {
                 input type="hidden" form="search-form" name=(name) value=(picks);
             }
-            (listing_header(listing, here, title))
+            (listing_header(listing, title))
             @if !terms.is_empty() {
                 div class="mb-4 flex flex-wrap items-center gap-1.5" {
                     ul class="contents" aria-label="Search terms" {
