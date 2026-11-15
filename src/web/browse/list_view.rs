@@ -11,16 +11,19 @@ use crate::{
         Build,
         tag::{self, Tag},
     },
-    category::Section,
+    category::{Design, FlagGroup, Kind, Measure, Section},
     interface::Encoding,
-    screen::{Choice, Picks, Row},
+    leaderboard::{Wanted, in_sentence},
+    screen::{Choice, Field, Picks, Row},
     search::Term,
     web::{
         browse::query::{HomeQuery, View},
         href,
         ui::{
-            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, TOGGLE, Tone,
+            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, TOGGLE, Tab,
+            Tone,
             cards::{Viewing, badges, cards, stacked_note},
+            category_tabs,
             icons::{self, icon},
             layout::base,
             person::name_links,
@@ -29,12 +32,13 @@ use crate::{
     },
 };
 
-/// The orders the home page offers, as `sort` values and their labels. Any
+/// The orders a listing offers, as `sort` values and their labels. Any
 /// other order of the fields in [`Sort`] works in the address too.
-const SORTS: [(&str, &str); 4] = [
-    ("", "Newest"),
+const SORTS: [(&str, &str); 5] = [
+    ("top", "Top"),
     ("latency", "Fastest"),
     ("volume", "Smallest"),
+    ("-added_at", "Newest"),
     ("-downloads", "Downloads"),
 ];
 
@@ -47,6 +51,9 @@ pub struct Listing<'a> {
     /// What its address asked for.
     pub query: &'a HomeQuery,
     pub terms: &'a [Term],
+    /// The terms with the one width picked among them, which a build
+    /// whose copies stack to it notes.
+    pub noted: &'a [Term],
     /// The one category picked, such as `Adders`, or `Builds`.
     pub title: String,
     /// The fields to screen the builds by, each with its choices.
@@ -201,15 +208,114 @@ pub(crate) fn category_menu(
     }
 }
 
-/// The page's title and count.
-fn listing_header(listing: &Listing, title: &str) -> Markup {
+/// The page's title and count. Within one category, a way back to every
+/// build, the category's two pages, its builds and its records, and what
+/// the site knows of it.
+fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
+    let kind = here.category().and_then(Kind::named);
+    let every = here.picking(here.picks.any(Field::Category)).href();
     html! {
-            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
-                h1 class=(PAGE_TITLE) { (title) }
-                p class="self-end pb-1 text-muted tabular-nums" {
-                    (listing.shown.len()) span class="sr-only" { " builds" }
+            @if here.category().is_some() {
+                a href=(every) class="mb-1 inline-flex items-center gap-1 text-meta text-muted hover:text-ink" {
+                    (icon(icons::ARROW_LEFT, "size-3.5")) "All builds"
                 }
             }
+            div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2" {
+                h1 class=(PAGE_TITLE) { (title) }
+                p class="mr-auto self-end pb-1 text-muted tabular-nums" {
+                    (listing.shown.len()) span class="sr-only" { " builds" }
+                }
+                @if let Some(kind) = kind {
+                    (category_tabs(Tab::Builds, &here.href(), &records_href(kind, here)))
+                }
+            }
+            @if let Some(kind) = kind {
+                (about_category(kind))
+            }
+    }
+}
+
+/// Where a category's records are for the builds `here` lists: its
+/// leaderboard, narrowed to the one width, orientation, and design picked
+/// of each, where one alone is.
+fn records_href(kind: Kind, here: &HomeQuery) -> String {
+    let one = |field: Field| match here.picks.of(field)[..] {
+        [pick] => Some(pick),
+        _ => None,
+    };
+    let width = one(Field::Width)
+        .and_then(|width| width.parse().ok())
+        .filter(|_| kind.facts().measures.first() == Some(&Measure::Width));
+    let wanted = Wanted {
+        measures: width.map(|n| (Measure::Width, n)).into_iter().collect(),
+        orientation: one(Field::Orientation).and_then(|o| o.parse().ok()),
+        design: one(Field::Design)
+            .filter(|design| *design != "none")
+            .map(str::to_owned),
+        ..Wanted::default()
+    };
+    wanted.href(&format!("/leaderboards/{}", kind.facts().name))
+}
+
+/// What the site knows of a category, folded away under its title: what
+/// its builds are ranked by, and the designs, lines, and operations it
+/// recognizes of them, as its list gives them, so the page says what an
+/// upload is read for.
+fn about_category(kind: Kind) -> Markup {
+    let facts = kind.facts();
+    let labels = |labels: Vec<String>| labels.join(", ");
+    let flags = |group: FlagGroup| {
+        labels(
+            facts
+                .flags
+                .iter()
+                .filter(|flag| flag.group() == group)
+                .map(|flag| flag.label.to_owned())
+                .collect(),
+        )
+    };
+    let known = [
+        (
+            "Named and ranked by",
+            labels(
+                facts
+                    .measures
+                    .iter()
+                    .map(|m| m.label().to_owned())
+                    .collect(),
+            ),
+        ),
+        (
+            "Usually",
+            facts
+                .logic
+                .map_or_else(String::new, |l| l.label().to_owned()),
+        ),
+        (
+            "Designs",
+            labels(facts.designs.iter().map(Design::label).collect()),
+        ),
+        ("Optional lines", flags(FlagGroup::Lines)),
+        ("Operations", flags(FlagGroup::Operations)),
+        ("Features", flags(FlagGroup::Features)),
+        ("Also searched as", facts.aliases.join(", ")),
+    ];
+    html! {
+        details id="about-category" data-keep class="mb-4 max-w-prose" {
+            summary class="w-fit cursor-pointer text-meta text-muted hover:text-ink" {
+                "What the site recognizes of " (in_sentence(&kind.plural()))
+            }
+            dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-meta" {
+                @for (name, value) in known.iter().filter(|(_, value)| !value.is_empty()) {
+                    dt class="font-semibold text-muted" { (name) }
+                    dd { (value) }
+                }
+            }
+            p class="mt-2 text-meta text-muted" {
+                "The site reads each of these from a build's file and tests them. "
+                a href="/about/recognized#per-category" { "How builds are recognized" }
+            }
+        }
     }
 }
 
@@ -233,21 +339,25 @@ fn layout_switch(here: &HomeQuery) -> Markup {
     }
 }
 
-/// The orders to choose from, as a menu that belongs to the search form,
-/// so choosing one sends the search again. An order the address asked for
-/// that the menu lacks is added to it.
-fn sort_menu(sort: &str) -> Markup {
-    let known = SORTS.iter().any(|(value, _)| *value == sort);
+/// The orders to choose from, each in sight, the one the builds are in
+/// marked. An order the address asked for that the bar lacks is added to
+/// it.
+fn sort_bar(here: &HomeQuery) -> Markup {
+    let order = here.order().name();
+    let known = SORTS.iter().any(|(value, _)| *value == order);
+    let choice = |value: &str, label: &str| {
+        let to = here.sorted(value).href();
+        html! {
+            a id={ "sort-" (value) } href=(to) fx-action=(to) fx-target=(LISTING)
+                class=(SWITCH) aria-current=[(value == order).then_some("page")] { (label) }
+        }
+    };
     html! {
-        label class="flex shrink-0 items-center gap-2" {
-            span class="text-meta font-semibold text-muted" { "Sort by" }
-            select id="sort" name="sort" form="search-form" class="input min-h-9 w-auto text-body" {
-                @for (value, label) in SORTS {
-                    option value=(value) selected[value == sort] { (label) }
-                }
-                @if !known {
-                    option value=(sort) selected { (sort) }
-                }
+        nav aria-label="Sort by" class="flex flex-wrap items-center gap-x-3 gap-y-1" {
+            span class="text-meta font-semibold text-muted" aria-hidden="true" { "Sort by" }
+            div class=(SWITCHES) {
+                @for (value, label) in SORTS { (choice(value, label)) }
+                @if !known { (choice(&order, &order)) }
             }
         }
     }
@@ -305,7 +415,11 @@ fn screen_row(row: &Row, here: &HomeQuery, shown: &str, copy: &str) -> Markup {
                 div class=(SWITCHES) {
                     @let all = here.picking(here.picks.any(field)).href();
                     a id={ "pick-" (field.name()) (copy) } href=(all) fx-action=(all) fx-target=(LISTING)
-                        class=(TOGGLE) aria-pressed=(here.picks.of(field).is_empty()) { "All" }
+                        class=(TOGGLE) aria-pressed=(here.picks.of(field).is_empty()) {
+                        // Where a build must have every pick, none asks
+                        // for any build.
+                        @if field.every() { "Any" } @else { "All" }
+                    }
                     @for (_, choice) in &lead { (toggle(choice)) }
                 }
                 @if !rest.is_empty() {
@@ -326,19 +440,28 @@ fn screen_row(row: &Row, here: &HomeQuery, shown: &str, copy: &str) -> Markup {
 /// The rows the builds are screened by: each field, then the tags, and a
 /// way back to every build once anything narrows them.
 fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
+    // Within a category, clearing keeps to it, as its page is its own.
+    let in_category = here.category().is_some();
+    let kept = match here.category() {
+        Some(category) => HomeQuery::in_category(category).picks,
+        None => Picks::default(),
+    };
+    let narrowed = here.picks != kept || !here.tags.is_empty();
     let cleared = HomeQuery {
-        picks: Picks::default(),
+        picks: kept,
         tags: Vec::new(),
         ..here.clone()
     };
     // A row something is picked of shows whatever else folds away, so no
     // pick narrows the builds out of sight. Of the rest, a few lead and
     // the others fold away under them; a phone, with room for little
-    // above its builds, folds those that lead away too.
+    // above its builds, folds those that lead away too. A category's page
+    // has no row of categories: its title says which it is.
     let picked = |row: &Row| here.picks.has(row.field);
     let (above, rest): (Vec<&Row>, Vec<&Row>) = listing
         .rows
         .iter()
+        .filter(|row| !(in_category && row.field == Field::Category))
         .partition(|row| picked(row) || row.field.leads());
     let lead: Vec<&Row> =
         above.iter().copied().filter(|row| !picked(row)).collect();
@@ -355,7 +478,7 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
             // between them and its rows open full width below all three.
             div class="mt-1 flow-root" {
                 div class="float-right" { (layout_switch(here)) }
-                div class="float-left mr-2" { (sort_menu(&here.sort.name())) }
+                div class="float-left mr-3 mb-2" { (sort_bar(here)) }
                 @if folded > 0 || !lead.is_empty() {
                     details id="more-filters" data-keep open[!here.tags.is_empty()]
                         class=(if folded == 0 { PHONE_ONLY } else { "" }) {
@@ -376,7 +499,7 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
                     }
                 }
             }
-            @if !here.picks.is_empty() || !here.tags.is_empty() {
+            @if narrowed {
                 a href=(cleared.href()) class="w-fit text-meta" { "Clear filters" }
             }
         }
@@ -405,7 +528,10 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
             @for (name, picks) in here.picked() {
                 input type="hidden" form="search-form" name=(name) value=(picks);
             }
-            (listing_header(listing, title))
+            @if !here.sort.0.is_empty() {
+                input type="hidden" form="search-form" name="sort" value=(here.sort.name());
+            }
+            (listing_header(listing, here, title))
             @if !terms.is_empty() {
                 div class="mb-4 flex flex-wrap items-center gap-1.5" {
                     ul class="contents" aria-label="Search terms" {
@@ -433,9 +559,9 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                     "No builds match. " (search_help()) " Remove a term or a filter to widen the search."
                 }
             } @else if view == View::Cards {
-                (cards(shown, terms, listing.viewing))
+                (cards(shown, listing.noted, listing.viewing))
             } @else {
-                (table(shown, terms))
+                (table(shown, listing.noted))
             }
     }
 }
@@ -538,63 +664,21 @@ pub(crate) fn filters(shown: &[Build], chosen: &[String]) -> Vec<Filter> {
     filters
 }
 
-/// Whether a row of its own says what `tag` does of the builds `shown`:
-/// their design, orientation, standing, buses, inputs, timing, or how
-/// their copies stack.
-fn in_a_row(tag: &Tag, shown: &[Build]) -> bool {
-    let named = [
-        tag::FAILING,
-        tag::UNTESTED,
-        tag::UNALIGNED,
-        tag::INTERLEAVED_INPUTS,
-        tag::SYNCED,
-        tag::UNSYNCED,
-        tag::STACKABLE,
-    ];
-    named.contains(&tag.name.as_str())
-        || (tag::is_pitch_stackable(&tag.name)
-            && !tag::is_word_stackable(&tag.name))
-        || shown.iter().any(|s| {
-            s.specs.design.as_deref() == Some(tag.name.as_str())
-                || s.specs.orientation.label().eq_ignore_ascii_case(&tag.name)
-        })
-}
-
-/// Whether `tag` means something only within a category of the builds
-/// `shown`: one of its flags, as an adder's carry in or an ALU's `xor`, or
-/// how far apart a register's copies add words.
-fn of_a_category(tag: &Tag, shown: &[Build]) -> bool {
-    tag::is_word_stackable(&tag.name)
-        || shown
-            .iter()
-            .any(|s| s.flags.iter().any(|flag| flag.name == tag.name))
-}
-
-/// The last row the builds are screened by: the tags some of them carry
-/// that no row above says, each with how many carry it, and those chosen
-/// marked, each to remove. Across categories, only the tags that mean the
-/// same of any build show, as `torchless` does; a category's own join
-/// them within it. Unlike a row's picks, the tags chosen narrow together,
-/// a build carrying them all.
+/// The tags an address narrows the builds by, as a build's badge leads to
+/// its category's builds with one, each to remove. The rows above offer
+/// what a tag says, so none is offered here to add.
 fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
-    let shown = listing.shown;
-    let in_category = here.category().is_some();
-    let mut filters = filters(shown, &here.tags);
-    filters.retain(|f| {
-        f.chosen.is_some()
-            || !(in_a_row(&f.tag, shown)
-                || !in_category && of_a_category(&f.tag, shown))
-    });
+    let mut filters = filters(listing.shown, &here.tags);
+    filters.retain(|f| f.chosen.is_some());
     html! {
         @if !filters.is_empty() {
             div class="flex flex-col gap-x-3 desktop:flex-row desktop:items-start" {
-            (row_label("Tags"))
-            ul aria-label="Filter by tag" class="flex flex-wrap gap-1.5 py-1" {
-                @for filter in &filters {
-                    @let label = filter.tag.label().replace(',', " or ");
-                    li {
-                        @if let Some(i) = filter.chosen {
-                            @let to = here.without_tag(i).href();
+                (row_label("Tags"))
+                ul aria-label="Tag filters" class="flex flex-wrap gap-1.5 py-1" {
+                    @for (filter, i) in filters.iter().filter_map(|f| Some((f, f.chosen?))) {
+                        @let label = filter.tag.label().replace(',', " or ");
+                        @let to = here.without_tag(i).href();
+                        li {
                             a id={ "pick-tag-" (filter.tag.name) } href=(to) fx-action=(to) fx-target=(LISTING)
                                 aria-label={ "Remove the tag filter " (label) }
                                 title=(filter.tag.about())
@@ -602,21 +686,9 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                                 (label)
                                 span aria-hidden="true" { "×" }
                             }
-                        } @else {
-                            @let more: Vec<String> = here.tags.iter().cloned()
-                                .chain([filter.tag.name.clone()]).collect();
-                            @let to = HomeQuery { tags: more, ..here.clone() }.href();
-                            a id={ "pick-tag-" (filter.tag.name) } href=(to) fx-action=(to) fx-target=(LISTING)
-                                aria-label={ "Only builds tagged " (label) ", " (filter.count) }
-                                title=(filter.tag.about())
-                                class={ "badge " (filter.tag.class()) " gap-1.5 hover:no-underline hover:brightness-95" } {
-                                (label)
-                                span class="font-normal tabular-nums" { (filter.count) }
-                            }
                         }
                     }
                 }
-            }
             }
         }
     }

@@ -7,9 +7,12 @@
 //! A field of numbers, as ticks are, takes ranges too: `3` alone, `..3` at
 //! most, `8..` at least, and `100..499` between, both ends counted in.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
-use crate::build::{Build, tag};
+use crate::{
+    build::{Build, tag},
+    category::{FlagGroup, Kind},
+};
 
 /// A pick matching the builds with no value of a field of numbers, or of
 /// unknown logic or timing.
@@ -32,10 +35,15 @@ pub enum Field {
     Category,
     Status,
     Width,
-    State,
     Orientation,
     Encoding,
     Design,
+    /// A category's flags, a group to a field: the lines its builds
+    /// have, what they work out besides, and how they behave.
+    Lines,
+    Operations,
+    Features,
+    State,
     Ticks,
     By,
     Inputs,
@@ -44,17 +52,22 @@ pub enum Field {
     Sync,
     Throughput,
     Volume,
+    /// What a build keeps to, as using no torches.
+    Limits,
 }
 
 impl Field {
-    pub const EVERY: [Field; 15] = [
+    pub const EVERY: [Field; 19] = [
         Field::Category,
         Field::Status,
         Field::Width,
-        Field::State,
         Field::Orientation,
         Field::Encoding,
         Field::Design,
+        Field::Lines,
+        Field::Operations,
+        Field::Features,
+        Field::State,
         Field::Ticks,
         Field::By,
         Field::Inputs,
@@ -63,10 +76,14 @@ impl Field {
         Field::Sync,
         Field::Throughput,
         Field::Volume,
+        Field::Limits,
     ];
 
-    /// Whether it is one of the fields a page leads with, the rest
-    /// folding away under them until one is picked of.
+    /// Whether it is one of the fields a page leads with: what decides
+    /// whether a build fits where it is wanted, and what its category
+    /// alone records. The rest fold away under them until one is picked
+    /// of, as how fast or small a build is orders the builds rather than
+    /// narrowing them.
     pub fn leads(self) -> bool {
         matches!(
             self,
@@ -74,7 +91,59 @@ impl Field {
                 | Field::Width
                 | Field::Orientation
                 | Field::Encoding
+                | Field::Design
+                | Field::Lines
+                | Field::Operations
+                | Field::Features
         )
+    }
+
+    /// The group of flags it screens by, for a field of a category's
+    /// flags.
+    fn flags(self) -> Option<FlagGroup> {
+        match self {
+            Field::Lines => Some(FlagGroup::Lines),
+            Field::Operations => Some(FlagGroup::Operations),
+            Field::Features => Some(FlagGroup::Features),
+            _ => None,
+        }
+    }
+
+    /// Whether a build must match every pick of it, not any: its choices
+    /// are facts a build may have several of, as a carry in and a carry
+    /// out, where another field's are alternatives.
+    pub fn every(self) -> bool {
+        self.flags().is_some() || self == Field::Limits
+    }
+
+    /// Whether it means something only within one category, whose list
+    /// gives its choices: a design or a flag, as a carry cancel is an
+    /// adder's.
+    fn of_a_category(self) -> bool {
+        self.flags().is_some() || self == Field::Design
+    }
+
+    /// Its choices as the category named `category` lists them, each as
+    /// an address writes it and as people read it, so a row offers all
+    /// the category records, whether or not a build has each yet.
+    fn listed(self, category: &str) -> Vec<(String, String)> {
+        let Some(facts) = Kind::named(category).map(Kind::facts) else {
+            return Vec::new();
+        };
+        match self.flags() {
+            Some(group) => facts
+                .flags
+                .iter()
+                .filter(|flag| flag.group() == group)
+                .map(|flag| (flag.name.to_owned(), flag.label.to_owned()))
+                .collect(),
+            None if self == Field::Design => facts
+                .designs
+                .iter()
+                .map(|design| (design.name.to_owned(), design.label()))
+                .collect(),
+            None => Vec::new(),
+        }
     }
 
     /// As an address names it, such as `width`.
@@ -95,6 +164,10 @@ impl Field {
             Field::Throughput => "throughput",
             Field::Volume => "volume",
             Field::By => "by",
+            Field::Lines => FlagGroup::Lines.name(),
+            Field::Operations => FlagGroup::Operations.name(),
+            Field::Features => FlagGroup::Features.name(),
+            Field::Limits => "limits",
         }
     }
 
@@ -116,6 +189,10 @@ impl Field {
             Field::Throughput => "Throughput",
             Field::Volume => "Volume",
             Field::By => "Built by",
+            Field::Lines => FlagGroup::Lines.label(),
+            Field::Operations => FlagGroup::Operations.label(),
+            Field::Features => FlagGroup::Features.label(),
+            Field::Limits => "Limits",
         }
     }
 
@@ -206,9 +283,17 @@ impl Field {
 
     /// The choices build `s` falls under, each as an address writes it
     /// and as people read it: one for most fields, and each person
-    /// credited or pitch its copies stack at.
+    /// credited, pitch its copies stack at, or flag it has.
     fn of(self, s: &Build) -> Vec<(String, String)> {
         let one = |key: &str, label: &str| vec![(key.to_owned(), label.into())];
+        if let Some(group) = self.flags() {
+            return s
+                .flags
+                .iter()
+                .filter(|flag| flag.group() == group)
+                .map(|flag| (flag.name.to_owned(), flag.label.to_owned()))
+                .collect();
+        }
         if self.numeric() {
             return match self.number(s) {
                 Some(n) => vec![self.bucket(n)],
@@ -285,14 +370,20 @@ impl Field {
                 .everyone()
                 .map(|name| (name.to_lowercase(), name.clone()))
                 .collect(),
-            Field::Width | Field::Ticks | Field::Throughput | Field::Volume => {
-                Vec::new()
-            }
+            Field::Limits => s
+                .tags
+                .iter()
+                .filter(|tag| tag.kind == tag::Kind::Restriction)
+                .map(|tag| (tag.name.clone(), tag.label()))
+                .collect(),
+            _ => Vec::new(),
         }
     }
 
     /// Whether build `s` matches `pick`, a choice of this field as an
-    /// address writes it, or any range of a field of numbers.
+    /// address writes it, or any range of a field of numbers. A width
+    /// takes a build whose copies stack to it too, as a 1-bit adder slice
+    /// makes a 16-bit adder.
     fn takes(self, s: &Build, pick: &str) -> bool {
         if pick == ALL {
             return true;
@@ -300,10 +391,17 @@ impl Field {
         if !self.numeric() {
             return self.of(s).iter().any(|(key, _)| key == pick);
         }
-        match (self.number(s), Range::parse(pick)) {
-            (Some(n), Some(range)) => range.holds(n),
-            (Some(_), None) => false,
-            (None, _) => pick == UNKNOWN,
+        let numbers: Vec<i64> = match self {
+            Field::Width => crate::search::widths(s)
+                .into_iter()
+                .map(|(width, _)| width)
+                .collect(),
+            _ => self.number(s).into_iter().collect(),
+        };
+        match Range::parse(pick) {
+            _ if numbers.is_empty() => pick == UNKNOWN,
+            Some(range) => numbers.into_iter().any(|n| range.holds(n)),
+            None => false,
         }
     }
 }
@@ -458,16 +556,32 @@ impl Picks {
         self.with(field, Vec::new())
     }
 
-    /// Whether build `s` matches a pick of every field but `except`.
+    /// The one category picked, when it is one alone.
+    pub fn category(&self) -> Option<&str> {
+        match self.of(Field::Category)[..] {
+            [category] => Some(category),
+            _ => None,
+        }
+    }
+
+    /// Whether build `s` matches what is picked of `field`: any pick, or
+    /// every one where the field's choices are facts a build has several
+    /// of.
+    fn matches(&self, s: &Build, field: Field) -> bool {
+        let picks = self.of(field);
+        if field.every() {
+            picks.iter().all(|pick| field.takes(s, pick))
+        } else {
+            picks.is_empty() || picks.iter().any(|pick| field.takes(s, pick))
+        }
+    }
+
+    /// Whether build `s` matches the picks of every field but `except`.
     pub fn take(&self, s: &Build, except: Option<Field>) -> bool {
         Field::EVERY
             .into_iter()
             .filter(|&field| Some(field) != except)
-            .all(|field| {
-                let picks = self.of(field);
-                picks.is_empty()
-                    || picks.iter().any(|pick| field.takes(s, pick))
-            })
+            .all(|field| self.matches(s, field))
     }
 
     /// Whether build `s` is where the picks look: of a category and a
@@ -476,11 +590,7 @@ impl Picks {
         Field::EVERY
             .into_iter()
             .filter(|field| field.scopes())
-            .all(|field| {
-                let picks = self.of(field);
-                picks.is_empty()
-                    || picks.iter().any(|pick| field.takes(s, pick))
-            })
+            .all(|field| self.matches(s, field))
     }
 }
 
@@ -507,83 +617,134 @@ pub struct Row {
 }
 
 /// The fields to narrow `builds` by, each with its choices: those the
-/// builds of the categories and standing picked have, so a row keeps its
-/// choices as the others narrow, each with how many builds it would
-/// leave. A field its builds all agree on has no row, unless something is
-/// picked of it.
+/// builds of the categories and standing picked have, and all their one
+/// category lists of a design or flag, so a row keeps its choices as the
+/// others narrow, each with how many builds it would leave. A field its
+/// builds all agree on has no row, unless something is picked of it, nor
+/// has a category's own field outside one category.
 pub fn rows(builds: &[&Build], picks: &Picks) -> Vec<Row> {
     Field::EVERY
         .into_iter()
-        .filter_map(|field| {
-            let mut choices: Vec<Choice> = Vec::new();
-            for s in builds {
-                if !field.scopes() && !picks.scope(s) {
-                    continue;
-                }
-                let counts = picks.take(s, Some(field));
-                for (key, label) in field.of(s) {
-                    let found = choices.iter().position(|c| c.key == key);
-                    let i = found.unwrap_or_else(|| {
-                        choices.push(Choice {
-                            key,
-                            label,
-                            count: 0,
-                            all: 0,
-                            chosen: false,
-                        });
-                        choices.len() - 1
-                    });
-                    choices[i].count += usize::from(counts);
-                    choices[i].all += 1;
-                }
-            }
-            let picked = picks.of(field);
-            let several = choices.len() > 1;
-            for pick in &picked {
-                match choices.iter_mut().find(|c| c.key == *pick) {
-                    Some(choice) => choice.chosen = true,
-                    // A range no choice stands for, or a value no build
-                    // here has.
-                    None => choices.push(Choice {
-                        key: (*pick).to_owned(),
-                        label: Range::parse(pick).map_or_else(
-                            || pick.replace('_', " "),
-                            Range::label,
-                        ),
-                        count: builds
-                            .iter()
-                            .filter(|s| {
-                                picks.take(s, Some(field))
-                                    && field.takes(s, pick)
-                            })
-                            .count(),
-                        all: 0,
-                        chosen: true,
-                    }),
-                }
-            }
-            if field.numeric() {
-                choices.sort_by_key(|c| Field::rank(&c.key));
-            } else if field.by_count() {
-                choices.sort_by(|a, b| {
-                    b.all.cmp(&a.all).then(a.label.cmp(&b.label))
-                });
-            } else {
-                // By name, the working first and what says a build has
-                // none of the field last.
-                let last = [UNKNOWN, "none", "no", "other"];
-                choices.sort_by_key(|c| {
-                    (c.key != "working", last.contains(&&*c.key), c.key.clone())
-                });
-            }
-            // A design is its category's, as a carry cancel is an adder's,
-            // so it has a row only within one.
-            let apart =
-                field == Field::Design && picks.of(Field::Category).len() != 1;
-            (picks.0.contains_key(&field) || several && !apart)
-                .then_some(Row { field, choices })
-        })
+        .filter_map(|field| row(field, builds, picks))
         .collect()
+}
+
+/// [`rows`]' row of `field`, when it has one.
+fn row(field: Field, builds: &[&Build], picks: &Picks) -> Option<Row> {
+    let category = picks.category();
+    // The builds the field's choices come from, and those a choice counts
+    // among: the builds the other fields take, and this one's picks too
+    // where a build must match them all.
+    let scoped: Vec<&Build> = builds
+        .iter()
+        .copied()
+        .filter(|s| field.scopes() || picks.scope(s))
+        .collect();
+    let except = (!field.every()).then_some(field);
+    let counted: Vec<&Build> = builds
+        .iter()
+        .copied()
+        .filter(|s| picks.take(s, except))
+        .collect();
+    let mut found: Vec<(String, String)> =
+        category.map_or_else(Vec::new, |category| field.listed(category));
+    for s in &scoped {
+        for (key, label) in field.of(s) {
+            if !found.iter().any(|(known, _)| *known == key) {
+                found.push((key, label));
+            }
+        }
+    }
+    let picked = picks.of(field);
+    let enough = if field.every() {
+        !found.is_empty()
+    } else {
+        found.len() > 1
+    };
+    // A range no choice stands for, or a value no build here has.
+    for pick in &picked {
+        if !found.iter().any(|(known, _)| known == pick) {
+            let label = Range::parse(pick)
+                .map_or_else(|| pick.replace('_', " "), Range::label);
+            found.push(((*pick).to_owned(), label));
+        }
+    }
+    let having = |among: &[&Build], key: &str| {
+        among.iter().filter(|s| field.takes(s, key)).count()
+    };
+    let mut choices: Vec<Choice> = found
+        .into_iter()
+        .map(|(key, label)| Choice {
+            count: having(&counted, &key),
+            all: having(&scoped, &key),
+            chosen: picked.contains(&key.as_str()),
+            key,
+            label,
+        })
+        .collect();
+    if field.numeric() {
+        choices.sort_by_key(|c| Field::rank(&c.key));
+    } else if field.by_count() {
+        choices.sort_by(|a, b| b.all.cmp(&a.all).then(a.label.cmp(&b.label)));
+    } else if !field.every() {
+        // By name, the working first and what says a build has none of
+        // the field last.
+        let last = [UNKNOWN, "none", "no", "other"];
+        choices.sort_by_key(|c| {
+            (c.key != "working", last.contains(&&*c.key), c.key.clone())
+        });
+    }
+    let apart = field.of_a_category() && category.is_none();
+    (picks.has(field) || enough && !apart).then_some(Row { field, choices })
+}
+
+/// Where a build places among its peers: the better of its places as
+/// fastest and smallest, then the other, which parts builds as fast as
+/// one another by their size. A record holder's better place is 1.
+pub type Place = (usize, usize);
+
+/// Each build's place among its peers, by its id: the builds of its
+/// category that match it in its measures, such as width, and in whether
+/// they hold state, ranked fastest and smallest. A build that ranks on no
+/// board has none.
+pub fn places(builds: &[Build]) -> HashMap<String, Place> {
+    type Peers<'a> = (&'a str, Vec<i64>, Option<crate::build::Logic>);
+    let mut groups: BTreeMap<Peers, Vec<&Build>> = BTreeMap::new();
+    for s in builds.iter().filter(|s| s.ranks()) {
+        let measures: Option<Vec<i64>> =
+            s.measures().iter().map(|&m| s.specs.of(m)).collect();
+        if let Some(measures) = measures.filter(|m| !m.is_empty()) {
+            groups
+                .entry((s.category.as_str(), measures, s.logic()))
+                .or_default()
+                .push(s);
+        }
+    }
+    let mut places: HashMap<String, Place> = HashMap::new();
+    for peers in groups.values() {
+        let ranked = |of: &dyn Fn(&Build) -> Option<i64>| {
+            let mut values: Vec<i64> =
+                peers.iter().filter_map(|s| of(s)).collect();
+            values.sort_unstable();
+            values.dedup();
+            values
+        };
+        let ticks = ranked(&|s| s.specs.latency);
+        let blocks = ranked(&|s| Some(s.volume()));
+        for s in peers {
+            // A build of unknown latency places last as fastest.
+            let place = |values: &[i64], n: Option<i64>| {
+                values
+                    .iter()
+                    .position(|v| Some(*v) == n)
+                    .map_or(usize::MAX, |i| i + 1)
+            };
+            let fast = place(&ticks, s.specs.latency);
+            let small = place(&blocks, Some(s.volume()));
+            places.insert(s.id.clone(), (fast.min(small), fast.max(small)));
+        }
+    }
+    places
 }
 
 #[cfg(test)]
@@ -604,6 +765,79 @@ mod tests {
             picks.set(field, text);
         }
         picks
+    }
+
+    /// An adder with the flags named `flags`.
+    fn adder(flags: &[&'static str]) -> Build {
+        let mut s = build("adder", 8, Some(3));
+        s.flags = flags
+            .iter()
+            .map(|&name| crate::category::Flag { name, label: name })
+            .collect();
+        s
+    }
+
+    /// Within a category, a row offers every flag its list gives of a
+    /// group, had or not, and a build must have every one picked.
+    #[test]
+    fn a_category_offers_its_flags_and_a_build_must_have_each_picked() {
+        let builds = [
+            adder(&["carry_in", "carry_out"]),
+            adder(&["carry_in"]),
+            adder(&[]),
+        ];
+        let builds: Vec<&Build> = builds.iter().collect();
+        let within = |io: &str| {
+            let mut given = vec![(Field::Category, "adder")];
+            if !io.is_empty() {
+                given.push((Field::Lines, io));
+            }
+            picks(&given)
+        };
+        assert_eq!(
+            counts(&rows(&builds, &within("")), Field::Lines),
+            [
+                ("carry_in".to_owned(), 2, false),
+                ("carry_out".to_owned(), 1, false),
+                ("inverted_carry_in".to_owned(), 0, false),
+                ("inverted_carry_out".to_owned(), 0, false),
+            ]
+        );
+        let both = within("carry_in,carry_out");
+        assert_eq!(builds.iter().filter(|s| both.take(s, None)).count(), 1);
+        // A choice counts the builds that have it with those picked.
+        assert_eq!(
+            counts(&rows(&builds, &within("carry_out")), Field::Lines)[0],
+            ("carry_in".to_owned(), 1, false)
+        );
+        // Across categories a flag means nothing, so it has no row.
+        assert_eq!(counts(&rows(&builds, &Picks::default()), Field::Lines), []);
+    }
+
+    /// A build places among the builds of its category and width, by the
+    /// better of its places as fastest and smallest, then the other.
+    #[test]
+    fn a_build_places_among_its_peers() {
+        let sized = |id: &str, width, ticks, blocks| {
+            let mut s = build("adder", width, Some(ticks));
+            s.id = id.to_owned();
+            s.file.size = (blocks, 1, 1);
+            s
+        };
+        let builds = [
+            sized("fast", 8, 3, 900),
+            sized("fast-and-small", 8, 3, 700),
+            sized("small", 8, 9, 400),
+            sized("slow-and-big", 8, 9, 950),
+            sized("alone", 16, 20, 5000),
+        ];
+        let places = places(&builds);
+        let place = |id: &str| places.get(id).copied();
+        assert_eq!(place("fast-and-small"), Some((1, 2)));
+        assert_eq!(place("fast"), Some((1, 3)));
+        assert_eq!(place("small"), Some((1, 2)));
+        assert_eq!(place("slow-and-big"), Some((2, 4)));
+        assert_eq!(place("alone"), Some((1, 1)));
     }
 
     fn counts(rows: &[Row], field: Field) -> Vec<(String, usize, bool)> {

@@ -230,7 +230,42 @@ pub struct Flag {
     pub label: &'static str,
 }
 
+named_values! {
+    /// What a flag says of a build, which groups a category's flags where
+    /// its builds are screened by them.
+    FlagGroup {
+        /// A line it has, or how one reads, as a carry in or an inverted
+        /// carry out.
+        Lines = "io", "I/O";
+        /// Something it works out beyond its category's one job, as an
+        /// ALU's XOR.
+        Operations = "operations", "Operations";
+        /// How it behaves, as a shift register being bidirectional.
+        Features = "features", "Features";
+    }
+}
+
 impl Flag {
+    /// The group it is screened under.
+    pub fn group(&self) -> FlagGroup {
+        match self.name {
+            Flag::CARRY_IN
+            | Flag::CARRY_OUT
+            | Flag::BORROW_IN
+            | Flag::BORROW_OUT
+            | Flag::INVERTED_CARRY_IN
+            | Flag::INVERTED_CARRY_OUT
+            | "overflow"
+            | "zero"
+            | "inverted"
+            | "falling_edge" => FlagGroup::Lines,
+            "and" | "or" | "xor" | "nand" | "nor" | "xnor" | "shl" | "shr"
+            | "asr" | "nadd" | "nsub" | "subtract" | "fma"
+            | "upper_product" => FlagGroup::Operations,
+            _ => FlagGroup::Features,
+        }
+    }
+
     /// The flag of a build with a carry in.
     pub const CARRY_IN: &str = "carry_in";
     /// The flag of a build with a carry out.

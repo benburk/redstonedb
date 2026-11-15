@@ -13,12 +13,17 @@ use crate::{
     leaderboard::{
         self, Board, Choice, Inputs, Placed, Ruler, SHOWN, Wanted, in_sentence,
     },
+    screen::Field,
     simulate::Group,
     web::{
-        browse::list_view::{Facet, category_menu},
+        browse::{
+            list_view::{Facet, category_menu},
+            query::HomeQuery,
+        },
         href,
         ui::{
-            PAGE_TITLE, SECTION_TITLE, Segment, TABLE_CELL, TABLE_HEAD,
+            PAGE_TITLE, SECTION_TITLE, Segment, TABLE_CELL, TABLE_HEAD, Tab,
+            category_tabs,
             layout::base,
             person, segmented,
             summary::{self, latency},
@@ -60,6 +65,9 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
         &html! {
             div {
                 (heading(&category.plural, facets, &category.name))
+                div class="mb-4" {
+                    (category_tabs(Tab::Records, &builds_href(category, board), &path))
+                }
                 @if !board.ranked {
                     p class="text-muted" {
                         "No " (in_sentence(&category.plural)) " of known "
@@ -73,6 +81,26 @@ pub fn leaderboard(viewer: Option<&User>, page: &LeaderboardPage) -> Markup {
             }
         },
     )
+}
+
+/// Where the builds a board ranks are listed: its category's builds,
+/// narrowed to the width, orientation, and design the board is.
+fn builds_href(category: &Category, board: &Board) -> String {
+    let mut query = HomeQuery::in_category(&category.name);
+    let width = chosen_measures(board, board.splits.len())
+        .into_iter()
+        .find(|(measure, _)| *measure == Measure::Width);
+    if let Some((_, width)) = width {
+        query.picks.set(Field::Width, &width.to_string());
+    }
+    if let Some(orientation) = board.orientation {
+        query.picks.set(Field::Orientation, orientation.name());
+    }
+    if let Some(design) = board.design.as_deref().filter(|_| board.all_designs)
+    {
+        query.picks.set(Field::Design, design);
+    }
+    query.href()
 }
 
 /// The values chosen of the board's first `count` measures.

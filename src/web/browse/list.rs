@@ -17,7 +17,9 @@ use crate::{
     account::User,
     build::{Build, tag},
     category::Category,
-    leaderboard, screen, search,
+    leaderboard,
+    screen::{self, Field},
+    search,
     store::{builds, users},
     web::{
         app_state::AppState,
@@ -191,6 +193,8 @@ async fn listing(
     let terms = search::parse(&query.q);
     let all = builds::visible(&state.db, viewer).await?;
     let total = all.len();
+    // A build places among every build like it, whatever is searched for.
+    let places = screen::places(&all);
     let found: Vec<Build> = search::matching(&terms, all)
         .into_iter()
         .filter(|s| has_tags(s, &query.tags))
@@ -204,13 +208,22 @@ async fn listing(
         .into_iter()
         .filter(|s| query.picks.take(s, None))
         .collect();
-    order(&mut shown, &query.sort);
+    order(&mut shown, &query.order(), &places);
     let viewing = viewing(&state.db, viewer).await?;
+    // A build its copies stack to the one width picked says so, as it
+    // does to a width searched for.
+    let mut noted = terms.clone();
+    if let [width] = query.picks.of(Field::Width)[..]
+        && width.parse::<i64>().is_ok()
+    {
+        noted.extend(search::parse(&format!("{width}b")));
+    }
     let listing = Listing {
         shown: &shown,
         total,
         query: &query,
         terms: &terms,
+        noted: &noted,
         title: title(&query),
         rows: &rows,
         viewing: &viewing,
@@ -240,12 +253,24 @@ fn has_tags(s: &Build, groups: &[String]) -> bool {
     })
 }
 
-/// Orders builds by `sort`. An unknown latency goes last either way. Ties,
-/// and an empty sort, fall back to newest first.
-fn order(shown: &mut [Build], sort: &Sort) {
+/// Orders builds by `sort`. An unknown latency goes last either way, as
+/// does a build with no place among its peers, `places` giving each its
+/// best; those placed alike go most favourited, then most downloaded,
+/// first. Ties, and an empty sort, fall back to newest first.
+fn order(
+    shown: &mut [Build],
+    sort: &Sort,
+    places: &HashMap<String, screen::Place>,
+) {
+    let last = (usize::MAX, usize::MAX);
+    let place = |s: &Build| places.get(&s.id).copied().unwrap_or(last);
     shown.sort_by(|a, b| {
         for &(field, descending) in &sort.0 {
             let ordering = match field {
+                SortField::Top => place(a)
+                    .cmp(&place(b))
+                    .then(b.entry.favorites.cmp(&a.entry.favorites))
+                    .then(b.entry.downloads.cmp(&a.entry.downloads)),
                 SortField::AddedAt => a.entry.added_at.cmp(&b.entry.added_at),
                 SortField::Volume => a.volume().cmp(&b.volume()),
                 SortField::Downloads => {
