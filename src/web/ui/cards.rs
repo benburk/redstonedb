@@ -49,9 +49,13 @@ pub(crate) fn cards(
     }
 }
 
-/// The list holding cards: as many 16rem cards to a row as fit, and two
-/// on a phone.
-pub(crate) const CARDS: &str = "grid grid-cols-[repeat(auto-fill,minmax(min(16rem,calc(50%_-_0.375rem)),1fr))] gap-3 sm:gap-5";
+/// The list holding cards: one to a row on a phone, then two, and up to
+/// five as the window widens, each step where a row has room for another
+/// card of 16rem beside the sidebar. The steps go by the window, not by
+/// the room the list has, which the sidebar coming in takes some of, so a
+/// wider window never shows fewer to a row. A page holding one, marked
+/// `cards`, is let wider than another, for the fifth.
+pub(crate) const CARDS: &str = "cards grid grid-cols-1 gap-3 sm:gap-5 min-[30rem]:grid-cols-2 min-[70rem]:grid-cols-3 min-[88rem]:grid-cols-4 min-[104rem]:grid-cols-5";
 
 /// The picture of `s`, at an address that changes with its file, with
 /// the viewer's `palette`, and as it comes to be drawn in a theme's
