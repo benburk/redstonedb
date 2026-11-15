@@ -6,7 +6,7 @@ use crate::simulate::Rule;
 use anyhow::Result;
 
 use crate::{
-    category::{incrementer::incrementer_cases, test::BySpec},
+    category::test::BySpec,
     interface::{self, Interface},
     simulate::{
         bench::{Bench, Kind, Spec, mask},
@@ -59,10 +59,8 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let mut inputs = vec![a];
     inputs.extend(lines);
     let bench = Bench::new(inputs, outputs, &pattern);
-    let widths = bench.widths(interface);
     Ok(Spec {
         bench,
-        cases: Box::new(move || incrementer_cases(&widths)),
         kinds: vec![Kind::new(&pattern, move |case| {
             if negated || case[1] == 1 {
                 case[0].wrapping_neg() & mask(width)
@@ -70,7 +68,6 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
                 case[0]
             }
         })],
-        by_digit: false,
     })
 }
 

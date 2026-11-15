@@ -12,7 +12,7 @@ use crate::{
     interface::{Interface, Port},
     simulate::{
         Reading, Value,
-        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
+        bench::{Bench, Kind, Spec, mask},
         broken,
         circuit::output_bits,
     },
@@ -29,9 +29,7 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
     at_least_two(width, "An absolute value")?;
     Ok(Spec {
         bench,
-        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("|A|", move |case| absolute(case[0], width))],
-        by_digit: false,
     })
 }
 
@@ -84,11 +82,9 @@ pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("ones in A", |case| {
             Value::from(case[0].count_ones())
         })],
-        by_digit: false,
     })
 }
 
@@ -112,9 +108,7 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
     interface.outputs[out].signal_strength = true;
     Ok(Spec {
         bench,
-        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("A as a strength", |case| case[0])],
-        by_digit: false,
     })
 }
 
@@ -139,9 +133,7 @@ pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("A in binary", |case| case[0])],
-        by_digit: false,
     })
 }
 
@@ -175,12 +167,10 @@ pub(super) fn hex_input_spread(interface: &Interface) -> Result<Spec> {
     let copies = has / width;
     Ok(Spec {
         bench,
-        cases: Box::new(move || digit_cases(width)),
         kinds: vec![Kind::new("A on each copy", move |case| {
             (0..copies)
                 .fold(0, |spread, copy| spread | case[0] << (copy * width))
         })],
-        by_digit: true,
     })
 }
 
@@ -202,7 +192,6 @@ pub(super) fn hex_max(interface: &Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Box::new(move || max_cases(width)),
         kinds: vec![Kind::new("largest digit of A", move |case| {
             (0..width)
                 .step_by(4)
@@ -210,50 +199,7 @@ pub(super) fn hex_max(interface: &Interface) -> Result<Spec> {
                 .max()
                 .unwrap_or(0)
         })],
-        by_digit: true,
     })
-}
-
-/// The values of A, of `width` bits, a build of digits too wide to try
-/// every one of is checked on: every value of each digit, the others 0,
-/// and the test patterns, with how many are patterns.
-fn digit_cases(width: usize) -> (Vec<Case>, u64) {
-    let mut cases = Distinct::default();
-    for low in (0..width).step_by(4) {
-        for v in 0..16 {
-            cases.add([v << low, 0, 0]);
-        }
-    }
-    let digits = cases.len();
-    for a in patterns(width) {
-        cases.add([a, 0, 0]);
-    }
-    let paired = (cases.len() - digits) as u64;
-    (cases.cases, paired)
-}
-
-/// The values of A, of `width` bits, a hex max is checked on: each digit
-/// given every value while every other digit holds each value, so each is
-/// weighed against the rest whichever is larger, and the test patterns,
-/// with how many are patterns.
-fn max_cases(width: usize) -> (Vec<Case>, u64) {
-    let every =
-        |digit: Value| (0..width).step_by(4).fold(0, |a, low| a | digit << low);
-    let mut cases = Distinct::default();
-    for low in (0..width).step_by(4) {
-        for rest in 0..16 {
-            for v in 0..16 {
-                let a = every(rest) & !(0xf << low) | v << low;
-                cases.add([a, 0, 0]);
-            }
-        }
-    }
-    let digits = cases.len();
-    for a in patterns(width) {
-        cases.add([a, 0, 0]);
-    }
-    let paired = (cases.len() - digits) as u64;
-    (cases.cases, paired)
 }
 
 /// A threshold's cases, at least `k` of A's bits on, as they are named.
@@ -276,7 +222,6 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
     let most = u32::try_from(width).unwrap_or(u32::MAX);
     Ok(Spec {
         bench,
-        cases: Box::new(move || byte_cases(width)),
         kinds: (1..=most)
             .map(|k| {
                 Kind::new(&threshold_pattern(k), move |case| {
@@ -285,7 +230,6 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
                 .reading(Reading::Threshold { at_least: k })
             })
             .collect(),
-        by_digit: false,
     })
 }
 
@@ -303,11 +247,9 @@ pub(super) fn parity(interface: &Interface) -> Result<Spec> {
     }
     Ok(Spec {
         bench,
-        cases: Box::new(move || byte_cases(width)),
         kinds: vec![Kind::new("xor of A's bits", |case| {
             Value::from(case[0].count_ones() % 2 == 1)
         })],
-        by_digit: false,
     })
 }
 
@@ -352,24 +294,6 @@ fn absolute(a: Value, width: usize) -> Value {
     } else {
         a
     }
-}
-
-/// The values of A a one-input build too wide to try every one of is
-/// checked on: every value of each byte, the other bits clear, and the test
-/// patterns, with how many are patterns.
-pub(super) fn byte_cases(width: usize) -> (Vec<Case>, u64) {
-    let mut cases = Distinct::default();
-    for low in (0..width).step_by(8) {
-        for v in 0..1 << (width - low).min(8) {
-            cases.add([v << low, 0, 0]);
-        }
-    }
-    let bytes = cases.len();
-    for a in patterns(width) {
-        cases.add([a, 0, 0]);
-    }
-    let paired = (cases.len() - bytes) as u64;
-    (cases.cases, paired)
 }
 
 pub(super) const ABSOLUTE_VALUE: BySpec =
@@ -439,7 +363,9 @@ mod tests {
             binary_outputs: false,
         })
         .unwrap();
-        let odd = |case: &Case| Value::from(case[0].count_ones() % 2 == 1);
+        let odd = |case: &crate::simulate::bench::Case| {
+            Value::from(case[0].count_ones() % 2 == 1)
+        };
         let run = judged(inputs, outputs, &spec.kinds, odd);
         assert_eq!((run.wrong, run.cases), (0, 16));
         assert_eq!(run.pattern, "xor of A's bits");

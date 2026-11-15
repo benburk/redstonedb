@@ -18,7 +18,8 @@ use crate::{
 };
 
 /// The test a build of one category gets, which tries every case when they
-/// number few enough, else every case of each byte and the test patterns.
+/// number few enough, else every pairing of the test patterns; see
+/// `bench::cases`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Test {
     /// The sums of A, B, and any carry in, or, B inverted, the differences

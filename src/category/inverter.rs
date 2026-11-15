@@ -6,11 +6,11 @@
 use anyhow::{Result, bail};
 
 use crate::{
-    category::{Test, converters::byte_cases, test::BySpec},
+    category::{Test, test::BySpec},
     interface::{self, Interface},
     simulate::{
         Stacker,
-        bench::{Bench, Case, Kind, Spec, mask},
+        bench::{Bench, Kind, Spec, mask},
         broken,
         circuit::output_bits,
     },
@@ -36,20 +36,9 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let pattern = format!("A xor {}", interface.inputs[line].name);
     Ok(Spec {
         bench: Bench::new(vec![a, line], outputs, &pattern),
-        cases: Box::new(move || {
-            let (values, paired) = byte_cases(width);
-            let cases = [0, 1]
-                .into_iter()
-                .flat_map(|on| {
-                    values.iter().map(move |&[a, ..]| -> Case { [a, on, 0] })
-                })
-                .collect();
-            (cases, 2 * paired)
-        }),
         kinds: vec![Kind::new(&pattern, move |case| {
             case[0] ^ if case[1] == 1 { mask(width) } else { 0 }
         })],
-        by_digit: false,
     })
 }
 

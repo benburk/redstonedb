@@ -397,7 +397,7 @@ fn a_hex_adder_is_driven_digit_by_digit() {
         .map(|signal| (signal.name.as_str(), signal.bits))
         .collect();
     assert_eq!(widths, [("output", 32), ("carry out", 1)]);
-    assert!(!run.exhaustive && run.by_digit && run.cases < 20_000);
+    assert!(!run.exhaustive && run.cases < 20_000);
     assert_eq!(run.wrong, 0);
 }
 
@@ -561,7 +561,9 @@ fn an_alu_runs_each_operation_its_signs_name() {
         run.pattern,
         "add, sub, and, or, xor, nand, nor, xnor, shr, asr"
     );
-    assert_eq!((run.cases, run.wrong), (10 * 65_536, 0));
+    // An 8-bit ALU's operation lines make it too wide to try every case:
+    // each operation pairs A's and B's 32 patterns.
+    assert_eq!((run.cases, run.wrong), (10 * 32 * 32, 0));
     let outputs: Vec<&str> =
         run.outputs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
@@ -599,8 +601,8 @@ fn an_alus_inverted_carry_out_is_wrong() {
     let Report::Ran(run) = Test::Alu.run(&blocks) else {
         panic!("the ALU was not simulated");
     };
-    assert_eq!(run.wrong, 2 * 65_536);
-    assert_eq!(run.wrong_bits, [("carry out".to_owned(), 2 * 65_536)]);
+    assert_eq!(run.wrong, 2 * 32 * 32);
+    assert_eq!(run.wrong_bits, [("carry out".to_owned(), 2 * 32 * 32)]);
     assert_eq!(run.examples[0].op.as_deref(), Some("add"));
 }
 
@@ -617,9 +619,9 @@ fn an_alu_is_tried_on_operations_no_sign_names() {
         run.pattern,
         "add (no lines on), and, or (xor + and on), xor"
     );
-    // Add takes its carry in too: twice A and B's cases.
-    assert_eq!(run.cases, 2 * 65_536 + 3 * 65_536);
-    assert_eq!(run.wrong_bits, [("output bit 7".to_owned(), 16_384)]);
+    // Add takes its carry in too: twice A and B's pairings.
+    assert_eq!(run.cases, 2 * 32 * 32 + 3 * 32 * 32);
+    assert_eq!(run.wrong_bits, [("output bit 7".to_owned(), 160)]);
 }
 
 /// A register fixture as an upload standardizes it, as its file and its
@@ -1138,7 +1140,7 @@ fn a_hex_max_gives_the_largest_of_its_digits() {
     let found = app::recognize::probe::recognize(&data).unwrap();
     assert_eq!(
         found.found.as_deref(),
-        Some("a hex max: all 1944 cases right, largest digit of A"),
+        Some("a hex max: all 1068 cases right, largest digit of A"),
         "{:?}",
         found.problems
     );
@@ -1147,7 +1149,7 @@ fn a_hex_max_gives_the_largest_of_its_digits() {
         panic!("the max was not simulated");
     };
     assert_eq!(run.wrong, 0, "{:?}", run.examples);
-    assert!(run.by_digit);
+    assert!(!run.exhaustive);
     assert_eq!(app::category::guess(&blocks).unwrap().category, "hex_max");
     // Named for its eight digits in, not the 32 bits they come to.
     let found = read::derived("hex_max", &interface::read(&blocks));
@@ -1815,14 +1817,14 @@ fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
 
 /// A hex adder of 16 digits, 64 bits a side, gives a sum and a carry out
 /// of 65 bits, which its outputs are read into as one value: it is taken
-/// for a hex adder and tested as one, each digit's every case and the
-/// patterns, where its outputs once wrapped round, or panicked in a debug
-/// build, and then were too wide to simulate. The build itself, e76edf,
-/// drops some carries into its odd digits, as 0x100 + 0xF00 with a carry
-/// in, which gives 0x001 for 0x1001.
+/// for a hex adder and tested as one, every pairing of the patterns,
+/// where its outputs once wrapped round, or panicked in a debug build,
+/// and then were too wide to simulate. The build itself, e76edf, drops
+/// some carries, as all ones but bit 31 plus 1, whose carry stops at bit
+/// 32, so its top half comes out clear and its carry out on.
 #[test]
 #[ignore = "measures whole builds: just test-full"]
-fn a_64_bit_hex_adder_is_tested_digit_by_digit() {
+fn a_64_bit_hex_adder_is_tested_by_its_patterns() {
     let blocks = blocks("hex-adder-64");
     assert_eq!(app::category::guess(&blocks).unwrap().category, "hex_adder");
     let Report::Ran(run) = Test::Adder.run(&blocks) else {
@@ -1834,11 +1836,11 @@ fn a_64_bit_hex_adder_is_tested_digit_by_digit() {
         .map(|signal| (signal.name.as_str(), signal.bits))
         .collect();
     assert_eq!(widths, [("output", 64), ("carry out", 1)]);
-    assert!(!run.exhaustive && run.by_digit && run.cases < 30_000);
-    assert_eq!(run.cases, 24_631);
-    assert_eq!(run.examples[0].inputs, [0x100, 0xF00, 1]);
-    assert_eq!(run.examples[0].expected, [0x1001, 0]);
-    assert_eq!(run.examples[0].got, [0x001, 0]);
+    assert!(!run.exhaustive && run.cases < 30_000);
+    assert_eq!((run.cases, run.wrong), (12_800, 866));
+    assert_eq!(run.examples[0].inputs, [0xFFFF_FFFF_7FFF_FFFF, 1, 0]);
+    assert_eq!(run.examples[0].expected, [0xFFFF_FFFF_8000_0000, 0]);
+    assert_eq!(run.examples[0].got, [0x8000_0000, 1]);
 }
 
 /// A 1-wide T flip-flop's copies are cells, each toggling its own bit:

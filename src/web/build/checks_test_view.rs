@@ -74,8 +74,8 @@ pub(crate) fn tried(run: &Run) -> Markup {
         p class="text-meta text-muted" {
             (grouped(run.cases)) " cases of " (run.pattern) ": "
             @if run.exhaustive { "every combination" } @else {
-                "every case of each " @if run.by_digit { "hex digit" } @else { "byte" }
-                " and " (grouped(run.patterns)) " pairings of test patterns"
+                "every pairing of the test patterns"
+                @if run.cases > run.patterns { " and every value of each byte" }
             }
             "."
         }

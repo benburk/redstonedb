@@ -7,7 +7,7 @@
 use anyhow::Result;
 
 use crate::{
-    category::{Test, adder::adder_cases, test::BySpec},
+    category::{Test, test::BySpec},
     interface::Interface,
     simulate::{
         Stacker, Value,
@@ -114,11 +114,9 @@ pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
     bench.invertible = false;
     Ok(Spec {
         bench,
-        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![Kind::new(pattern, move |case| {
             gate.apply(case[0], case[1], width)
         })],
-        by_digit: false,
     })
 }
 
@@ -164,12 +162,10 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
     let xnor = move |case: &Case| !(case[0] ^ case[1]) & all;
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![first, second], NAND_XNOR),
-        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![
             Kind::new(NAND_XNOR, move |case| nand(case) | xnor(case) << width),
             Kind::new(XNOR_NAND, move |case| xnor(case) | nand(case) << width),
         ],
-        by_digit: false,
     })
 }
 

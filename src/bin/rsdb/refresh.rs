@@ -288,10 +288,10 @@ pub(super) fn print_report(name: &str, report: &Report) {
     match report {
         Report::Ran(run) if run.wrong == 0 => println!(
             "ok      {name}: {} {} {}, all right",
-            match (run.exhaustive, run.by_digit) {
-                (true, _) => "every",
-                (false, true) => "each digit's and the patterns'",
-                (false, false) => "each byte's and the patterns'",
+            if run.exhaustive {
+                "every"
+            } else {
+                "the patterns'"
             },
             run.cases,
             run.pattern

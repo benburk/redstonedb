@@ -10,7 +10,7 @@ use crate::{
     interface::{self, Interface},
     simulate::{
         Counts, Reading, Value,
-        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
+        bench::{Bench, Kind, Spec},
         broken,
     },
 };
@@ -48,13 +48,7 @@ pub(super) fn spec(
              subtracting 1, but this has none."
         );
     }
-    let widths = bench.widths(interface);
-    Ok(Spec {
-        bench,
-        cases: Box::new(move || incrementer_cases(&widths)),
-        kinds,
-        by_digit: false,
-    })
+    Ok(Spec { bench, kinds })
 }
 
 impl Counts {
@@ -157,33 +151,6 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
     let mut inputs = vec![a];
     inputs.extend(lines);
     Ok(Bench::new(inputs, outputs, "A"))
-}
-
-/// The values an incrementer or a negator too wide to try every one of is
-/// checked on: every value of each byte of A, the bits below it all clear
-/// and all set, so a carry or borrow runs into it, and the test patterns;
-/// each with its control line, if any, each way.
-pub(super) fn incrementer_cases(widths: &[usize]) -> (Vec<Case>, u64) {
-    let lines: &[Value] = if widths.len() > 1 { &[0, 1] } else { &[0] };
-    let mut cases = Distinct::default();
-    for low in (0..widths[0]).step_by(8) {
-        let bits = (widths[0] - low).min(8);
-        for below in [0, mask(low)] {
-            for a in 0..1 << bits {
-                for &line in lines {
-                    cases.add([below | a << low, line, 0]);
-                }
-            }
-        }
-    }
-    let before = cases.len();
-    for a in patterns(widths[0]) {
-        for &line in lines {
-            cases.add([a, line, 0]);
-        }
-    }
-    let paired = (cases.len() - before) as u64;
-    (cases.cases, paired)
 }
 
 /// An incrementer's kind of test, counting `counts`: its unsigned line is

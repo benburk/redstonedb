@@ -342,20 +342,14 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     } in settings(&shifter, &found)
     {
         let selection = &found[k];
+        let lines = held.len();
         let bench = Bench {
             pattern: selection.label.clone(),
             ..Bench::held(vec![shifter.a], vec![shifter.output], held)
         };
         let widths = [shifter.width];
         let (cases, exhaustive, patterns) =
-            bench::chosen(&widths, quick, || {
-                (
-                    (0..1 << shifter.width.min(16))
-                        .map(|a| [a, 0, 0])
-                        .collect(),
-                    0,
-                )
-            });
+            bench::chosen(&widths, lines, quick);
         let (shift, width) = (selection.shift, shifter.width);
         let mut run =
             sweep(blocks, &interface, &bench, &cases, None, move |case| {

@@ -57,7 +57,7 @@ A build is on the list only when probing recognizes it as a standard category: a
    Each viewer sees and downloads it in their own block theme, or in colours they pick for one download. A theme may mark a role with any colour, so long as its block is none of the theme's own and no other role's.
 3. Turns it to lie the standard way, A's levers on the south, and stores each data input's lever off, at logical 0, settling the circuit with them. A control line's levers stay as saved, for its test to find which read inverted, and a build kept as built keeps its own levers.
 4. Takes out blocks no part of its circuit uses, as a new version, once compiling shows the circuit unchanged. Dust and the block under it always stay.
-5. Simulates every case, or every case of each byte when there are too many, and measures latency, whether it is synchronized, throughput, whether it holds state, and how copies stack. An adder's design is read from how its carries are made.
+5. Simulates every case when its inputs come to at most 17 bits, as an 8-bit adder with a carry in does, counting the lines that choose an ALU's operation, or else every pairing of the test patterns: none and all set, ones and zeros in runs of one, two, and four at every shift, and each bit alone set and clear; a build of one wide input also takes every value of each byte. It measures latency, whether it is synchronized, throughput, whether it holds state, and how copies stack. An adder's design is read from how its carries are made.
 
 ## Stacking
 

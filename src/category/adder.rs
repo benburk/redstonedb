@@ -9,7 +9,7 @@ use crate::{
     schem::lines::Role,
     simulate::{
         Reading, Run, Value,
-        bench::{Bench, Case, Distinct, Kind, Spec, mask, patterns},
+        bench::{Bench, Case, Kind, Spec},
         broken,
     },
 };
@@ -194,8 +194,6 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
     bench.invertible = false;
     let width = bench.widths(interface)[0];
     let carry_in = ports.carry_in.is_some();
-    let hex = interface.inputs.iter().any(|port| port.signal_strength);
-    let piece = if hex { 4 } else { 8 };
     // Its carry out may be a line of its own or its sum's bit past A's
     // width, and reads either way as either.
     let carries = ports.carry_out.is_some()
@@ -209,12 +207,7 @@ pub(super) fn adder(interface: &mut Interface) -> Result<Spec> {
             .reading(Reading::Adder(variant))
         })
         .collect();
-    Ok(Spec {
-        bench,
-        cases: Box::new(move || cases(width, carry_in, piece)),
-        kinds,
-        by_digit: hex,
-    })
+    Ok(Spec { bench, kinds })
 }
 
 /// A carry out's every case: the carry out of A + B, plus its carry in
@@ -239,14 +232,11 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
         None => "carry of A + B".to_owned(),
     };
     let width = interface.inputs[a].bits.len();
-    let carry_in = carry_in.is_some();
     Ok(Spec {
         bench: Bench::new(inputs, vec![out], &pattern),
-        cases: Box::new(move || adder_cases(width, carry_in, 8)),
         kinds: vec![Kind::new(&pattern, move |case| {
             (case[0] + case[1] + case[2]) >> width & 1
         })],
-        by_digit: false,
     })
 }
 
@@ -263,7 +253,6 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
     let width = interface.inputs[a].bits.len();
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![out], "A > B"),
-        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![
             Kind::new("A > B", |case| Value::from(case[0] > case[1]))
                 .reading(Reading::GreaterThan { signed: false }),
@@ -275,7 +264,6 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
             })
             .reading(Reading::GreaterThan { signed: true }),
         ],
-        by_digit: false,
     })
 }
 
@@ -283,12 +271,9 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
 /// output line. It has no control line.
 pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
     let (a, b, out) = comparison(interface, "equality comparator", "A = B")?;
-    let width = interface.inputs[a].bits.len();
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![out], "A = B"),
-        cases: Box::new(move || adder_cases(width, false, 8)),
         kinds: vec![Kind::new("A = B", |case| Value::from(case[0] == case[1]))],
-        by_digit: false,
     })
 }
 
@@ -498,64 +483,6 @@ fn possessive(built: &str) -> String {
     format!("{built}'s")
 }
 
-/// The sums an adder too wide to try every combination of is checked on;
-/// see `cases`.
-pub(super) fn adder_cases(
-    width: usize,
-    carry_in: bool,
-    piece: usize,
-) -> (Vec<Case>, u64) {
-    cases(width, carry_in, piece)
-}
-
-/// The cases an adder or subtractor too wide to try every combination of
-/// is checked on, as A, B, and carry or borrow in, with how many pair the
-/// test patterns. Each piece of `piece` bits, a byte or a hex digit, takes
-/// every value of A and B, with a carry or borrow into it and without: the
-/// bits below are A's all set or all clear, B's clear, so a carry in, or
-/// B's lowest bit when there is no line for it, carries through them, or a
-/// borrow borrows through them. Then every pairing of `patterns`, with
-/// carry or borrow in each way.
-fn cases(width: usize, carry_in: bool, piece: usize) -> (Vec<Case>, u64) {
-    let mut cases = Distinct::default();
-    for low in (0..width).step_by(piece) {
-        let bits = (width - low).min(piece);
-        // A's bits below all set, which B's clear bits carry the carry in
-        // through, and all clear, which a subtract borrows through.
-        for (carry, a_below) in [(false, 0), (true, mask(low)), (true, 0)] {
-            let below = match (low, carry, carry_in) {
-                (0, true, false) => continue,
-                (0, _, _) if a_below != 0 => continue,
-                (0, _, _) => (0, 0, carry),
-                (_, false, _) => (mask(low), 0, false),
-                (_, true, true) => (a_below, 0, true),
-                (_, true, false) => (a_below, 1, false),
-            };
-            for a in 0..1 << bits {
-                for b in 0..1 << bits {
-                    cases.add([
-                        below.0 | a << low,
-                        below.1 | b << low,
-                        Value::from(below.2),
-                    ]);
-                }
-            }
-        }
-    }
-    let bytes = cases.len();
-    let values = patterns(width);
-    for &a in &values {
-        for &b in &values {
-            cases.add([a, b, 0]);
-            if carry_in {
-                cases.add([a, b, 1]);
-            }
-        }
-    }
-    let paired = (cases.len() - bytes) as u64;
-    (cases.cases, paired)
-}
-
 /// The adder's test, which a hex adder's, a subtractor's, and an inverted
 /// adder's builds get too: its kinds name the lines it reads inverted.
 pub(super) const ADDER: BySpec =
@@ -631,48 +558,6 @@ mod tests {
             assert_eq!(unnegated(sign), "cin", "{sign}");
         }
         assert_eq!(unnegated("carry in"), "carry in");
-    }
-
-    #[test]
-    fn a_wide_adder_takes_every_case_of_each_byte_and_the_patterns() {
-        let (cases, paired) = adder_cases(16, true, 8);
-        // Each byte with and without a carry, and the high byte with a
-        // borrow through the low, less three it repeats: A's low byte all
-        // set or all clear, with or without carry in.
-        assert_eq!(cases.len() as u64 - paired, 5 * (1 << 16) - 3);
-        // A carry from carry in through the low byte into the high one.
-        assert!(cases.contains(&[0x00FF, 0x0F00, 1]));
-        // The longest carry: all ones plus one.
-        assert!(cases.contains(&[0xFFFF, 0x0001, 0]));
-        // Without a carry in line, B's lowest bit makes the carry.
-        let (cases, _) = adder_cases(16, false, 8);
-        assert!(cases.contains(&[0x00FF, 0x0101, 0]));
-        assert!(cases.iter().all(|case| case[2] == 0));
-    }
-
-    /// A 64-bit hex adder takes each digit's every case and pairs as many
-    /// patterns as a 32-bit one, sampled rather than every sum.
-    #[test]
-    fn a_64_bit_hex_adder_takes_as_many_cases_as_a_32_bit_one_and_some() {
-        let (narrow, narrow_paired) = adder_cases(32, true, 4);
-        let (wide, wide_paired) = adder_cases(64, true, 4);
-        assert_eq!((narrow.len(), narrow_paired), (18_399, 12_532));
-        assert_eq!((wide.len(), wide_paired), (24_631, 12_644));
-        // A carry out of the top digit, and all ones plus one across it.
-        assert!(wide.contains(&[0x8 << 60, 0x8 << 60, 1]));
-        assert!(wide.contains(&[u64::MAX.into(), 1, 0]));
-    }
-
-    #[test]
-    fn a_wide_adder_borrows_through_each_byte_as_a_subtractor() {
-        // The longest borrow: nothing less borrow in.
-        let (tried, _) = cases(16, true, 8);
-        assert!(tried.contains(&[0x0000, 0x0000, 1]));
-        // From borrow in through the low byte into the high one.
-        assert!(tried.contains(&[0x0F00, 0x0000, 1]));
-        // Without a borrow in line, B's lowest bit makes the borrow.
-        let (tried, _) = cases(16, false, 8);
-        assert!(tried.contains(&[0x0F00, 0x0001, 0]));
     }
 
     /// A port of `bits` bits named `name`, of `role`.
