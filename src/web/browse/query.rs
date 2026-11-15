@@ -1,19 +1,10 @@
 //! What a listing's address asks for: the category, the search, the tags,
-//! the order, and the layout, read from its query string and written back.
+//! and the order, read from its query string and written back.
 
 use crate::{
     build::tag,
     screen::{self, Field, Picks},
 };
-
-/// How the home page lays out its schematics: cards, or `view=list` in its
-/// address for a table.
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
-pub enum View {
-    #[default]
-    Cards,
-    List,
-}
 
 /// A field the home page can order builds by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -99,7 +90,6 @@ impl Sort {
 /// `?tag=alpha&tag=torchless` is both, and `?tag=alpha,torchless` either.
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
 pub struct HomeQuery {
-    pub view: View,
     pub sort: Sort,
     /// A search such as `register vertical alpha -torchless`.
     pub q: String,
@@ -187,13 +177,6 @@ impl HomeQuery {
         for (key, value) in form_urlencoded::parse(raw.as_bytes()) {
             let value = value.trim().to_owned();
             match key.as_ref() {
-                "view" => {
-                    query.view = if value == "list" {
-                        View::List
-                    } else {
-                        View::Cards
-                    };
-                }
                 "q" => query.q = value,
                 "sort" => query.sort = Sort::parse(&value),
                 "tag"
@@ -233,9 +216,6 @@ impl HomeQuery {
     /// [`HomeQuery::parse`] reads it.
     pub fn href(&self) -> String {
         let mut params = form_urlencoded::Serializer::new(String::new());
-        if self.view == View::List {
-            params.append_pair("view", "list");
-        }
         let sort = self.sort.name();
         if !sort.is_empty() {
             params.append_pair("sort", &sort);
@@ -278,9 +258,9 @@ mod tests {
     fn a_home_address_reads_back_as_written() {
         for href in [
             "/builds",
-            "/builds?view=list&sort=volume",
+            "/builds?sort=volume",
             "/?category=adder",
-            "/?view=list&sort=-downloads%2Cvolume&category=adder%2Csubtractor&tag=alpha%2Ctorchless&tag=synced&status=all&width=8%2C16&latency=..3&by=embizone&q=8b+adder",
+            "/?sort=-downloads%2Cvolume&category=adder%2Csubtractor&tag=alpha%2Ctorchless&tag=synced&status=all&width=8%2C16&latency=..3&by=embizone&q=8b+adder",
         ] {
             let raw = href.split_once('?').map_or("", |(_, raw)| raw);
             assert_eq!(HomeQuery::parse(raw).href(), href);
@@ -295,6 +275,8 @@ mod tests {
         assert_eq!(failing.href(), "/?tag=failing&status=all");
         let query = HomeQuery::parse("q=add&sort=bogus,-latency");
         assert_eq!(query.href(), "/?sort=-latency&q=add");
-        assert!(!HomeQuery::parse("view=list").narrows());
+        // The table a listing could be laid out as is gone, and an address
+        // that asked for it lists its builds as any other.
+        assert_eq!(HomeQuery::parse("view=list").href(), "/builds");
     }
 }
