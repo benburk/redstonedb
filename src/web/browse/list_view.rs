@@ -353,11 +353,16 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
             @if folded > 0 || !lead.is_empty() {
                 details id="more-filters" data-keep open[!here.tags.is_empty()]
                     class=(if folded == 0 { PHONE_ONLY } else { "" }) {
-                    summary class="w-fit cursor-pointer py-1 text-meta font-semibold text-muted hover:text-ink" {
-                        span class=(PAST_PHONE) { "More filters (" (folded) ")" }
-                        span class=(PHONE_ONLY) { "Filters (" (folded + lead.len()) ")" }
+                    // A button in place of the marker a summary has, filled
+                    // while its filters are open.
+                    summary class="btn btn-quiet w-fit list-none in-open:bg-selection [&::-webkit-details-marker]:hidden" {
+                        (icon(icons::FUNNEL, "size-4"))
+                        span class=(PAST_PHONE) { "More filters" }
+                        span class=(PHONE_ONLY) { "Filters" }
+                        span class={ "font-normal text-muted tabular-nums " (PAST_PHONE) } { (folded) }
+                        span class={ "font-normal text-muted tabular-nums " (PHONE_ONLY) } { (folded + lead.len()) }
                     }
-                    div class="mt-2 flex flex-col gap-2" {
+                    div class="mt-3 flex flex-col gap-2" {
                         @for row in &lead { (screen_row(row, here, PHONE_ONLY, "-phone")) }
                         @for row in rest { (screen_row(row, here, "", "")) }
                         (tags)
