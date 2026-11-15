@@ -12,22 +12,17 @@ use crate::{
         tag::{self, Tag},
     },
     category::{Design, FlagGroup, Kind, Measure, Section},
-    interface::Encoding,
     leaderboard::{Wanted, in_sentence},
     screen::{Choice, Field, Picks, Row},
     search::Term,
     web::{
-        browse::query::{HomeQuery, View},
-        href,
+        browse::query::HomeQuery,
         ui::{
-            PAGE_TITLE, SWITCH, SWITCHES, TABLE_CELL, TABLE_HEAD, TOGGLE, Tab,
-            Tone,
-            cards::{Viewing, badges, cards, stacked_note},
+            PAGE_TITLE, SWITCH, SWITCHES, TOGGLE, Tab, Tone,
+            cards::{Viewing, cards},
             category_tabs,
             icons::{self, icon},
             layout::base,
-            person::name_links,
-            summary::{latency, size, volume},
         },
     },
 };
@@ -81,12 +76,9 @@ pub(crate) fn home_page(
     listing: Option<&Listing>,
     below: &Markup,
 ) -> Markup {
-    // Every build is the sidebar's Recent builds, and the index its Home.
-    let current_path = match listing {
-        None => "/",
-        Some(listing) if !listing.query.narrows() => "/builds",
-        Some(_) => "",
-    };
+    // A listing, however narrowed, is the sidebar's All builds, and the
+    // index its Home.
+    let current_path = if listing.is_some() { "/builds" } else { "/" };
     base(
         viewer,
         APP_NAME,
@@ -319,29 +311,9 @@ fn about_category(kind: Kind) -> Markup {
     }
 }
 
-/// The layout to list the builds in, cards or a table, which a phone, too
-/// narrow for the table, leaves at cards.
-fn layout_switch(here: &HomeQuery) -> Markup {
-    let layout = |to: View, label: &str, glyph: &str| {
-        html! {
-            a href=(HomeQuery { view: to, ..here.clone() }.href()) aria-label=(label) title=(label)
-                class={ (SWITCH) " flex items-center px-2" }
-                aria-current=[(here.view == to).then_some("page")] {
-                (icon(glyph, "size-4"))
-            }
-        }
-    };
-    html! {
-        nav aria-label="Layout" class={ (SWITCHES) " " (PAST_PHONE) } {
-            (layout(View::Cards, "Cards", icons::GRID))
-            (layout(View::List, "List", icons::LIST))
-        }
-    }
-}
-
 /// The orders to choose from, each in sight, the one the builds are in
-/// marked. An order the address asked for that the bar lacks is added to
-/// it.
+/// marked, laid out as the rows above it are. An order the address asked
+/// for that the bar lacks is added to it.
 fn sort_bar(here: &HomeQuery) -> Markup {
     let order = here.order().name();
     let known = SORTS.iter().any(|(value, _)| *value == order);
@@ -353,8 +325,8 @@ fn sort_bar(here: &HomeQuery) -> Markup {
         }
     };
     html! {
-        nav aria-label="Sort by" class="flex flex-wrap items-center gap-x-3 gap-y-1" {
-            span class="text-meta font-semibold text-muted" aria-hidden="true" { "Sort by" }
+        nav aria-label="Sort by" class="flex flex-col gap-x-3 desktop:flex-row desktop:items-start" {
+            (row_label("Sort by"))
             div class=(SWITCHES) {
                 @for (value, label) in SORTS { (choice(value, label)) }
                 @if !known { (choice(&order, &order)) }
@@ -532,11 +504,10 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
                 (screen_row(row, here, if picked(row) { "" } else { PAST_PHONE }, ""))
             }
             // What stands right over the builds: their order, then the
-            // further filters, side by side, and the layout at the far end.
-            // The order and layout float, so the filters' button sits
-            // between them and its rows open full width below all three.
-            div class="mt-1 flow-root" {
-                div class="float-right" { (layout_switch(here)) }
+            // further filters, side by side. The order floats, so the
+            // filters' button sits beside it and its rows open full width
+            // below both.
+            div class="flow-root" {
                 div class="float-left mr-3 mb-2" { (sort_bar(here)) }
                 @if folded > 0 || !lead.is_empty() {
                     details id="more-filters" data-keep open[!here.tags.is_empty()]
@@ -574,13 +545,9 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
         terms,
         ..
     } = *listing;
-    let view = here.view;
     html! {
             // What the search keeps as it is typed, here so a pick that
             // redraws the listing brings them up to date.
-            @if view == View::List {
-                input type="hidden" form="search-form" name="view" value="list";
-            }
             @for tag in &here.tags {
                 input type="hidden" form="search-form" name="tag" value=(tag);
             }
@@ -617,10 +584,8 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                 p class="max-w-prose text-muted" {
                     "No builds match. " (search_help()) " Remove a term or a filter to widen the search."
                 }
-            } @else if view == View::Cards {
-                (cards(shown, listing.noted, listing.viewing))
             } @else {
-                (table(shown, listing.noted))
+                (cards(shown, listing.noted, listing.viewing))
             }
     }
 }
@@ -750,50 +715,6 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                 }
             }
         }
-    }
-}
-
-/// Builds as table rows, for the home page's List layout.
-pub(crate) fn table(schematics: &[Build], terms: &[Term]) -> Markup {
-    // Columns a phone has no room for; the name and its tags come first.
-    let secondary = "hidden desktop:table-cell";
-    html! {
-                div class="relative overflow-x-auto" {
-                    table class="w-full border-collapse" {
-                        thead {
-                            tr {
-                                th scope="col" class=(TABLE_HEAD) { "Name" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Orientation" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Encoding" }
-                                th scope="col" class=(TABLE_HEAD) { "Latency" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Size" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Volume" }
-                                th scope="col" class=(TABLE_HEAD) { "Authors" }
-                                th scope="col" class={ (TABLE_HEAD) " " (secondary) } { "Built" }
-                            }
-                        }
-                        tbody {
-                            @for s in schematics {
-                                tr class="hover:bg-selection/50" {
-                                    th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                        a href=(href::build(&s.id)) class="font-semibold" { (s.name()) }
-                                        (stacked_note(s, terms))
-                                        (badges(s, "mt-1.5"))
-                                    }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.specs.orientation.label()) }
-                                    td class={ (TABLE_CELL) " " (secondary) } { (s.specs.encoding.map_or("", Encoding::label)) }
-                                    td class={ (TABLE_CELL) " tabular-nums" } { (latency(s)) }
-                                    td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (size(s)) }
-                                    td class={ (TABLE_CELL) " tabular-nums " (secondary) } { (volume(s)) }
-                                    td class=(TABLE_CELL) { (name_links(&s.credits.authors)) }
-                                    td class={ (TABLE_CELL) " tabular-nums whitespace-nowrap " (secondary) } {
-                                        (s.built_on.as_deref().unwrap_or(""))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
     }
 }
 

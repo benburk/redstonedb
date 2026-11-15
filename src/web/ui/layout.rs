@@ -209,7 +209,7 @@ fn sidebar(viewer: Option<&User>, current_path: &str) -> Markup {
             div data-sidebar class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-4 [scrollbar-gutter:stable]" {
                 ul class="flex flex-col gap-0.5" {
                     (link("/", icons::HOME, "Home", current("/")))
-                    (link("/builds", icons::CLOCK, "Recent builds", current("/builds")))
+                    (link("/builds", icons::SEARCH, "All builds", current("/builds")))
                     (link("/leaderboards", icons::TROPHY, "Leaderboards", current_path.starts_with("/leaderboards").then_some("page")))
                     @if viewer.is_some() {
                         (link("/upload", icons::UPLOAD, "Upload", current("/upload")))
