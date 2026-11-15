@@ -13,7 +13,7 @@ use crate::{
     schem::Blocks,
     simulate::{
         MAX_WIDTH, Reading, Report, Run, Stacker, Stacking, Step, Timing,
-        bench, throughput,
+        bench, budget, throughput,
     },
 };
 
@@ -437,12 +437,15 @@ impl Test {
     /// counted, and a register's copies may also add words on its shared
     /// bus. `None` for any other, and for a category whose builds never
     /// stack, as a decoder's, whose copies side by side are separate
-    /// decoders.
+    /// decoders; and `None` when the time it was given ran out while it
+    /// searched, as every try after fails, so how it stacks is unknown,
+    /// not that it doesn't.
     pub fn stacking(self, data: &[u8]) -> Option<Stacking> {
         if self.kind().facts().behaviour.stacking == super::Stacking::Never {
             return None;
         }
-        self.runs().stacking(data)
+        let found = self.runs().stacking(data);
+        budget::check().is_ok().then_some(found).flatten()
     }
 
     /// How copies of the build in `data` are stacked and tested, as

@@ -130,13 +130,7 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
         return Ok(report);
     }
     let ran = tokio::task::spawn_blocking(move || {
-        let mut report = test.run(&Blocks::read(&data)?);
-        if let Report::Ran(run) = &mut report
-            && run.wrong == 0
-        {
-            run.stacking = test.stacking(&data);
-        }
-        anyhow::Ok(report)
+        crate::simulate::budget::limited(|| run_now(test, &data))
     })
     .await;
     // A run that panics is stored as skipped, so asking again does not
@@ -152,6 +146,18 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
         Err(err) => return Err(err.into()),
     };
     remember(&sha256, test, &report);
+    Ok(report)
+}
+
+/// `test` run on `data`, and, when every case comes out right, whether its
+/// copies stack, together within the time the site gives a build.
+fn run_now(test: Test, data: &[u8]) -> Result<Report> {
+    let mut report = test.run(&Blocks::read(data)?);
+    if let Report::Ran(run) = &mut report
+        && run.wrong == 0
+    {
+        run.stacking = test.stacking(data);
+    }
     Ok(report)
 }
 
@@ -177,7 +183,9 @@ pub async fn time(
         return Ok(timing);
     }
     let timing = tokio::task::spawn_blocking(move || {
-        test.time(&Blocks::read(&data)?, &cancel)
+        crate::simulate::budget::limited(|| {
+            test.time(&Blocks::read(&data)?, &cancel)
+        })
     })
     .await??;
     if let Some(mut report) = recent(&sha256, test) {

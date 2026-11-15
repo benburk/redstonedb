@@ -58,6 +58,7 @@ A build is on the list only when probing recognizes it as a standard category: a
 3. Turns it to lie the standard way, A's levers on the south, and stores each data input's lever off, at logical 0, settling the circuit with them. A control line's levers stay as saved, for its test to find which read inverted, and a build kept as built keeps its own levers.
 4. Takes out blocks no part of its circuit uses, as a new version, once compiling shows the circuit unchanged. Dust and the block under it always stay.
 5. Simulates every case when its inputs come to at most 17 bits, as an 8-bit adder with a carry in does, counting the lines that choose an ALU's operation, or else every pairing of the test patterns: none and all set, ones and zeros in runs of one, two, and four at every shift, and each bit alone set and clear; a build of one wide input also takes every value of each byte. It measures latency, whether it is synchronized, throughput, whether it holds state, and how copies stack. An adder's design is read from how its carries are made.
+6. Gives recognizing a build 5 seconds, its test 5, and measuring one that passes 5 more. Recognizing one that runs out says it took too long; a test that runs out is skipped, not failed; and what is measured after a test that passed is left unknown where time runs out, the test's result kept, the longest searches, how copies stack and stacking them wider, last.
 
 ## Stacking
 

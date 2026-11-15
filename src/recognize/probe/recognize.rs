@@ -191,7 +191,29 @@ fn probed_kind(meant: &str) -> Option<Kind> {
 /// [`orient::orient`] lays it for publishing and the guess and the
 /// simulation read it: one whose lowest bits sit at its west end reads
 /// its buses the wrong way round as it lies.
+///
+/// It runs within the time the site gives a build, see
+/// [`simulate::budget::limited`]: once that runs out, it is recognized as
+/// none, saying so.
 fn recognize_laid(
+    data: &[u8],
+    meant: Option<&str>,
+    trying: &mut dyn FnMut(Kind, usize),
+    reorient: bool,
+) -> anyhow::Result<Recognition> {
+    match simulate::budget::limited(|| laid(data, meant, trying, reorient)) {
+        Err(err) if simulate::budget::ran_out(&err) => Ok(Recognition {
+            file: data.to_vec(),
+            found: None,
+            problems: vec![Problem::said(Rule::TookTooLong, err.to_string())],
+            lines: inspect::inspect(&Blocks::read(data)?).summary(),
+        }),
+        recognized => recognized,
+    }
+}
+
+/// As [`recognize_laid`], however long it takes.
+fn laid(
     data: &[u8],
     meant: Option<&str>,
     trying: &mut dyn FnMut(Kind, usize),

@@ -965,17 +965,21 @@ impl Rig<'_> {
     ) -> Result<Stats> {
         let parts = thread::available_parallelism()
             .map_or(1, |n| u64::try_from(n.get()).unwrap_or(1));
+        // Each thread runs out of time when the work it is part of does.
+        let deadline = super::budget::deadline();
         let found: Vec<Result<Stats>> = thread::scope(|scope| {
             let threads: Vec<_> = (0..parts)
                 .map(|part| {
                     let work = &work;
                     scope.spawn(move || {
-                        let mut circuit =
-                            Circuit::new(self.blocks, self.interface)?;
-                        for &(port, value) in self.held {
-                            circuit.set(port, value);
-                        }
-                        work(&mut circuit, part, parts)
+                        super::budget::carried(deadline, || {
+                            let mut circuit =
+                                Circuit::new(self.blocks, self.interface)?;
+                            for &(port, value) in self.held {
+                                circuit.set(port, value);
+                            }
+                            work(&mut circuit, part, parts)
+                        })
                     })
                 })
                 .collect();
@@ -1315,7 +1319,7 @@ impl Rig<'_> {
         if self.cancel.load(Ordering::Relaxed) {
             bail!("The timing was cancelled.");
         }
-        Ok(())
+        super::budget::check()
     }
 }
 
