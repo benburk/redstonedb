@@ -721,14 +721,21 @@ pub fn roles_of(interface: &Interface) -> Roles {
 
 /// The signs naming a build's lines, each by the block it names: any sign
 /// on an input block, and an output's sign under its front, see
-/// [`repeater_outputs::signs`], as any other sign on an output's block
-/// names nothing.
+/// [`repeater_outputs::Output::sign_place`], as any other sign on an
+/// output's block names nothing. Read from the signs alone, so it costs
+/// next to nothing however large the build.
 pub fn line_signs(blocks: &Blocks) -> HashMap<Pos, &[String]> {
-    let mut signs = blocks.sign_texts();
-    for output in repeater_outputs::find(blocks) {
-        signs.remove(&output.block());
+    let mut signs = HashMap::new();
+    for (&at, lines) in &blocks.signs {
+        let Some(block) = blocks.sign_block(at) else {
+            continue;
+        };
+        let names = repeater_outputs::on(blocks, block)
+            .is_none_or(|output| output.sign_place() == at);
+        if names {
+            signs.insert(block, lines.as_slice());
+        }
     }
-    signs.extend(repeater_outputs::signs(blocks));
     signs
 }
 

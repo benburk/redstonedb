@@ -13,7 +13,7 @@
 //! [`crate::interface::inspect`] checks a build by this rule, and
 //! [`interface`] reads its lines' roles by their shapes.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use crate::{
     interface::{
@@ -84,37 +84,31 @@ fn is_air(state: &str) -> bool {
 pub fn find(blocks: &Blocks) -> Vec<Output> {
     blocks
         .iter()
-        .filter_map(|(at, state)| {
-            let comparator = match schem::short(state) {
-                "repeater" => false,
-                "comparator" => true,
-                _ => return None,
-            };
-            let facing = Direction::facing(state)?;
-            let output = Output {
-                at,
-                comparator,
-                facing,
-            };
-            is_air(blocks.get(output.front())).then_some(output)
-        })
+        .filter_map(|(at, state)| output(blocks, at, state))
         .collect()
 }
 
-/// The sign naming each output of `blocks`, by the block holding the
-/// output up: a wall sign on that block's outward face, under the
-/// output's front, see [`Output::sign_place`]. A sign anywhere else on the
-/// block names nothing.
-pub fn signs(blocks: &Blocks) -> HashMap<Pos, &[String]> {
-    find(blocks)
-        .into_iter()
-        .filter_map(|output| {
-            let place = output.sign_place();
-            let lines = blocks.signs.get(&place)?;
-            (blocks.sign_block(place) == Some(output.block()))
-                .then_some((output.block(), lines.as_slice()))
-        })
-        .collect()
+/// The repeater or comparator at `at`, whose block state is `state`, if it
+/// is an output: its front air.
+fn output(blocks: &Blocks, at: Pos, state: &str) -> Option<Output> {
+    let comparator = match schem::short(state) {
+        "repeater" => false,
+        "comparator" => true,
+        _ => return None,
+    };
+    let facing = Direction::facing(state)?;
+    let output = Output {
+        at,
+        comparator,
+        facing,
+    };
+    is_air(blocks.get(output.front())).then_some(output)
+}
+
+/// The output standing on `block`, if one does.
+pub fn on(blocks: &Blocks, block: Pos) -> Option<Output> {
+    let at = schem::step(block, Direction::Up);
+    output(blocks, at, blocks.get(at))
 }
 
 /// `outputs` grouped into buses, each a line of outputs of one kind,
@@ -668,13 +662,13 @@ mod tests {
     #[test]
     fn an_outputs_sign_goes_under_its_front() {
         let under = signed_output([2, 0, 1], "east");
-        let named = signs(&under);
+        let named = interface::line_signs(&under);
         assert_eq!(
             named.get(&[1, 0, 1]).and_then(|lines| lines.first()),
             Some(&"carry out".to_owned())
         );
         let beside = signed_output([1, 0, 2], "south");
-        assert!(signs(&beside).is_empty());
+        assert!(interface::line_signs(&beside).is_empty());
         assert_eq!(find(&beside)[0].sign_place(), [2, 0, 1]);
     }
 }
