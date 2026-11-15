@@ -502,19 +502,51 @@ fn repeater_room(blocks: &Blocks, switch: &Switch, report: &mut Report) {
 
 /// The positions grouped into runs: lines of evenly spaced bits, the
 /// longest first, each bit sharing its `kind` (for an input, its lever's
-/// side and whether it is a button) with the rest of its run; what is
-/// left, lone lines.
+/// side and whether it is a button) with the rest of its run; then, of
+/// what is left, lines of at least [`SLOPED_BITS`] rising one block for
+/// each two across, as a tall multiplier's B may climb, which the
+/// conventions don't lay; what is left after that, lone lines.
 pub fn runs<K: PartialEq + Copy>(bits: &[(Pos, K)]) -> Vec<Run> {
     let kind: BTreeMap<Pos, K> = bits.iter().copied().collect();
     let mut left: HashSet<Pos> = kind.keys().copied().collect();
+    let mut found = walk(&kind, &mut left, &steps(), 2);
+    found.extend(walk(&kind, &mut left, &sloped_steps(), SLOPED_BITS));
+    let mut lone: Vec<Pos> = left.into_iter().collect();
+    lone.sort_unstable();
+    found.extend(lone.into_iter().map(|bit| Run {
+        bits: vec![bit],
+        step: [0, 0, 0],
+    }));
+    found
+}
+
+/// The fewest bits a line rising one block for each two across must have
+/// to be read as a bus, so a few lone levers that happen to lie so stay
+/// lone.
+pub const SLOPED_BITS: usize = 4;
+
+/// Whether `step` is one the conventions lay a bus's bits by: along one
+/// axis, or rising one block for each block across; a lone line's, none,
+/// is too.
+pub fn conventional(step: Pos) -> bool {
+    step == [0, 0, 0] || steps().contains(&step) || steps().contains(&neg(step))
+}
+
+/// The runs of at least `fewest` bits of those `left`, taking each step of
+/// `steps`, the longest first, each taken out of `left` as it is found.
+fn walk<K: PartialEq + Copy>(
+    kind: &BTreeMap<Pos, K>,
+    left: &mut HashSet<Pos>,
+    steps: &[Pos],
+    fewest: usize,
+) -> Vec<Run> {
     let mut found = Vec::new();
-    let steps = steps();
     loop {
         let mut best: Option<Run> = None;
         let mut starts: Vec<Pos> = left.iter().copied().collect();
         starts.sort_unstable();
         for &start in &starts {
-            for &step in &steps {
+            for &step in steps {
                 // Only from an end, so each line is walked once.
                 if left.contains(&schem::add(start, neg(step)))
                     && kind[&schem::add(start, neg(step))] == kind[&start]
@@ -527,7 +559,7 @@ pub fn runs<K: PartialEq + Copy>(bits: &[(Pos, K)]) -> Vec<Run> {
                     run.push(next);
                     next = schem::add(next, step);
                 }
-                if run.len() >= 2
+                if run.len() >= fewest
                     && best.as_ref().is_none_or(|b| run.len() > b.bits.len())
                 {
                     best = Some(Run { bits: run, step });
@@ -540,12 +572,6 @@ pub fn runs<K: PartialEq + Copy>(bits: &[(Pos, K)]) -> Vec<Run> {
         }
         found.push(run);
     }
-    let mut lone: Vec<Pos> = left.into_iter().collect();
-    lone.sort_unstable();
-    found.extend(lone.into_iter().map(|bit| Run {
-        bits: vec![bit],
-        step: [0, 0, 0],
-    }));
     found
 }
 
@@ -560,6 +586,16 @@ fn steps() -> Vec<Pos> {
     for s in 1..=8 {
         steps.extend([[s, 0, 0], [0, s, 0], [0, 0, s], [-s, 0, 0], [0, 0, -s]]);
         steps.extend([[s, s, 0], [-s, s, 0], [0, s, s], [0, s, -s]]);
+    }
+    steps
+}
+
+/// Every step rising one block for each two across, up to 4 blocks up.
+fn sloped_steps() -> Vec<Pos> {
+    let mut steps = Vec::new();
+    for s in 1..=4 {
+        steps.extend([[2 * s, s, 0], [-2 * s, s, 0]]);
+        steps.extend([[0, s, 2 * s], [0, s, -2 * s]]);
     }
     steps
 }
@@ -739,5 +775,26 @@ mod tests {
         let raw = std::fs::read("tests/fixtures/parity-8.schem").unwrap();
         let blocks = Blocks::read(&raw).unwrap();
         assert_eq!(inspect(&blocks).outputs.len(), 1);
+    }
+
+    /// A tall multiplier's B, its levers climbing one block for each two
+    /// across, is read as one bus, from either end, though no convention
+    /// lays one so; three such levers stay lone lines.
+    #[test]
+    fn levers_rising_one_for_each_two_across_are_a_bus() {
+        let climbing = |n: i32| -> Vec<(Pos, ())> {
+            (0..n).map(|k| ([1, 23 + k, 48 - 2 * k], ())).collect()
+        };
+        let found = runs(&climbing(24));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].bits.len(), 24);
+        assert!(!conventional(found[0].step));
+        assert_eq!(runs(&climbing(3)).len(), 3);
+        // A conventional line beside it is read first, as before.
+        let mut both = climbing(8);
+        both.extend((0..8).map(|k| ([8, 22 + 2 * k, 50], ())));
+        let found = runs(&both);
+        assert_eq!(found.len(), 2);
+        assert!(conventional(found[0].step) || conventional(found[1].step));
     }
 }
