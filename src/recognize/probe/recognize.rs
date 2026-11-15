@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 
 use super::{
     Fault, Order, Roles, alu, digits, hex_adder, multiplier, one_operand,
-    register, sequential, shifter,
+    register, sequential, shape::Shape, shifter,
 };
 use crate::{
     category::{Kind, Probe, Probing, Test},
@@ -225,11 +225,30 @@ fn laid(
     if !problems.is_empty() {
         return Ok(subject.unrecognized(problems));
     }
-    // Each kind probing tries in turn, or only the one meant, its fault
-    // kept when it isn't one.
+    // A build whose lines no kind takes is none, nothing simulated. One
+    // meant as a kind is probed as it all the same, for that kind's own
+    // reason it isn't one.
+    let shape = Shape::of(&subject.report);
+    let fits = |&(kind, how, test): &(Kind, Probe, Test)| match meant {
+        Some(meant) => meant == Some(kind),
+        None => shape.could_be(kind, how, test),
+    };
+    if meant.is_none() && !Kind::probed().iter().any(fits) {
+        problems.push(Problem::said(
+            Rule::Lines,
+            format!(
+                "No category takes its lines: {}",
+                subject.report.summary()
+            ),
+        ));
+        return Ok(subject.unrecognized(problems));
+    }
+    // Each kind probing tries in turn whose lines fit, or only the one
+    // meant, its fault kept when it isn't one.
     let mut faults: Vec<(Kind, Fault)> = Vec::new();
-    for (i, &(kind, how, test)) in Kind::probed().iter().enumerate() {
-        if meant.is_some_and(|meant| meant != Some(kind)) {
+    for (i, probed) in Kind::probed().iter().enumerate() {
+        let &(kind, how, test) = probed;
+        if !fits(probed) {
             continue;
         }
         trying(kind, i);
@@ -275,14 +294,20 @@ fn laid(
         let reading = (found.data_inputs(), file, found.found());
         return Ok(subject.accept(found.kind, reading));
     }
+    // Its lines fitting none of the kinds whose fault would be shown, the
+    // first other try that ran is, else the first other's.
+    let shown = fault.or_else(|| {
+        let ran = |(_, fault): &&(Kind, Fault)| fault.ran();
+        faults.iter().find(ran).or(faults.first()).map(|(_, f)| f)
+    });
     // A try that never got as far as a reason has nothing to say.
     problems.extend(
-        fault
+        shown
             .map(Fault::problem)
             .filter(|problem| !problem.message.is_empty()),
     );
     // The file with the roles of the try whose fault is shown, when it ran.
-    let closest = fault.and_then(Fault::file).unwrap_or(&subject.data);
+    let closest = shown.and_then(Fault::file).unwrap_or(&subject.data);
     Ok(Recognition {
         file: closest.to_vec(),
         ..subject.unrecognized(problems)
@@ -303,9 +328,14 @@ impl Subject {
         meant: Option<Kind>,
         faults: &mut Vec<(Kind, Fault)>,
     ) -> anyhow::Result<Option<(Kind, Found)>> {
+        let shape = Shape::of(&self.report);
         for &(kind, how, test) in &Kind::probed() {
             let bends = matches!(how, Probe::Matched | Probe::Register);
-            if !bends || meant.is_some_and(|meant| meant != kind) {
+            let fits = match meant {
+                Some(meant) => meant == kind,
+                None => shape.could_be(kind, how, test),
+            };
+            if !bends || !fits {
                 continue;
             }
             match self.probe(kind, how, test, true, Order::default())? {
@@ -925,5 +955,25 @@ mod tests {
             std::fs::read("tests/fixtures/cca-8-repeater-out.schem").unwrap();
         let recognition = recognize_as(&data, Some("adder")).unwrap();
         assert!(recognition.found.is_some(), "{:?}", recognition.problems);
+    }
+
+    /// A 24-bit multiplier whose product lights lamps, which the rule for
+    /// outputs doesn't read, with a stray comparator at each end of a
+    /// column: two buses of levers and a hex digit in, one bit out, lines no
+    /// kind takes, so it is none before anything is simulated.
+    #[test]
+    fn a_build_whose_lines_no_kind_takes_is_none_at_once() {
+        let data =
+            std::fs::read("tests/fixtures/mult-24-lamp-outputs.schem").unwrap();
+        let found = recognize(&data).unwrap();
+        assert_eq!(found.found, None);
+        assert_eq!(
+            found.problems,
+            [Problem::said(
+                Rule::Lines,
+                "No category takes its lines: Inputs: switches 24, 24; \
+                 comparators 1. Outputs: 1."
+            )]
+        );
     }
 }

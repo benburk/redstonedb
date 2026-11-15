@@ -34,7 +34,7 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
 }
 
 /// The fewest bits a popcount counts.
-const MIN_POPCOUNT: usize = 4;
+pub(crate) const MIN_POPCOUNT: usize = 4;
 
 /// Refuses `what`, a build of A alone, for an A of `width` bits under two:
 /// one bit's absolute value, parity, or threshold is the bit itself, as a

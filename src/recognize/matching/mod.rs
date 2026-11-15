@@ -462,6 +462,18 @@ pub fn read_as(
     closest.map(|(_, found)| found)
 }
 
+/// Whether matching could read a build of `inputs` lever bits and
+/// `outputs` output bits as a `kind`, by how many bits each slot of a
+/// category computing it takes, every bit in a slot, before anything is
+/// driven: false only for a build whose lines no reading of it fills.
+pub fn could_read(kind: Kind, inputs: usize, outputs: usize) -> bool {
+    CATEGORIES.iter().any(|&category| {
+        shapes(category.slots(), inputs, outputs)
+            .iter()
+            .any(|shape| !operations(category, shape, Some(kind)).is_empty())
+    })
+}
+
 /// How many operands a build of `kind`, or one probed as it, takes: the
 /// most any category reading it gives it.
 pub fn operands(kind: Kind) -> usize {
