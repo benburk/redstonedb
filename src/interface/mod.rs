@@ -514,7 +514,8 @@ impl Kept {
     /// as long running side by side, alternating, as `inspect::runs`
     /// groups them. Its top bits out of line, its bits unevenly spaced, as
     /// two runs end to end in one line with a gap between them are, or a
-    /// staircase of short runs make it unaligned.
+    /// staircase of short runs make it unaligned, as do bits rising one
+    /// block for each two across.
     pub fn unaligned(&self) -> bool {
         // Two runs side by side share no line; end to end, they do.
         let in_one_line =
@@ -542,7 +543,8 @@ impl Kept {
                 let bits: Vec<(Pos, ())> =
                     line.bits.iter().map(|&pos| (pos, ())).collect();
                 match crate::interface::inspect::runs(&bits).as_slice() {
-                    [] | [_] => false,
+                    [] => false,
+                    [one] => !crate::interface::inspect::conventional(one.step),
                     [one, other] => {
                         one.bits.len() != other.bits.len()
                             || one.step != other.step
