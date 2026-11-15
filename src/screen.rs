@@ -655,6 +655,19 @@ fn row(field: Field, builds: &[&Build], picks: &Picks) -> Option<Row> {
             }
         }
     }
+    // A standard width no build here is built at is a choice all the
+    // same where copies of one stack to it, as a 2-bit XOR gate's make a
+    // 64-bit one: nobody builds the wide gate, and it is what is wanted.
+    if field == Field::Width {
+        for width in crate::ingest::evaluate::STANDARD_WIDTHS {
+            let key = width.to_string();
+            if !found.iter().any(|(known, _)| *known == key)
+                && scoped.iter().any(|s| field.takes(s, &key))
+            {
+                found.push((key.clone(), key));
+            }
+        }
+    }
     let picked = picks.of(field);
     let enough = if field.every() {
         !found.is_empty()
