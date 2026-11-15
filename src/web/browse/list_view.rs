@@ -529,13 +529,31 @@ fn in_a_row(tag: &Tag, shown: &[Build]) -> bool {
         })
 }
 
+/// Whether `tag` means something only within a category of the builds
+/// `shown`: one of its flags, as an adder's carry in or an ALU's `xor`, or
+/// how far apart a register's copies add words.
+fn of_a_category(tag: &Tag, shown: &[Build]) -> bool {
+    tag::is_word_stackable(&tag.name)
+        || shown
+            .iter()
+            .any(|s| s.flags.iter().any(|flag| flag.name == tag.name))
+}
+
 /// The last row the builds are screened by: the tags some of them carry
 /// that no row above says, each with how many carry it, and those chosen
-/// marked, each to remove. Unlike a row's picks, the tags chosen narrow
-/// together, a build carrying them all.
+/// marked, each to remove. Across categories, only the tags that mean the
+/// same of any build show, as `torchless` does; a category's own join
+/// them within it. Unlike a row's picks, the tags chosen narrow together,
+/// a build carrying them all.
 fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
-    let mut filters = filters(listing.shown, &here.tags);
-    filters.retain(|f| f.chosen.is_some() || !in_a_row(&f.tag, listing.shown));
+    let shown = listing.shown;
+    let in_category = here.category().is_some();
+    let mut filters = filters(shown, &here.tags);
+    filters.retain(|f| {
+        f.chosen.is_some()
+            || !(in_a_row(&f.tag, shown)
+                || !in_category && of_a_category(&f.tag, shown))
+    });
     html! {
         @if !filters.is_empty() {
             div class="flex flex-col gap-x-3 desktop:flex-row desktop:items-start" {
