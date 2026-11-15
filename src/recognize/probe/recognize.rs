@@ -550,7 +550,7 @@ impl Subject {
             Err(fault) if fault.ran() => Err(fault),
             Err(fault) => {
                 let (roles, operands) = plain_roles(kind, &self.report, order);
-                match super::try_roles(&self.data, &roles, test, false)? {
+                match super::try_roles(&self.data, &roles, test, true)? {
                     Ok((file, run)) => Ok((operands, file, run)),
                     Err(plain) => Err(fault.nearer(plain)),
                 }
@@ -560,8 +560,10 @@ impl Subject {
 
     /// What `test` makes of it read as `found` reads it, each bus in the
     /// order matching found it in: the file carrying its roles and the
-    /// run, every case right; else the test's fault. A file that can't be
-    /// given its roles fails the outer result.
+    /// run, every case right; else the test's fault, from a quick look
+    /// when that gets a case wrong, so a wide build read as what it isn't
+    /// is never run through every case. A file that can't be given its
+    /// roles fails the outer result.
     fn judged(
         &self,
         test: Test,
@@ -569,6 +571,12 @@ impl Subject {
     ) -> Result<Result<(Vec<u8>, simulate::Run), Fault>, Fault> {
         let file = lines::with(&self.data, Some(&found.roles()))
             .map_err(|err| Fault::Unfit(err.to_string()))?;
+        let quick = found.interface(&self.blocks);
+        match test.check_with(&self.blocks, quick, true) {
+            Ok(run) if run.wrong == 0 => {}
+            Ok(run) => return Ok(Err(Fault::wrong(&run, &file))),
+            Err(err) => return Ok(Err(Fault::not_run(&err))),
+        }
         let interface = found.interface(&self.blocks);
         Ok(match test.check_with(&self.blocks, interface, false) {
             Ok(run) if run.wrong == 0 => Ok((file, run)),

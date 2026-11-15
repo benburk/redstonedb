@@ -108,7 +108,7 @@ fn data_levers_off(blocks: &Blocks) -> Result<Option<Blocks>> {
 
 /// The signs that label nothing: each but those on an input, one of
 /// `inputs`, and each output's own, on the face of its block under its
-/// front, see [`repeater_outputs::signs`], as one on another face of an
+/// front, see [`repeater_outputs::Output::sign_place`], as one on another face of an
 /// output's block is a note too.
 fn notes(blocks: &Blocks, inputs: &HashSet<Pos>) -> HashSet<Pos> {
     let named: HashSet<Pos> = repeater_outputs::find(blocks)
