@@ -22,6 +22,7 @@ fn prepared(name: &str, standardize: bool) -> Vec<u8> {
         standardize,
         conventional: true,
         keep_paste: false,
+        empty: true,
     };
     prepare::prepare_for(&common::fixture(name), purpose)
         .expect("fixture prepares")
@@ -299,6 +300,7 @@ async fn adders_and_subtractors_are_each_their_own_category() {
         standardize: true,
         conventional: true,
         keep_paste: false,
+        empty: true,
     };
     let subtractor =
         prepare::prepare_for(&coloured, standardized).unwrap().data;

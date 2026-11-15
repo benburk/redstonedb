@@ -112,7 +112,7 @@ pub(crate) mod value;
 
 pub use bench::mask;
 pub(crate) use circuit::panic_message;
-pub use circuit::{Circuit, Compiled, Link, compiled, settled};
+pub use circuit::{Circuit, Compiled, Link, compiled, settled, settled_empty};
 pub use report::{
     Action, AdderVariant, BitCount, CellControls, Counts, Design, Reading,
     Report, Run, Signal, Terms, Wrong,

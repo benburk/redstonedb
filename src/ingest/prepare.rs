@@ -22,11 +22,17 @@ pub enum Purpose {
     /// new version, which is compared block by block with the one before, or
     /// a file read to evaluate it: standardized only if asked, held to the
     /// conventions if `conventional`, and keeping where it pastes if
-    /// `keep_paste`.
+    /// `keep_paste`. With `empty` its memory comes to rest empty, each
+    /// locked repeater holding 0, as a build of a standard category's
+    /// does, whose test then shows it works from empty; a build of any
+    /// other kind keeps what it was saved holding, as nothing would show
+    /// one it broke, a shift register that feeds back on itself say, which
+    /// never leaves all zeros.
     InPlace {
         standardize: bool,
         conventional: bool,
         keep_paste: bool,
+        empty: bool,
     },
 }
 
@@ -38,15 +44,18 @@ impl Purpose {
         standardize: false,
         conventional: false,
         keep_paste: false,
+        empty: false,
     };
 
     /// A stored build's file as `s` keeps it: held to the conventions and
-    /// pasting from where it does, standardized only if `standardize`.
+    /// pasting from where it does, standardized only if `standardize`, its
+    /// memory empty if its category is a standard one.
     pub fn of(s: &Build, standardize: bool) -> Purpose {
         Purpose::InPlace {
             standardize,
             conventional: s.file.conventional,
             keep_paste: s.file.keeps_paste,
+            empty: s.kind().is_some(),
         }
     }
 }
@@ -61,13 +70,16 @@ impl Purpose {
 /// hashes it as it is kept, without the roles it carries. Its blocks keep
 /// their colours throughout.
 pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
-    let (standardize, conventional, keep_paste, orient) = match purpose {
-        Purpose::Standard { keep_paste } => (true, true, keep_paste, true),
+    let (standardize, conventional, keep_paste, orient, empty) = match purpose {
+        Purpose::Standard { keep_paste } => {
+            (true, true, keep_paste, true, true)
+        }
         Purpose::InPlace {
             standardize,
             conventional,
             keep_paste,
-        } => (standardize, conventional, keep_paste, false),
+            empty,
+        } => (standardize, conventional, keep_paste, false, empty),
     };
     // Read once, changed in memory a step at a time, and written once.
     let blocks = Blocks::read(data)?;
@@ -82,6 +94,12 @@ pub fn prepare_for(data: &[u8], purpose: Purpose) -> Result<Prepared> {
     // Dust as the game shapes it among its neighbours, as `//update` leaves
     // it, whatever way it was saved.
     let blocks = schem::dust::updated(&blocks)?.unwrap_or(blocks);
+    // And its power as the game settles it, as `//update` leaves that too.
+    // A file that can't be settled, as one with a clock, is kept as saved.
+    let blocks = match standardize::rested(&blocks, empty) {
+        Ok(Some(rested)) => rested,
+        Ok(None) | Err(_) => blocks,
+    };
     let (blocks, turn) = if orient {
         let (laid, turn) = crate::standard::orient::oriented(&blocks)?;
         (laid.unwrap_or(blocks), turn)
@@ -165,6 +183,7 @@ pub fn rewrapped(standard: &Prepared) -> Result<Prepared> {
             standardize: false,
             conventional: standard.conventional,
             keep_paste: standard.keeps_paste,
+            empty: true,
         },
     )
 }

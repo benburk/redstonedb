@@ -596,6 +596,7 @@ fn furnaces_are_swapped_for_barrels_of_the_same_strength() {
             standardize: false,
             conventional: true,
             keep_paste: false,
+            empty: true,
         },
     )
     .unwrap();
@@ -885,6 +886,7 @@ fn signs_written_as_text_components_are_read_and_written_plain() {
                     standardize: false,
                     conventional: true,
                     keep_paste: false,
+                    empty: true,
                 }
             },
         )

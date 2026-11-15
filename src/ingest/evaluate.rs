@@ -80,6 +80,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             standardize: false,
             conventional: true,
             keep_paste: true,
+            empty: true,
         },
     )?;
     let blocks = &prepared.blocks;

@@ -216,12 +216,21 @@ pub fn levers_set(
     blocks: &Blocks,
     on: &BTreeSet<Pos>,
 ) -> Result<Option<Blocks>> {
-    let (changes, strengths) = crate::simulate::settled(blocks, on)?;
-    if changes.is_empty() && strengths.is_empty() {
+    changed(blocks, crate::simulate::settled(blocks, on)?)
+}
+
+/// `blocks` with each of `states` in place and each comparator at its
+/// strength of `strengths`, as settling them found; `None` when settling
+/// changed nothing.
+fn changed(
+    blocks: &Blocks,
+    (states, strengths): (BTreeMap<Pos, String>, HashMap<Pos, u8>),
+) -> Result<Option<Blocks>> {
+    if states.is_empty() && strengths.is_empty() {
         return Ok(None);
     }
     let mut grid = blocks.grid();
-    grid.extend(changes);
+    grid.extend(states);
     blocks
         .reboxed_with(
             &grid,
@@ -231,6 +240,35 @@ pub fn levers_set(
             &HashMap::new(),
         )
         .map(Some)
+}
+
+/// The levers of `blocks` saved on.
+fn levers_on(blocks: &Blocks) -> BTreeSet<Pos> {
+    blocks
+        .iter()
+        .filter(|(_, state)| {
+            schem::short(state) == "lever"
+                && schem::property(state, "powered") == Some("true")
+        })
+        .map(|(pos, _)| pos)
+        .collect()
+}
+
+/// `blocks` at rest, as `//update` would leave them in the game: every
+/// lever as it was saved, and every other component as those levers leave
+/// it, whatever power it was saved with, as a file changed by hand may
+/// hold dust lit by nothing. With `empty`, a locked repeater comes to rest
+/// holding 0: what a memory was saved holding is no part of the build, and
+/// a build that holds state is shown, compared, and tested from empty.
+/// `None` when they lie so already.
+pub fn rested(blocks: &Blocks, empty: bool) -> Result<Option<Blocks>> {
+    let on = levers_on(blocks);
+    let found = if empty {
+        crate::simulate::settled_empty(blocks, &on)?
+    } else {
+        crate::simulate::settled(blocks, &on)?
+    };
+    changed(blocks, found)
 }
 
 const BARREL: &str = "minecraft:barrel[facing=up,open=false]";
@@ -493,4 +531,61 @@ fn loose_glass(blocks: &Blocks, on_edges: bool) -> HashSet<Pos> {
         }
     }
     loose
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file comes to rest as the game would leave it: dust lit by
+    /// nothing goes dark, and a locked repeater saved holding 1 holds 0,
+    /// still locked, with the dust it lit dark too.
+    #[test]
+    fn a_file_comes_to_rest_with_its_memory_empty() {
+        let dust = "minecraft:redstone_wire[east=none,north=none,power=15,\
+                    south=none,west=none]";
+        let held = [2, 1, 2];
+        let stray = [3, 1, 0];
+        let mut states: HashMap<Pos, String> = [
+            // A block of redstone keeps the lock on from the cell's side.
+            ([1, 1, 0], "minecraft:redstone_block"),
+            (
+                [1, 1, 1],
+                "minecraft:repeater[delay=1,facing=north,locked=false,\
+                 powered=true]",
+            ),
+            (
+                [1, 1, 2],
+                "minecraft:repeater[delay=1,facing=west,locked=true,\
+                 powered=true]",
+            ),
+            (held, dust),
+            (stray, dust),
+        ]
+        .map(|(pos, state)| (pos, state.to_owned()))
+        .into();
+        for x in 0..4 {
+            for z in 0..3 {
+                states.insert([x, 0, z], "minecraft:stone".to_owned());
+            }
+        }
+        // Blocks made from a grid have no file to write back, so the test
+        // puts what settling finds in place itself.
+        let saved = Blocks::from_grid([4, 2, 3], &states);
+        let on = levers_on(&saved);
+        let (found, _) = crate::simulate::settled_empty(&saved, &on).unwrap();
+        states.extend(found);
+        let rested = Blocks::from_grid([4, 2, 3], &states);
+        let cell = rested.get([1, 1, 2]);
+        assert_eq!(schem::property(cell, "powered"), Some("false"));
+        assert_eq!(schem::property(cell, "locked"), Some("true"));
+        assert_eq!(schem::property(rested.get(held), "power"), Some("0"));
+        assert_eq!(schem::property(rested.get(stray), "power"), Some("0"));
+        // At rest, it stays as it is, where settling alone would have left
+        // the cell holding its 1.
+        let again = crate::simulate::settled_empty(&rested, &on).unwrap();
+        assert!(again.0.is_empty());
+        let (kept, _) = crate::simulate::settled(&saved, &on).unwrap();
+        assert!(!kept.contains_key(&[1, 1, 2]));
+    }
 }

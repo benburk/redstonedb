@@ -51,6 +51,7 @@ pub const IN_PLACE: Purpose = Purpose::InPlace {
     standardize: false,
     conventional: true,
     keep_paste: false,
+    empty: true,
 };
 
 /// The fixture `name` as a conventional build's file is kept where it
