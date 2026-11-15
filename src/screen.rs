@@ -711,15 +711,16 @@ fn row(field: Field, builds: &[&Build], picks: &Picks) -> Option<Row> {
     (picks.has(field) || enough && !apart).then_some(Row { field, choices })
 }
 
-/// Where a build places among its peers: the better of its places as
-/// fastest and smallest, then the other, which parts builds as fast as
-/// one another by their size. A record holder's better place is 1.
+/// How a build stands among its peers: how many of them it beats, as
+/// faster than them or as smaller, whichever is more, then the other,
+/// which parts builds as fast as one another by their size. The more it
+/// beats the better it stands, so the best of a crowded field stands above
+/// the only build of its kind, which beats none.
 pub type Place = (usize, usize);
 
 /// Each build's place among its peers, by its id: the builds of its
 /// category that match it in its measures, such as width, and in whether
-/// they hold state, ranked fastest and smallest. A build that ranks on no
-/// board has none.
+/// they hold state. A build that ranks on no board has none.
 pub fn places(builds: &[Build]) -> HashMap<String, Place> {
     type Peers<'a> = (&'a str, Vec<i64>, Option<crate::build::Logic>);
     let mut groups: BTreeMap<Peers, Vec<&Build>> = BTreeMap::new();
@@ -735,26 +736,21 @@ pub fn places(builds: &[Build]) -> HashMap<String, Place> {
     }
     let mut places: HashMap<String, Place> = HashMap::new();
     for peers in groups.values() {
-        let ranked = |of: &dyn Fn(&Build) -> Option<i64>| {
-            let mut values: Vec<i64> =
-                peers.iter().filter_map(|s| of(s)).collect();
-            values.sort_unstable();
-            values.dedup();
-            values
-        };
-        let ticks = ranked(&|s| s.specs.latency);
-        let blocks = ranked(&|s| Some(s.volume()));
         for s in peers {
-            // A build of unknown latency places last as fastest.
-            let place = |values: &[i64], n: Option<i64>| {
-                values
-                    .iter()
-                    .position(|v| Some(*v) == n)
-                    .map_or(usize::MAX, |i| i + 1)
+            // A build of unknown latency is faster than none, and slower
+            // than any whose latency is known.
+            let slower = |other: &&&Build| match (
+                s.specs.latency,
+                other.specs.latency,
+            ) {
+                (Some(mine), Some(theirs)) => mine < theirs,
+                (Some(_), None) => true,
+                (None, _) => false,
             };
-            let fast = place(&ticks, s.specs.latency);
-            let small = place(&blocks, Some(s.volume()));
-            places.insert(s.id.clone(), (fast.min(small), fast.max(small)));
+            let fast = peers.iter().filter(slower).count();
+            let small =
+                peers.iter().filter(|o| s.volume() < o.volume()).count();
+            places.insert(s.id.clone(), (fast.max(small), fast.min(small)));
         }
     }
     places
@@ -827,8 +823,9 @@ mod tests {
         assert_eq!(counts(&rows(&builds, &Picks::default()), Field::Lines), []);
     }
 
-    /// A build places among the builds of its category and width, by the
-    /// better of its places as fastest and smallest, then the other.
+    /// A build stands among the builds of its category and width by how
+    /// many it beats, as faster or as smaller, whichever is more, then the
+    /// other; the only build of its kind beats none.
     #[test]
     fn a_build_places_among_its_peers() {
         let sized = |id: &str, width, ticks, blocks| {
@@ -846,11 +843,11 @@ mod tests {
         ];
         let places = places(&builds);
         let place = |id: &str| places.get(id).copied();
-        assert_eq!(place("fast-and-small"), Some((1, 2)));
-        assert_eq!(place("fast"), Some((1, 3)));
-        assert_eq!(place("small"), Some((1, 2)));
-        assert_eq!(place("slow-and-big"), Some((2, 4)));
-        assert_eq!(place("alone"), Some((1, 1)));
+        assert_eq!(place("small"), Some((3, 0)));
+        assert_eq!(place("fast-and-small"), Some((2, 2)));
+        assert_eq!(place("fast"), Some((2, 1)));
+        assert_eq!(place("slow-and-big"), Some((0, 0)));
+        assert_eq!(place("alone"), Some((0, 0)));
     }
 
     fn counts(rows: &[Row], field: Field) -> Vec<(String, usize, bool)> {

@@ -9,8 +9,8 @@ use crate::{
 /// A field the home page can order builds by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SortField {
-    /// How well a build places among its peers, the builds of its
-    /// category, width, and state: record holders first; see
+    /// How a build stands among its peers, the builds of its category,
+    /// width, and state: those that beat the most of them first; see
     /// [`screen::places`].
     Top,
     AddedAt,
