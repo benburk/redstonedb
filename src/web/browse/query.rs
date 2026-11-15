@@ -18,6 +18,10 @@ pub enum View {
 /// A field the home page can order builds by.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SortField {
+    /// How well a build places among its peers, the builds of its
+    /// category, width, and state: record holders first; see
+    /// [`screen::places`].
+    Top,
     AddedAt,
     Volume,
     Latency,
@@ -25,7 +29,8 @@ pub enum SortField {
 }
 
 impl SortField {
-    const ALL: [SortField; 4] = [
+    const ALL: [SortField; 5] = [
+        SortField::Top,
         SortField::AddedAt,
         SortField::Volume,
         SortField::Latency,
@@ -35,6 +40,7 @@ impl SortField {
     /// As an address names it.
     fn name(self) -> &'static str {
         match self {
+            SortField::Top => "top",
             SortField::AddedAt => "added_at",
             SortField::Volume => "volume",
             SortField::Latency => "latency",
@@ -114,9 +120,37 @@ impl HomeQuery {
 
     /// The category picked, when it is one alone.
     pub(crate) fn category(&self) -> Option<&str> {
-        match self.picks.of(Field::Category)[..] {
-            [category] => Some(category),
-            _ => None,
+        self.picks.category()
+    }
+
+    /// The order its builds list in: the one its address asks for, or,
+    /// asked for none, the best of a category first within one, where
+    /// builds compare, and the newest first across them.
+    pub(crate) fn order(&self) -> Sort {
+        if !self.sort.0.is_empty() {
+            self.sort.clone()
+        } else if self.category().is_some() {
+            Sort(vec![(SortField::Top, false)])
+        } else {
+            Sort(vec![(SortField::AddedAt, true)])
+        }
+    }
+
+    /// The query listing its builds in the order an address names
+    /// `sort`, left out of its address where it is the order it takes
+    /// anyway.
+    pub(crate) fn sorted(&self, sort: &str) -> Self {
+        let unsorted = HomeQuery {
+            sort: Sort::default(),
+            ..self.clone()
+        };
+        if unsorted.order().name() == sort {
+            unsorted
+        } else {
+            HomeQuery {
+                sort: Sort::parse(sort),
+                ..unsorted
+            }
         }
     }
 

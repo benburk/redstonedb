@@ -120,6 +120,40 @@ pub(crate) fn segmented(segments: &[Segment]) -> Markup {
     }
 }
 
+/// A category's two pages: its builds, to find one that fits, and its
+/// records, the same builds as a contest.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Tab {
+    Builds,
+    Records,
+}
+
+/// The links between a category's two pages, `current` the one shown,
+/// each address carrying what the other is narrowed to.
+pub(crate) fn category_tabs(
+    current: Tab,
+    builds: &str,
+    records: &str,
+) -> Markup {
+    let segments = [
+        Segment {
+            label: "Builds",
+            href: builds.to_owned(),
+            chosen: current == Tab::Builds,
+            count: None,
+        },
+        Segment {
+            label: "Records",
+            href: records.to_owned(),
+            chosen: current == Tab::Records,
+            count: None,
+        },
+    ];
+    html! {
+        nav aria-label="Category pages" { (segmented(&segments)) }
+    }
+}
+
 /// The standard `categories` as the menu lists them: each section, by
 /// its key and heading, with its categories, then any in none under Other.
 /// A section with no categories is left out.
