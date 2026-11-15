@@ -253,22 +253,22 @@ fn has_tags(s: &Build, groups: &[String]) -> bool {
     })
 }
 
-/// Orders builds by `sort`. An unknown latency goes last either way, as
-/// does a build with no place among its peers, `places` giving each its
-/// best; those placed alike go most favourited, then most downloaded,
-/// first. Ties, and an empty sort, fall back to newest first.
+/// Orders builds by `sort`. An unknown latency goes last either way. The
+/// top go by how many of their peers each beats, as `places` gives it,
+/// the most first and a build with no place last; those standing alike go
+/// most favourited, then most downloaded, first. Ties, and an empty sort,
+/// fall back to newest first.
 fn order(
     shown: &mut [Build],
     sort: &Sort,
     places: &HashMap<String, screen::Place>,
 ) {
-    let last = (usize::MAX, usize::MAX);
-    let place = |s: &Build| places.get(&s.id).copied().unwrap_or(last);
+    let place = |s: &Build| places.get(&s.id).copied();
     shown.sort_by(|a, b| {
         for &(field, descending) in &sort.0 {
             let ordering = match field {
-                SortField::Top => place(a)
-                    .cmp(&place(b))
+                SortField::Top => place(b)
+                    .cmp(&place(a))
                     .then(b.entry.favorites.cmp(&a.entry.favorites))
                     .then(b.entry.downloads.cmp(&a.entry.downloads)),
                 SortField::AddedAt => a.entry.added_at.cmp(&b.entry.added_at),
