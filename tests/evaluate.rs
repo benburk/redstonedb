@@ -621,6 +621,7 @@ fn inverted_lines_are_flags_not_categories() {
             standardize: false,
             conventional: true,
             keep_paste: false,
+            empty: true,
         },
     )
     .unwrap()

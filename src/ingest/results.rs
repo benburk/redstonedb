@@ -212,15 +212,16 @@ async fn at_zero(
         let fixed = crate::standard::standardize::levers_at_zero(
             &was, &category, &inverted,
         )?;
-        if fixed == was {
-            return Ok(None);
-        }
+        // Prepared again even with its levers right already, as a file
+        // stored before files were brought to rest with their memory
+        // empty is so brought now.
         prepare::prepare_for(
             &fixed,
             Purpose::InPlace {
                 standardize: false,
                 conventional,
                 keep_paste: keeps_paste,
+                empty: true,
             },
         )
         .map(Some)

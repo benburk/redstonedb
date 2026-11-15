@@ -997,12 +997,41 @@ pub fn settled(
     blocks: &Blocks,
     on: &BTreeSet<Pos>,
 ) -> Result<(BTreeMap<Pos, String>, HashMap<Pos, u8>)> {
+    rest(blocks, on, false)
+}
+
+/// What `blocks` comes to rest as, as [`settled`] gives it, with its
+/// memory empty: each locked repeater saved holding 1 holds 0, its lock
+/// keeping it so while the rest settles around it, as what a memory was
+/// saved holding is no part of the build.
+pub fn settled_empty(
+    blocks: &Blocks,
+    on: &BTreeSet<Pos>,
+) -> Result<(BTreeMap<Pos, String>, HashMap<Pos, u8>)> {
+    rest(blocks, on, true)
+}
+
+/// [`settled`], each locked repeater holding 0 first where `empty` says.
+fn rest(
+    blocks: &Blocks,
+    on: &BTreeSet<Pos>,
+    empty: bool,
+) -> Result<(BTreeMap<Pos, String>, HashMap<Pos, u8>)> {
     let mut world = world(blocks)?;
     for &pos in on {
         let mut block = world.get_block(at(pos));
         if let Block::Lever { powered, .. } = &mut block {
             *powered = true;
             world.set_block(at(pos), block);
+        }
+    }
+    for (pos, _) in blocks.iter().filter(|_| empty) {
+        if let Block::Repeater(mut repeater) = world.get_block(at(pos))
+            && repeater.locked
+            && repeater.powered
+        {
+            repeater.powered = false;
+            world.set_block(at(pos), Block::Repeater(repeater));
         }
     }
     settle_world(&mut world, world_size(blocks))?;
