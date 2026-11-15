@@ -5,13 +5,16 @@
 //! check covers every test, however it runs. A budget is set around a
 //! whole piece of work with [`within`], on the thread that does it, and
 //! carried into the threads a timing spreads over, see [`carried`];
-//! where none is set, as in the test suite, nothing stops. The site sets
-//! one limit for the whole process, [`set_limit`], which recognizing a
-//! build and evaluating one each run within, see [`limited`].
+//! where none is set, as in the test suite, nothing stops. The site and
+//! rsdb turn the limits on once, as they start, [`enforce`]: recognizing a
+//! build and testing it each run within [`SECONDS`], see [`limited`], and
+//! measuring one that passes, its timing, throughput, design, and how its
+//! copies stack, within [`MEASURING_SECONDS`], see [`measuring`], as it
+//! runs in the background and drives far more changes than a test.
 
 use std::{
     cell::Cell,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -19,27 +22,43 @@ use anyhow::Result;
 
 use super::{Rule, Untested};
 
-/// What recognizing a build, testing it, or measuring one that passes may
-/// each take on the site.
+/// What recognizing a build, or testing it, may each take on the site.
 pub const SECONDS: u64 = 5;
 
-/// The limit [`limited`] work runs within, in milliseconds; 0 for none.
-static LIMIT: AtomicU64 = AtomicU64::new(0);
+/// What measuring a build that passes may take on the site. Timed on a
+/// server of two cores, the 8-bit ALUs, 16-bit barrel shifters, and 64-bit
+/// hex adders on the site take more than 5 seconds alone.
+pub const MEASURING_SECONDS: u64 = 60;
 
-/// Makes all [`limited`] work in this process stop after `limit`, as the
-/// site does once, as it starts.
-pub fn set_limit(limit: Duration) {
-    let millis = u64::try_from(limit.as_millis()).unwrap_or(u64::MAX);
-    LIMIT.store(millis.max(1), Ordering::Relaxed);
+/// Whether [`limited`] and [`measuring`] work stops at its limit.
+static ENFORCED: AtomicBool = AtomicBool::new(false);
+
+/// Makes [`limited`] and [`measuring`] work in this process stop at its
+/// limit, as the site and rsdb do once, as they start.
+pub fn enforce() {
+    ENFORCED.store(true, Ordering::Relaxed);
 }
 
-/// Runs `work`, a whole piece of it such as recognizing a build, within
-/// the limit [`set_limit`] set, if any, or what is left of the work it is
-/// part of.
+/// Runs `work`, a whole piece of it such as recognizing a build or testing
+/// it, within [`SECONDS`] once [`enforce`] has been called, or what is
+/// left of the work it is part of.
 pub fn limited<T>(work: impl FnOnce() -> T) -> T {
-    match LIMIT.load(Ordering::Relaxed) {
-        0 => work(),
-        millis => within(Duration::from_millis(millis), work),
+    enforced(SECONDS, work)
+}
+
+/// Runs `work`, measuring a build that passes, within
+/// [`MEASURING_SECONDS`] once [`enforce`] has been called, or what is left
+/// of the work it is part of.
+pub fn measuring<T>(work: impl FnOnce() -> T) -> T {
+    enforced(MEASURING_SECONDS, work)
+}
+
+/// Runs `work` within `seconds` once [`enforce`] has been called.
+fn enforced<T>(seconds: u64, work: impl FnOnce() -> T) -> T {
+    if ENFORCED.load(Ordering::Relaxed) {
+        within(Duration::from_secs(seconds), work)
+    } else {
+        work()
     }
 }
 

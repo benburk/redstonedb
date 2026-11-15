@@ -18,7 +18,7 @@ use crate::{
     category::Test,
     ingest::evaluate::{Evaluation, evaluate},
     schem::{self, Blocks},
-    simulate::{Report, Timing},
+    simulate::{Report, Timing, budget},
 };
 
 /// One run of a test's cases at a time, and one timing: the server has two
@@ -129,10 +129,7 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
     if let Some(report) = recent(&sha256, test) {
         return Ok(report);
     }
-    let ran = tokio::task::spawn_blocking(move || {
-        crate::simulate::budget::limited(|| run_now(test, &data))
-    })
-    .await;
+    let ran = tokio::task::spawn_blocking(move || run_now(test, &data)).await;
     // A run that panics is stored as skipped, so asking again does not
     // run it again and again.
     let report = match ran {
@@ -149,14 +146,16 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
     Ok(report)
 }
 
-/// `test` run on `data`, and, when every case comes out right, whether its
-/// copies stack, together within the time the site gives a build.
+/// `test` run on `data` within the time the site gives a test, and, when
+/// every case comes out right, whether its copies stack, within the time
+/// it gives measuring; see [`budget`].
 fn run_now(test: Test, data: &[u8]) -> Result<Report> {
-    let mut report = test.run(&Blocks::read(data)?);
+    let blocks = Blocks::read(data)?;
+    let mut report = budget::limited(|| test.run(&blocks));
     if let Report::Ran(run) = &mut report
         && run.wrong == 0
     {
-        run.stacking = test.stacking(data);
+        run.stacking = budget::measuring(|| test.stacking(data));
     }
     Ok(report)
 }
@@ -183,9 +182,7 @@ pub async fn time(
         return Ok(timing);
     }
     let timing = tokio::task::spawn_blocking(move || {
-        crate::simulate::budget::limited(|| {
-            test.time(&Blocks::read(&data)?, &cancel)
-        })
+        budget::measuring(|| test.time(&Blocks::read(&data)?, &cancel))
     })
     .await??;
     if let Some(mut report) = recent(&sha256, test) {
