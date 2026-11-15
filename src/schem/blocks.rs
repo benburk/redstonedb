@@ -177,6 +177,61 @@ impl Blocks {
         })
     }
 
+    /// Every position whose block state `kind` holds of, with its state, x
+    /// fastest, as [`Blocks::iter`] gives them: each state of the palette
+    /// asked once, however many blocks are of it, so finding a build's few
+    /// repeaters or levers costs next to nothing however large it is.
+    pub fn matching(
+        &self,
+        kind: impl Fn(&str) -> bool,
+    ) -> impl Iterator<Item = (Pos, &str)> {
+        let wanted: Vec<bool> =
+            self.palette.iter().map(|state| kind(state)).collect();
+        let [width, _, length] = self.size;
+        let index = |n: usize| i32::try_from(n).unwrap_or(0);
+        self.grid
+            .iter()
+            .enumerate()
+            .filter(move |&(_, &state)| wanted[state])
+            .map(move |(n, &state)| {
+                let n = index(n);
+                let pos = [n % width, n / (width * length), n / width % length];
+                (pos, self.palette[state].as_str())
+            })
+    }
+
+    /// Every position with what `of` makes of its block state, x fastest:
+    /// each state of the palette made once, however many blocks are of it.
+    pub fn each<T: Clone>(
+        &self,
+        of: impl Fn(&str) -> T,
+    ) -> impl Iterator<Item = (Pos, T)> {
+        let made: Vec<T> = self.palette.iter().map(|state| of(state)).collect();
+        let [width, _, length] = self.size;
+        let index = |n: usize| i32::try_from(n).unwrap_or(0);
+        self.grid.iter().enumerate().map(move |(n, &state)| {
+            let n = index(n);
+            let pos = [n % width, n / (width * length), n / width % length];
+            (pos, made[state].clone())
+        })
+    }
+
+    /// A number standing for what the simulator reads of them, every block
+    /// state and what each comparator and container holds, the same for
+    /// two reads of one file whatever roles each carries, so work done on
+    /// one may be kept for the other.
+    pub fn fingerprint(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        (self.size, &self.palette, &self.grid).hash(&mut hasher);
+        let mut comparators: Vec<_> = self.comparators.iter().collect();
+        comparators.sort_unstable();
+        let mut containers: Vec<_> = self.containers.iter().collect();
+        containers.sort_unstable();
+        (comparators, containers).hash(&mut hasher);
+        hasher.finish()
+    }
+
     /// The whole bounding box.
     pub fn full_size(&self) -> Size {
         let [x, y, z] = self.size.map(|n| u16::try_from(n).unwrap_or(0));
@@ -187,27 +242,26 @@ impl Blocks {
 impl Blocks {
     /// Each lever and button with the block it is attached to.
     pub fn switches(&self) -> Vec<Switch> {
-        self.iter()
-            .filter(|(_, state)| {
-                id(state) == "minecraft:lever" || id(state).ends_with("_button")
+        self.matching(|state| {
+            id(state) == "minecraft:lever" || id(state).ends_with("_button")
+        })
+        .filter_map(|(pos, state)| {
+            // A floor or ceiling lever's or button's `facing` is only the
+            // way it points.
+            let side = match property(state, "face")? {
+                "floor" => Direction::Up,
+                "ceiling" => Direction::Down,
+                _ => Direction::facing(state)?,
+            };
+            Some(Switch {
+                pos,
+                block: step(pos, side.opposite()),
+                side,
+                on: property(state, "powered") == Some("true"),
+                button: id(state).ends_with("_button"),
             })
-            .filter_map(|(pos, state)| {
-                // A floor or ceiling lever's or button's `facing` is only the
-                // way it points.
-                let side = match property(state, "face")? {
-                    "floor" => Direction::Up,
-                    "ceiling" => Direction::Down,
-                    _ => Direction::facing(state)?,
-                };
-                Some(Switch {
-                    pos,
-                    block: step(pos, side.opposite()),
-                    side,
-                    on: property(state, "powered") == Some("true"),
-                    button: id(state).ends_with("_button"),
-                })
-            })
-            .collect()
+        })
+        .collect()
     }
 
     /// Each sign's text, by the block the sign is attached to.

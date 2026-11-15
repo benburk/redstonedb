@@ -5,10 +5,10 @@ use crate::simulate::Rule;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     panic::AssertUnwindSafe,
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use mchprs_blocks::{
     BlockFace, BlockPos,
     block_entities::{BlockEntity, ContainerType},
@@ -141,8 +141,15 @@ impl Circuit {
         held: &[(usize, Value)],
         redpiler: bool,
     ) -> Result<Self> {
-        let mut world = world(blocks)?;
         let digits = interface.inputs.iter().any(|port| port.signal_strength);
+        // Its levers as saved and no digit's driver placed, it settles as
+        // it did last time, kept as `SETTLED` keeps it.
+        let plain = !digits && held.is_empty();
+        let mut world = if plain {
+            settled_world(blocks)?
+        } else {
+            world(blocks)?
+        };
         let mut taken = HashSet::new();
         let mut inputs = interface
             .inputs
@@ -156,8 +163,10 @@ impl Circuit {
                 }
             })
             .collect::<Result<Vec<_>>>()?;
-        hold(&mut world, &mut inputs, held);
-        settle_world(&mut world, world_size(blocks))?;
+        if !plain {
+            hold(&mut world, &mut inputs, held);
+            settle_world(&mut world, world_size(blocks))?;
+        }
         let outputs: Vec<(Vec<BlockPos>, bool)> = interface
             .outputs
             .iter()
@@ -923,8 +932,13 @@ fn world(blocks: &Blocks) -> Result<TestWorld> {
     let chunks = |n: i32| (n + 15) / 16;
     let [x, y, z] = world_size(blocks);
     let mut world = TestWorld::new(chunks(x), chunks(y), chunks(z));
-    for (pos, state) in blocks.iter() {
-        let mut block = block(state)?;
+    // Each state read once; one the simulator can't read is read again
+    // where it first stands, for why.
+    for (pos, read) in blocks.each(|state| block(state).ok()) {
+        let Some(mut block) = read else {
+            block(blocks.get(pos))?;
+            continue;
+        };
         if let Block::Lever { powered, .. } = &mut block {
             *powered = false;
         }
@@ -1070,6 +1084,36 @@ fn hold(world: &mut TestWorld, inputs: &mut [Drive], held: &[(usize, Value)]) {
 fn world_size(blocks: &Blocks) -> Pos {
     let [x, y, z] = blocks.size;
     [x + 2 * MARGIN, y, z + 2 * MARGIN]
+}
+
+/// The worlds of the latest builds set up, each settled with its levers
+/// as saved, by [`Blocks::fingerprint`]: probing sets up one build as
+/// many times as there are readings of it, and a large one takes longer
+/// to settle than any reading takes to run.
+static SETTLED: Mutex<Vec<(u64, TestWorld)>> = Mutex::new(Vec::new());
+
+/// How many settled worlds `SETTLED` keeps, the latest.
+const SETTLED_KEPT: usize = 2;
+
+/// The world of `blocks` settled with its levers as saved, as
+/// [`settle_world`] settles it, from `SETTLED` when it was set up lately.
+fn settled_world(blocks: &Blocks) -> Result<TestWorld> {
+    let key = blocks.fingerprint();
+    let kept = SETTLED.lock().map_err(|_| anyhow!("a lock was poisoned"))?;
+    if let Some((_, world)) = kept.iter().find(|(k, _)| *k == key) {
+        return Ok(world.clone());
+    }
+    drop(kept);
+    let mut world = world(blocks)?;
+    settle_world(&mut world, world_size(blocks))?;
+    let mut kept =
+        SETTLED.lock().map_err(|_| anyhow!("a lock was poisoned"))?;
+    kept.retain(|(k, _)| *k != key);
+    kept.push((key, world.clone()));
+    if kept.len() > SETTLED_KEPT {
+        kept.remove(0);
+    }
+    Ok(world)
 }
 
 /// Brings a world to rest as the game would: updates every block once,

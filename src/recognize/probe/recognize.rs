@@ -569,18 +569,22 @@ impl Subject {
         test: Test,
         found: &matching::Match,
     ) -> Result<Result<(Vec<u8>, simulate::Run), Fault>, Fault> {
-        let file = lines::with(&self.data, Some(&found.roles()))
-            .map_err(|err| Fault::Unfit(err.to_string()))?;
+        // Written only for a try that ran, as writing a large build's file
+        // takes longer than most tries do.
+        let file = || {
+            lines::with(&self.data, Some(&found.roles()))
+                .map_err(|err| Fault::Unfit(err.to_string()))
+        };
         let quick = found.interface(&self.blocks);
         match test.check_with(&self.blocks, quick, true) {
             Ok(run) if run.wrong == 0 => {}
-            Ok(run) => return Ok(Err(Fault::wrong(&run, &file))),
+            Ok(run) => return Ok(Err(Fault::wrong(&run, &file()?))),
             Err(err) => return Ok(Err(Fault::not_run(&err))),
         }
         let interface = found.interface(&self.blocks);
         Ok(match test.check_with(&self.blocks, interface, false) {
-            Ok(run) if run.wrong == 0 => Ok((file, run)),
-            Ok(run) => Err(Fault::wrong(&run, &file)),
+            Ok(run) if run.wrong == 0 => Ok((file()?, run)),
+            Ok(run) => Err(Fault::wrong(&run, &file()?)),
             Err(err) => Err(Fault::not_run(&err)),
         })
     }
