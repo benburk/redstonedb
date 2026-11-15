@@ -14,9 +14,15 @@ use super::{
 };
 use crate::{interface::Interface, schem::Blocks};
 
-/// Up to this many input bits, every combination is tried; beyond it, every
-/// case of each byte and every pairing of the test patterns.
-pub(crate) const EXHAUSTIVE_BITS: usize = 20;
+/// Up to this many input bits, every combination is tried, as an 8-bit
+/// adder's with its carry in; beyond it, every pairing of the test
+/// patterns, see [`cases`].
+pub(crate) const EXHAUSTIVE_BITS: usize = 17;
+
+/// The most pairings of the test patterns a test tries: past it, an even
+/// sample of them, as three wide inputs, a fused multiply-add's, pair too
+/// many.
+const MOST_PAIRINGS: usize = 1 << 14;
 
 /// The widest input whose every bit `patterns` sets and clears alone.
 const WIDE: usize = 32;
@@ -112,6 +118,15 @@ impl Bench {
         }
     }
 
+    /// The input bits a press each case counts as, when choosing whether
+    /// to try every case: a case pressed runs the build three times over,
+    /// set, pressed, and let go, so it costs as much as about four, two
+    /// bits' worth. An 8-bit multiplier pressed to calculate so pairs the
+    /// test patterns, where one that isn't tries every product.
+    pub fn pressed_bits(&self) -> usize {
+        if self.press.is_some() { 2 } else { 0 }
+    }
+
     /// Each input's width in bits, in the order of `inputs`.
     pub fn widths(&self, interface: &Interface) -> Vec<usize> {
         self.inputs
@@ -133,15 +148,10 @@ impl Bench {
 /// reads, the cases it tries, and what each case should give.
 pub(crate) struct Spec {
     pub bench: Bench,
-    pub cases: Cases,
     /// What the build may be. Most tests know, so this holds one; an
     /// incrementer may add or subtract, so it holds each kind, and the
     /// one the build gets most right names its cases.
     pub kinds: Vec<Kind>,
-    /// Whether the cases, when there are too many to try every one, take
-    /// each hex digit's every value rather than each byte's, as a hex
-    /// adder's do.
-    pub by_digit: bool,
 }
 
 /// One thing a build may compute: its cases' name, such as `A + B`, what
@@ -175,12 +185,6 @@ impl Kind {
     }
 }
 
-/// The cases a test tries when its inputs come to more than
-/// `EXHAUSTIVE_BITS`, with how many of them pair the test patterns; with
-/// fewer, every combination is tried. A quick look pairs a few telling
-/// values of each input instead.
-pub(crate) type Cases = Box<dyn FnOnce() -> (Vec<Case>, u64)>;
-
 impl Spec {
     /// Runs the cases through `blocks`, whose interface is `interface`, or
     /// with `quick` a few telling ones, and judges what came out against
@@ -193,7 +197,8 @@ impl Spec {
     ) -> Result<Run> {
         self.bench.fits(interface)?;
         let widths = self.bench.widths(interface);
-        let (cases, exhaustive, patterns) = chosen(&widths, quick, self.cases);
+        let lines = self.bench.pressed_bits();
+        let (cases, exhaustive, patterns) = chosen(&widths, lines, quick);
         let got = observe(blocks, interface, &self.bench, &cases, None)?;
         let run = best(interface, &self.bench, &self.kinds, &cases, &got)
             .context("a test has something to check")?;
@@ -211,7 +216,6 @@ impl Spec {
             .ok()
             .flatten();
         }
-        run.by_digit = self.by_digit && !run.exhaustive;
         Ok(run)
     }
 
@@ -227,7 +231,8 @@ impl Spec {
     ) -> Result<Timing> {
         self.bench.fits(interface)?;
         if self.bench.press.is_some() {
-            let every = cases(&self.bench.widths(interface), self.cases).0;
+            let widths = self.bench.widths(interface);
+            let every = cases(&widths, self.bench.pressed_bits()).0;
             return timing::pressed(
                 blocks,
                 interface,
@@ -310,19 +315,71 @@ impl Distinct {
     }
 }
 
-/// Every combination of inputs of `widths` bits when they come to at most
-/// `EXHAUSTIVE_BITS`, else what `structured` gives, with whether they were
-/// every one and how many pair the test patterns.
-pub(crate) fn cases(
-    widths: &[usize],
-    structured: impl FnOnce() -> (Vec<Case>, u64),
-) -> (Vec<Case>, bool, u64) {
-    let bits: usize = widths.iter().sum();
-    if bits > EXHAUSTIVE_BITS {
-        let (cases, patterns) = structured();
-        return (cases, false, patterns);
+/// The cases a test runs on inputs of `widths` bits, with whether they
+/// are every combination and how many pair the test patterns. The rule
+/// is one for every test: every combination when the inputs come to at
+/// most [`EXHAUSTIVE_BITS`]; else every pairing of each input's test
+/// patterns, see [`patterns`], a 1-bit input, such as a carry in, taking 0
+/// and 1, an even sample of them past [`MOST_PAIRINGS`]. A large circuit
+/// repeats a few cells, and the patterns put each through every case it
+/// has: each bit alone shows it wired to its place, the runs of ones give
+/// each pair of bits of A and B every combination, and all set against
+/// each bit carries the length of the build. A build of one wide input,
+/// whose patterns are few, also takes every value of each byte of it, its
+/// other inputs 0.
+///
+/// `lines` more bits count among its inputs, for lines that choose what
+/// the build does, as an ALU's operation, held through each case: an
+/// 8-bit ALU of three such lines has 20 bits, too many to try every case
+/// of every operation; and for a press each case, see
+/// [`Bench::pressed_bits`].
+pub(crate) fn cases(widths: &[usize], lines: usize) -> (Vec<Case>, bool, u64) {
+    let bits: usize = widths.iter().sum::<usize>() + lines;
+    if bits <= EXHAUSTIVE_BITS {
+        return (every(widths), true, 0);
     }
-    let every = (0..1u64 << bits)
+    let choices: Vec<Vec<Value>> = widths
+        .iter()
+        .map(|&width| {
+            if width == 1 {
+                vec![0, 1]
+            } else {
+                patterns(width)
+            }
+        })
+        .collect();
+    let total: usize = choices.iter().map(Vec::len).product();
+    let taken = total.min(MOST_PAIRINGS);
+    let mut cases = Distinct::default();
+    for i in 0..taken {
+        let mut at = i * total / taken;
+        let mut case = [0; 3];
+        for (value, values) in case.iter_mut().zip(&choices) {
+            *value = values[at % values.len()];
+            at /= values.len();
+        }
+        cases.add(case);
+    }
+    let paired = cases.len() as u64;
+    let wide: Vec<usize> =
+        (0..widths.len()).filter(|&i| widths[i] > 1).collect();
+    if let &[input] = wide.as_slice() {
+        let width = widths[input];
+        for low in (0..width).step_by(8) {
+            for byte in 0..1 << (width - low).min(8) {
+                let mut case = [0; 3];
+                case[input] = byte << low;
+                cases.add(case);
+            }
+        }
+    }
+    (cases.cases, false, paired)
+}
+
+/// Every combination of inputs of `widths` bits.
+fn every(widths: &[usize]) -> Vec<Case> {
+    let bits: usize = widths.iter().sum();
+    (0..1u64 << bits)
         .map(|packed| {
             let mut case = [0; 3];
             let mut shift = 0;
@@ -332,8 +389,7 @@ pub(crate) fn cases(
             }
             case
         })
-        .collect();
-    (every, true, 0)
+        .collect()
 }
 
 /// The cases a test runs on inputs of `widths`: with `quick` a few telling
@@ -341,14 +397,14 @@ pub(crate) fn cases(
 /// they are every one and how many pair the test patterns.
 pub(crate) fn chosen(
     widths: &[usize],
+    lines: usize,
     quick: bool,
-    structured: impl FnOnce() -> (Vec<Case>, u64),
 ) -> (Vec<Case>, bool, u64) {
     if quick {
         let (cases, count) = paired(widths);
         (cases, false, count)
     } else {
-        cases(widths, structured)
+        cases(widths, lines)
     }
 }
 
@@ -864,9 +920,7 @@ pub(crate) mod testing {
             (0..interface.outputs.len()).collect(),
             "",
         );
-        let (cases, _, _) = cases(&bench.widths(&interface), || {
-            unreachable!("few enough bits to try every case")
-        });
+        let (cases, _, _) = cases(&bench.widths(&interface), 0);
         let got: Vec<Value> = cases.iter().map(got).collect();
         best(&interface, &bench, kinds, &cases, &got).unwrap()
     }
@@ -938,5 +992,44 @@ mod tests {
         ] {
             assert!(found.contains(&value), "{value:#x}");
         }
+    }
+
+    /// An 8-bit adder with its carry in, 17 bits, tries every sum; one bit
+    /// more, and it pairs the test patterns, a carry in taking 0 and 1.
+    #[test]
+    fn up_to_17_bits_every_case_beyond_every_pairing_of_the_patterns() {
+        let (every, exhaustive, _) = cases(&[8, 8, 1], 0);
+        assert!(exhaustive);
+        assert_eq!(every.len(), 1 << 17);
+        let (paired, exhaustive, count) = cases(&[16, 16, 1], 0);
+        assert!(!exhaustive);
+        let values = patterns(16).len();
+        assert_eq!(
+            (paired.len(), count),
+            (values * values * 2, values as u64 * values as u64 * 2)
+        );
+        // All ones plus one carries the length of it.
+        assert!(paired.contains(&[0xFFFF, 1, 0]));
+        assert!(paired.contains(&[0xFFFF, 0, 1]));
+        // Each pair of bits of A and B takes every combination.
+        assert!(paired.contains(&[0x5555, 0xAAAA, 0]));
+        assert!(paired.contains(&[0x3333, 0x3333, 1]));
+    }
+
+    /// A build of one wide input takes every value of each byte too, as
+    /// its patterns alone are few; three wide inputs are sampled.
+    #[test]
+    fn one_wide_input_takes_each_byte_and_three_are_sampled() {
+        let (tried, _, count) = cases(&[24], 0);
+        assert_eq!(count, patterns(24).len() as u64);
+        assert!(tried.contains(&[0xAB_0000, 0, 0]));
+        assert!(tried.contains(&[0x00_CD00, 0, 0]));
+        // An inverter's control line stays off for the bytes.
+        let (tried, _, _) = cases(&[24, 1], 0);
+        assert!(tried.contains(&[0x00_EF00, 0, 0]));
+        let (tried, _, count) = cases(&[32, 32, 64], 0);
+        assert!(tried.len() <= MOST_PAIRINGS);
+        assert_eq!(count, tried.len() as u64);
+        assert_eq!(tried, cases(&[32, 32, 64], 0).0);
     }
 }

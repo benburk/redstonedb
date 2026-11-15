@@ -30,7 +30,7 @@ pub fn about(viewer: Option<&User>) -> Markup {
                 p class="mb-2" { "Depending on the circuit, RedstoneDB tests every build automatically for:" }
                 ul class="mb-4 flex list-disc flex-col gap-1 pl-5" {
                     li { "build type: adder, register, ALU, and so on" }
-                    li { "correctness, across every input case, or every case of each byte for wide builds" }
+                    li { "correctness, across every input case, or every pairing of the test patterns for wide builds" }
                     li { "latency, in ticks" }
                     li { "throughput: how often it can take a new input" }
                     li { "whether its outputs change in sync: every data output bit on the same tick, without glitches, a status line like carry out on a tick of its own" }

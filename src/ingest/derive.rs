@@ -217,7 +217,6 @@ mod tests {
             "cases": 4,
             "exhaustive": true,
             "patterns": 0,
-            "by_digit": false,
             "wrong": wrong,
             "inputs": [],
             "outputs": [],

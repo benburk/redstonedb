@@ -155,7 +155,7 @@ fn probing_a_hex_adder_finds_its_digits() {
             .unwrap();
     assert_eq!(
         recognition.found.as_deref(),
-        Some("a hex adder: all 11928 cases right, A + B"),
+        Some("a hex adder: all 6400 cases right, A + B"),
         "{:?}",
         recognition.problems
     );

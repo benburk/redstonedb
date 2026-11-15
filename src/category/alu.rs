@@ -31,7 +31,7 @@ use std::{
 use anyhow::Result;
 
 use crate::{
-    category::{adder::adder_cases, test::Runs},
+    category::test::Runs,
     interface::{Interface, colour},
     schem::Blocks,
     simulate::{
@@ -647,7 +647,7 @@ fn check_one(
         vec![width, width]
     };
     let (cases, exhaustive, patterns) =
-        bench::chosen(&widths, quick, || adder_cases(width, carry, 8));
+        bench::chosen(&widths, alu.lines.len(), quick);
     let data_bits = alu.data_bits;
     let carry_inverted = Value::from(carry && alu.carry_inverted);
     let expected = |case: &Case| {

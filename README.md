@@ -5,7 +5,7 @@ RedstoneDB is a site for sharing, verifying, and archiving high-quality Minecraf
 Depending on the circuit, RedstoneDB tests every build automatically for:
 
 - build type: adder, register, ALU, and so on
-- correctness, across every input case, or every case of each byte for wide builds
+- correctness, across every input case, or every pairing of the test patterns for wide builds
 - latency, in ticks
 - throughput: how often it can take a new input
 - whether its outputs change in sync

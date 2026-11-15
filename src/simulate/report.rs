@@ -89,13 +89,10 @@ pub struct Run {
     /// The cases tried.
     pub cases: u64,
     /// Whether those were every combination of inputs. When not, they were
-    /// every case of each byte and every pairing of the test patterns.
+    /// every pairing of the test patterns; see `bench::cases`.
     pub exhaustive: bool,
     /// How many of the cases were pairings of the test patterns.
     pub patterns: u64,
-    /// Whether, not trying every combination, each hex digit took its
-    /// every case rather than each byte, as for a hex adder.
-    pub by_digit: bool,
     /// How many cases were wrong.
     pub wrong: u64,
     /// What each case sets, in order, such as A, B, and carry in.
