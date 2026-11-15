@@ -246,9 +246,12 @@ named_values! {
 }
 
 impl Flag {
-    /// The group it is screened under.
-    pub fn group(&self) -> FlagGroup {
-        match self.name {
+    /// The group it is screened under; `None` for one no build is
+    /// screened by: an adder that subtracts is a subtractor, a category of
+    /// its own, so an adder's `subtract` offers nothing to pick.
+    pub fn group(&self) -> Option<FlagGroup> {
+        Some(match self.name {
+            "subtract" => return None,
             Flag::CARRY_IN
             | Flag::CARRY_OUT
             | Flag::BORROW_IN
@@ -260,10 +263,11 @@ impl Flag {
             | "inverted"
             | "falling_edge" => FlagGroup::Lines,
             "and" | "or" | "xor" | "nand" | "nor" | "xnor" | "shl" | "shr"
-            | "asr" | "nadd" | "nsub" | "subtract" | "fma"
-            | "upper_product" => FlagGroup::Operations,
+            | "asr" | "nadd" | "nsub" | "fma" | "upper_product" => {
+                FlagGroup::Operations
+            }
             _ => FlagGroup::Features,
-        }
+        })
     }
 
     /// The flag of a build with a carry in.

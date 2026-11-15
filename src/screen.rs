@@ -134,7 +134,7 @@ impl Field {
             Some(group) => facts
                 .flags
                 .iter()
-                .filter(|flag| flag.group() == group)
+                .filter(|flag| flag.group() == Some(group))
                 .map(|flag| (flag.name.to_owned(), flag.label.to_owned()))
                 .collect(),
             None if self == Field::Design => facts
@@ -290,7 +290,7 @@ impl Field {
             return s
                 .flags
                 .iter()
-                .filter(|flag| flag.group() == group)
+                .filter(|flag| flag.group() == Some(group))
                 .map(|flag| (flag.name.to_owned(), flag.label.to_owned()))
                 .collect();
         }
