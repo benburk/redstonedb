@@ -183,6 +183,11 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Builds are recognized and evaluated within the time the site gives
+    // them, so what this finds is what the site would.
+    app::simulate::budget::set_limit(std::time::Duration::from_secs(
+        app::simulate::budget::SECONDS,
+    ));
     if let Command::Inspect(_) = cli.command {
         // Measuring only, so nothing is written, not even a checkpoint.
         let db = connect_read_only().await?;

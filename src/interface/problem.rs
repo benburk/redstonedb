@@ -65,6 +65,9 @@ pub enum Rule {
     NotSimulated,
     /// It never comes to rest.
     StillChanging,
+    /// Simulating it ran past the time the site gives a build; see
+    /// `simulate::budget`.
+    TookTooLong,
     /// Its lines don't fit its category's, in a way with no more to say
     /// than the sentence does.
     Lines,
@@ -108,6 +111,7 @@ impl Rule {
             Rule::WrongCases => "wrong cases",
             Rule::NotSimulated => "not simulated",
             Rule::StillChanging => "still changing",
+            Rule::TookTooLong => "took too long",
             Rule::Lines => "lines",
             Rule::Other => "other",
         }
@@ -153,6 +157,7 @@ impl Rule {
             Rule::WrongCases
             | Rule::NotSimulated
             | Rule::StillChanging
+            | Rule::TookTooLong
             | Rule::Lines
             | Rule::Other => None,
         }
@@ -243,6 +248,11 @@ impl Rule {
             Rule::StillChanging => {
                 "Make sure it comes to rest once its inputs stop: take out \
                  any clock or loop that keeps it changing."
+            }
+            Rule::TookTooLong => {
+                "Upload a narrower version, or one of fewer copies: the \
+                 simulator ran out of the time the site gives a build \
+                 before it was done."
             }
             Rule::Lines | Rule::Other => return None,
         })

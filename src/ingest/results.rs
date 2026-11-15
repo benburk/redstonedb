@@ -366,7 +366,9 @@ async fn refresh_evaluated(
                 let blocks = &e.prepared.blocks;
                 let width =
                     read::derived(&category, &interface::read(blocks)).width;
-                Test::of(&category, width).map(|test| test.run(blocks))
+                Test::of(&category, width).map(|test| {
+                    crate::simulate::budget::limited(|| test.run(blocks))
+                })
             })
             .await?
         }

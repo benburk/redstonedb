@@ -99,6 +99,7 @@ macro_rules! untested {
 pub(crate) use untested;
 
 pub(crate) mod bench;
+pub mod budget;
 pub(crate) mod circuit;
 mod report;
 pub(crate) mod rng;

@@ -19,7 +19,7 @@ use crate::{
     },
     interface::{self, Encoding, Orientation},
     schem::Blocks,
-    simulate::{Design, Edge, Report, Run, Stacking, Timing},
+    simulate::{Design, Edge, Report, Run, Stacking, Timing, budget},
     stack::{self, StackDirection},
 };
 
@@ -69,7 +69,10 @@ impl Evaluation {
     }
 }
 
-/// Reads the build in `file`.
+/// Reads the build in `file`: what it is and whether its test passes,
+/// within the time the site gives a build, see [`budget::limited`], and
+/// then what it measures of one that passes, within as long again, left
+/// unknown where that runs out, the test's result kept.
 pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     let prepared = prepare::prepare_for(
         file,
@@ -109,19 +112,36 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     let Some(test) = category.and_then(|c| Test::of(c, found.width)) else {
         return Ok(found);
     };
-    let mut report = test.run(&found.prepared.blocks);
+    let mut report = budget::limited(|| test.run(&found.prepared.blocks));
     if let Report::Ran(run) = &mut report
         && run.wrong == 0
     {
-        let never = category.is_some_and(|c| {
-            category::behaviour(c).stacking == category::Stacking::Never
-        });
-        run.stacking = if never {
-            None
-        } else {
-            test.stacking(&found.prepared.data)
-        };
-        found.stacks(run.stacking.as_ref());
+        match budget::limited(|| found.measure(test, category, run)) {
+            Ok(()) => {}
+            Err(err) if budget::ran_out(&err) => {
+                tracing::warn!("measuring stopped short: {err}");
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    found.report = Some(report);
+    Ok(found)
+}
+
+impl Evaluation {
+    /// Measures the build its `test`, of `category`, found right every
+    /// case, as `run`: its timing and throughput, whether it holds state,
+    /// and an adder's design, each kept as it is found; then how its copies
+    /// stack and its copies stacked wider, which search longest, so that
+    /// running out of time leaves those unknown before what is shown of
+    /// every build.
+    fn measure(
+        &mut self,
+        test: Test,
+        category: Option<&'static str>,
+        run: &mut Run,
+    ) -> Result<()> {
+        let found = self;
         let timing =
             test.time(&found.prepared.blocks, &AtomicBool::new(false))?;
         found.latency = timing.latency().map(|t| t.max(0).into());
@@ -139,9 +159,6 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             .throughput(&found.prepared.blocks, &found.prepared.data, &timing)?
             .map(|ticks| i64::from(ticks).max(burnout));
         run.timing = Some(timing);
-        if let Some(category) = category {
-            found.widen(category, burnout);
-        }
         found.logic = test.remembers(&found.prepared.blocks)?.map(|held| {
             if held {
                 Logic::Stateful
@@ -154,12 +171,21 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
             found.design = adder_design(&found.prepared.blocks, variant)?;
             run.design.clone_from(&found.design);
         }
+        let never = category.is_some_and(|c| {
+            category::behaviour(c).stacking == category::Stacking::Never
+        });
+        run.stacking = if never {
+            None
+        } else {
+            test.stacking(&found.prepared.data)
+        };
+        found.stacks(run.stacking.as_ref());
+        if let Some(category) = category {
+            found.widen(category, burnout);
+        }
+        Ok(())
     }
-    found.report = Some(report);
-    Ok(found)
-}
 
-impl Evaluation {
     /// Takes the stacking its search found: each way, its step, the most
     /// copies that work, and its pitch class, and the way its bits run, as
     /// copies that add bits run the way its bits do, which a 1-bit build's

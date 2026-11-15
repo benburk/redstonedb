@@ -53,6 +53,11 @@ fn port() -> u16 {
 #[tokio::main]
 async fn main() {
     configure_logging();
+    // Recognizing or evaluating a build stops after this long, rather than
+    // holding a core while its uploader waits.
+    app::simulate::budget::set_limit(std::time::Duration::from_secs(
+        app::simulate::budget::SECONDS,
+    ));
 
     let db = connect_to_database().await;
     // Builds not yet compared with their category's others are, in the

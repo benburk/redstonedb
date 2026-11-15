@@ -367,8 +367,11 @@ impl Circuit {
             if levers.get(bit).is_some_and(|lever| lever.button))
     }
 
-    /// Runs until nothing is left to update, and returns the ticks taken.
+    /// Runs until nothing is left to update, and returns the ticks taken;
+    /// or fails once the work it is part of runs out of time, see
+    /// [`super::budget`], as each case of every test settles so.
     pub fn settle(&mut self) -> Result<u32> {
+        super::budget::check()?;
         let mut ticks = 0;
         while self.pending() {
             if ticks == MAX_TICKS {
@@ -1129,6 +1132,7 @@ fn settle_world(world: &mut TestWorld, [x, y, z]: Pos) -> Result<()> {
             }
         }
     }
+    super::budget::check()?;
     let mut ticks = 0;
     while !world.to_be_ticked.is_empty() {
         if ticks == MAX_TICKS {
