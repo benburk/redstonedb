@@ -239,8 +239,8 @@ fn layout_switch(here: &HomeQuery) -> Markup {
 fn sort_menu(sort: &str) -> Markup {
     let known = SORTS.iter().any(|(value, _)| *value == sort);
     html! {
-        label class="flex shrink-0 items-center" {
-            span class="sr-only" { "Sort" }
+        label class="flex shrink-0 items-center gap-2" {
+            span class="text-meta font-semibold text-muted" { "Sort by" }
             select id="sort" name="sort" form="search-form" class="input min-h-9 w-auto text-body" {
                 @for (value, label) in SORTS {
                     option value=(value) selected[value == sort] { (label) }
