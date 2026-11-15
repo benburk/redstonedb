@@ -23,8 +23,9 @@ pub struct OneInputProbed {
 /// from `report`'s levers and outputs: its widest output its result and
 /// each lone one a status line, such as a carry out; of its levers, its
 /// control line, if `line` gives it one, each tried, lone ones first, and
-/// the rest A; each way given those roles and run through the test. Or why
-/// it isn't one.
+/// the rest A; each way given those roles and run through the test, a few
+/// telling cases first, so a wide build plainly no such kind is not run
+/// through every case. Or why it isn't one.
 pub fn one_operand(
     data: &[u8],
     report: &inspect::Report,
@@ -80,7 +81,7 @@ pub fn one_operand(
         roles.mark(Role::Control, &line);
         roles.mark(Role::Output(0), &out.bits);
         roles.mark(Role::Status, &status);
-        match try_roles(data, &roles, test, false)? {
+        match try_roles(data, &roles, test, true)? {
             Ok((file, run)) => return Ok(OneInputProbed { a, file, run }),
             Err(fault) => why = why.nearer(fault),
         }
