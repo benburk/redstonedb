@@ -711,16 +711,37 @@ fn row(field: Field, builds: &[&Build], picks: &Picks) -> Option<Row> {
     (picks.has(field) || enough && !apart).then_some(Row { field, choices })
 }
 
-/// How a build stands among its peers: how many of them it beats, as
-/// faster than them or as smaller, whichever is more, then the other,
-/// which parts builds as fast as one another by their size. The more it
-/// beats the better it stands, so the best of a crowded field stands above
-/// the only build of its kind, which beats none.
+/// Where a build comes among the top: its turn within its category, then
+/// its category's place among the categories, the one with the most
+/// builds first. Listed by it, the best of each category lead, the most
+/// popular category's first, then each category's second, and so on, so
+/// the top shows what is best of every kind, not one kind's best alone.
 pub type Place = (usize, usize);
 
-/// Each build's place among its peers, by its id: the builds of its
-/// category that match it in its measures, such as width, and in whether
-/// they hold state. A build that ranks on no board has none.
+/// How many of `peers` build `s` beats: those it is faster than, or those
+/// it is smaller than, whichever are more, then the other, which parts
+/// builds as fast as one another by their size. A build of unknown
+/// latency is faster than none, and slower than any whose latency is
+/// known.
+fn beats(s: &Build, peers: &[&Build]) -> (usize, usize) {
+    let slower = |other: &&&Build| match (s.specs.latency, other.specs.latency)
+    {
+        (Some(mine), Some(theirs)) => mine < theirs,
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+    let fast = peers.iter().filter(slower).count();
+    let small = peers.iter().filter(|o| s.volume() < o.volume()).count();
+    (fast.max(small), fast.min(small))
+}
+
+/// Each build's place among the top, by its id. Within a category, builds
+/// take turns by their peers, those that match in its measures, such as
+/// width, and in whether they hold state: the best of each set of peers,
+/// the largest set's first, then each set's second. Among its peers a
+/// build stands by how many it [`beats`], then by its favourites, its
+/// downloads, and how new it is. A build that ranks on no board has no
+/// place.
 pub fn places(builds: &[Build]) -> HashMap<String, Place> {
     type Peers<'a> = (&'a str, Vec<i64>, Option<crate::build::Logic>);
     let mut groups: BTreeMap<Peers, Vec<&Build>> = BTreeMap::new();
@@ -734,23 +755,44 @@ pub fn places(builds: &[Build]) -> HashMap<String, Place> {
                 .push(s);
         }
     }
+    // Each category's sets of peers, each best first.
+    let mut categories: BTreeMap<&str, Vec<Vec<&Build>>> = BTreeMap::new();
+    for ((category, ..), peers) in &groups {
+        let mut standing: Vec<((usize, usize), &Build)> =
+            peers.iter().map(|&s| (beats(s, peers), s)).collect();
+        standing.sort_by(|(beats_a, a), (beats_b, b)| {
+            beats_b
+                .cmp(beats_a)
+                .then(b.entry.favorites.cmp(&a.entry.favorites))
+                .then(b.entry.downloads.cmp(&a.entry.downloads))
+                .then(b.entry.added_at.cmp(&a.entry.added_at))
+                .then(a.id.cmp(&b.id))
+        });
+        categories
+            .entry(category)
+            .or_default()
+            .push(standing.into_iter().map(|(_, s)| s).collect());
+    }
+    let mut by_size: Vec<(&str, Vec<Vec<&Build>>)> =
+        categories.into_iter().collect();
+    let size = |sets: &[Vec<&Build>]| sets.iter().map(Vec::len).sum::<usize>();
+    by_size.sort_by(|(a, x), (b, y)| size(y).cmp(&size(x)).then(a.cmp(b)));
     let mut places: HashMap<String, Place> = HashMap::new();
-    for peers in groups.values() {
-        for s in peers {
-            // A build of unknown latency is faster than none, and slower
-            // than any whose latency is known.
-            let slower = |other: &&&Build| match (
-                s.specs.latency,
-                other.specs.latency,
-            ) {
-                (Some(mine), Some(theirs)) => mine < theirs,
-                (Some(_), None) => true,
-                (None, _) => false,
-            };
-            let fast = peers.iter().filter(slower).count();
-            let small =
-                peers.iter().filter(|o| s.volume() < o.volume()).count();
-            places.insert(s.id.clone(), (fast.max(small), fast.min(small)));
+    for (among, (_, mut sets)) in by_size.into_iter().enumerate() {
+        sets.sort_by_key(|set| std::cmp::Reverse(set.len()));
+        let mut turns: Vec<(usize, usize, &Build)> = sets
+            .iter()
+            .enumerate()
+            .flat_map(|(set, peers)| {
+                peers
+                    .iter()
+                    .enumerate()
+                    .map(move |(turn, &s)| (turn, set, s))
+            })
+            .collect();
+        turns.sort_by_key(|&(turn, set, _)| (turn, set));
+        for (turn, (_, _, s)) in turns.into_iter().enumerate() {
+            places.insert(s.id.clone(), (turn, among));
         }
     }
     places
@@ -823,31 +865,43 @@ mod tests {
         assert_eq!(counts(&rows(&builds, &Picks::default()), Field::Lines), []);
     }
 
-    /// A build stands among the builds of its category and width by how
-    /// many it beats, as faster or as smaller, whichever is more, then the
-    /// other; the only build of its kind beats none.
+    /// The top take turns: the best of each category, the most popular
+    /// first, then each category's second; and within a category, the
+    /// best of each width, the most common first. Among its peers a build
+    /// stands by how many it beats, as faster or as smaller.
     #[test]
-    fn a_build_places_among_its_peers() {
-        let sized = |id: &str, width, ticks, blocks| {
-            let mut s = build("adder", width, Some(ticks));
+    fn the_top_take_turns_by_category_and_width() {
+        let sized = |id: &str, category: &str, width, ticks, blocks| {
+            let mut s = build(category, width, Some(ticks));
             s.id = id.to_owned();
             s.file.size = (blocks, 1, 1);
             s
         };
         let builds = [
-            sized("fast", 8, 3, 900),
-            sized("fast-and-small", 8, 3, 700),
-            sized("small", 8, 9, 400),
-            sized("slow-and-big", 8, 9, 950),
-            sized("alone", 16, 20, 5000),
+            sized("fast", "adder", 8, 3, 900),
+            sized("fast-and-small", "adder", 8, 3, 700),
+            sized("small", "adder", 8, 9, 400),
+            sized("slow-and-big", "adder", 8, 9, 950),
+            sized("wide", "adder", 16, 20, 5000),
+            sized("lone", "parity", 8, 2, 50),
         ];
         let places = places(&builds);
-        let place = |id: &str| places.get(id).copied();
-        assert_eq!(place("small"), Some((3, 0)));
-        assert_eq!(place("fast-and-small"), Some((2, 2)));
-        assert_eq!(place("fast"), Some((2, 1)));
-        assert_eq!(place("slow-and-big"), Some((0, 0)));
-        assert_eq!(place("alone"), Some((0, 0)));
+        let mut top: Vec<&str> = builds.iter().map(|s| s.id.as_str()).collect();
+        top.sort_by_key(|id| places[*id]);
+        assert_eq!(
+            top,
+            [
+                // Each category's best, the adders' first: the one that
+                // beats the most of its peers, three of them on size.
+                "small",
+                "lone",
+                // Then the adders' other width, and the rest of the first.
+                "wide",
+                "fast-and-small",
+                "fast",
+                "slow-and-big",
+            ]
+        );
     }
 
     fn counts(rows: &[Row], field: Field) -> Vec<(String, usize, bool)> {
