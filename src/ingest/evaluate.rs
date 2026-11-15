@@ -70,9 +70,10 @@ impl Evaluation {
 }
 
 /// Reads the build in `file`: what it is and whether its test passes,
-/// within the time the site gives a build, see [`budget::limited`], and
-/// then what it measures of one that passes, within as long again, left
-/// unknown where that runs out, the test's result kept.
+/// within the time the site gives a test, see [`budget::limited`], and
+/// then what it measures of one that passes, within the longer time it
+/// gives measuring, see [`budget::measuring`], left unknown where that
+/// runs out, the test's result kept.
 pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     let prepared = prepare::prepare_for(
         file,
@@ -117,7 +118,7 @@ pub fn evaluate(file: &[u8]) -> Result<Evaluation> {
     if let Report::Ran(run) = &mut report
         && run.wrong == 0
     {
-        match budget::limited(|| found.measure(test, category, run)) {
+        match budget::measuring(|| found.measure(test, category, run)) {
             Ok(()) => {}
             Err(err) if budget::ran_out(&err) => {
                 tracing::warn!("measuring stopped short: {err}");
