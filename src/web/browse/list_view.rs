@@ -259,7 +259,11 @@ const LISTING: &str = "#listing";
 
 /// How many choices a row of many, as of categories or people, shows
 /// before the rest fold away under it.
-const LEAD: usize = 8;
+const LEAD: usize = 6;
+
+/// Shown only at a phone's width, and only past it.
+const PHONE_ONLY: &str = "sm:hidden";
+const PAST_PHONE: &str = "max-sm:hidden";
 
 /// A row's label, as a leaderboard's rows have theirs.
 fn row_label(label: &str) -> Markup {
@@ -271,8 +275,10 @@ fn row_label(label: &str) -> Markup {
 /// One field to screen the builds by: every choice of it a toggle, with
 /// how many builds it would leave, and All, which unpicks them. The picks
 /// of a row are alternatives, and the rows narrow together. A row of many
-/// folds all but its first and its picked choices away.
-fn screen_row(row: &Row, here: &HomeQuery) -> Markup {
+/// folds all but its first and its picked choices away. `shown` is when
+/// it shows, at every width or as [`PHONE_ONLY`] says, and `copy` ends
+/// the ids of a second copy of a row, so each id is one element's.
+fn screen_row(row: &Row, here: &HomeQuery, shown: &str, copy: &str) -> Markup {
     let field = row.field;
     let folds = field.by_count() && row.choices.len() > LEAD + 2;
     let (lead, rest): (Vec<_>, Vec<_>) = row
@@ -285,7 +291,7 @@ fn screen_row(row: &Row, here: &HomeQuery) -> Markup {
     let toggle = |choice: &Choice| {
         let to = here.picking(here.picks.toggled(field, &choice.key)).href();
         html! {
-            a id={ "pick-" (field.name()) "-" (choice.key) } href=(to) fx-action=(to) fx-target=(LISTING)
+            a id={ "pick-" (field.name()) "-" (choice.key) (copy) } href=(to) fx-action=(to) fx-target=(LISTING)
                 class={ (TOGGLE) @if choice.count == 0 && !choice.chosen { " opacity-50" } }
                 aria-pressed=(choice.chosen) {
                 (choice.label)
@@ -294,17 +300,17 @@ fn screen_row(row: &Row, here: &HomeQuery) -> Markup {
         }
     };
     html! {
-        nav aria-label=(field.label()) class="flex flex-col gap-x-3 desktop:flex-row desktop:items-start" {
+        nav aria-label=(field.label()) class={ "flex flex-col gap-x-3 desktop:flex-row desktop:items-start " (shown) } {
             (row_label(field.label()))
             div class="flex min-w-0 flex-col items-start gap-1" {
                 div class=(SWITCHES) {
                     @let all = here.picking(here.picks.any(field)).href();
-                    a id={ "pick-" (field.name()) } href=(all) fx-action=(all) fx-target=(LISTING)
+                    a id={ "pick-" (field.name()) (copy) } href=(all) fx-action=(all) fx-target=(LISTING)
                         class=(TOGGLE) aria-pressed=(here.picks.of(field).is_empty()) { "All" }
                     @for (_, choice) in &lead { (toggle(choice)) }
                 }
                 @if !rest.is_empty() {
-                    details id={ "more-" (field.name()) } data-keep {
+                    details id={ "more-" (field.name()) (copy) } data-keep {
                         summary class="cursor-pointer px-2 py-1 text-meta text-muted hover:text-ink" {
                             (rest.len()) " more"
                         }
@@ -326,21 +332,34 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
         tags: Vec::new(),
         ..here.clone()
     };
-    let (lead, rest): (Vec<&Row>, Vec<&Row>) =
-        listing.rows.iter().partition(|row| row.field.leads());
+    // A row something is picked of shows whatever else folds away, so no
+    // pick narrows the builds out of sight. Of the rest, a few lead and
+    // the others fold away under them; a phone, with room for little
+    // above its builds, folds those that lead away too.
+    let picked = |row: &Row| here.picks.has(row.field);
+    let (above, rest): (Vec<&Row>, Vec<&Row>) = listing
+        .rows
+        .iter()
+        .partition(|row| picked(row) || row.field.leads());
+    let lead: Vec<&Row> =
+        above.iter().copied().filter(|row| !picked(row)).collect();
     let tags = tag_filters(listing, here);
-    // The rest stay open once one of them narrows the builds.
-    let open = rest.iter().any(|row| row.narrowed()) || !here.tags.is_empty();
+    let folded = rest.len() + usize::from(!tags.0.is_empty());
     html! {
         div class="mb-6 flex flex-col gap-2" {
-            @for row in lead { (screen_row(row, here)) }
-            @if !rest.is_empty() || !tags.0.is_empty() {
-                details id="more-filters" data-keep open[open] {
+            @for row in &above {
+                (screen_row(row, here, if picked(row) { "" } else { PAST_PHONE }, ""))
+            }
+            @if folded > 0 || !lead.is_empty() {
+                details id="more-filters" data-keep open[!here.tags.is_empty()]
+                    class=(if folded == 0 { PHONE_ONLY } else { "" }) {
                     summary class="w-fit cursor-pointer py-1 text-meta font-semibold text-muted hover:text-ink" {
-                        "More filters"
+                        span class=(PAST_PHONE) { "More filters (" (folded) ")" }
+                        span class=(PHONE_ONLY) { "Filters (" (folded + lead.len()) ")" }
                     }
                     div class="mt-2 flex flex-col gap-2" {
-                        @for row in rest { (screen_row(row, here)) }
+                        @for row in &lead { (screen_row(row, here, PHONE_ONLY, "-phone")) }
+                        @for row in rest { (screen_row(row, here, "", "")) }
                         (tags)
                     }
                 }
