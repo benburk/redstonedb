@@ -397,7 +397,11 @@ fn interface_cells(blocks: &Blocks) -> HashSet<Pos> {
         cells.extend([input.at, schem::step(input.at, Direction::Down)]);
     }
     let inputs = cells.clone();
-    for (pos, state) in blocks.iter() {
+    let marks = |state: &str| {
+        let name = schem::short(state);
+        name.ends_with("sign") || name.contains("torch")
+    };
+    for (pos, state) in blocks.matching(marks) {
         let name = schem::short(state);
         if name.ends_with("sign")
             || (name.contains("torch")

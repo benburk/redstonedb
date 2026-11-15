@@ -83,7 +83,9 @@ fn is_air(state: &str) -> bool {
 /// the file's box too, in the file's order.
 pub fn find(blocks: &Blocks) -> Vec<Output> {
     blocks
-        .iter()
+        .matching(|state| {
+            matches!(schem::short(state), "repeater" | "comparator")
+        })
         .filter_map(|(at, state)| output(blocks, at, state))
         .collect()
 }
@@ -259,7 +261,7 @@ pub fn strength_input(blocks: &Blocks, at: Pos) -> Option<StrengthInput> {
 /// Every signal-strength input in `blocks`, in the file's order.
 pub fn strength_inputs(blocks: &Blocks) -> Vec<StrengthInput> {
     blocks
-        .iter()
+        .matching(|state| schem::short(state) == "comparator")
         .filter_map(|(at, _)| strength_input(blocks, at))
         .collect()
 }

@@ -8,7 +8,11 @@
 //! go with the file, see [`crate::schem::lines`], as the site's tests read
 //! them; no block changes colour.
 use crate::interface::problem::{Problem, Rule};
-use std::fmt;
+use std::{
+    fmt,
+    hash::{DefaultHasher, Hash, Hasher},
+    sync::Mutex,
+};
 
 use crate::{
     category::Test,
@@ -150,7 +154,9 @@ impl fmt::Display for Fault {
 /// `roles` given to `data` and run through `test`, after a few telling
 /// cases when `quick_first`, so a try far from holding is not run in full:
 /// the file and its run when every case comes out right, else why not. A
-/// file that can't be read fails the outer result, ending the probe.
+/// file that can't be read fails the outer result, ending the probe. The
+/// file carrying the roles is written only for a try that ran, as writing
+/// a large build's takes longer than most tries do.
 fn try_roles(
     data: &[u8],
     roles: &Roles,
@@ -158,20 +164,46 @@ fn try_roles(
     quick_first: bool,
 ) -> Result<Result<(Vec<u8>, simulate::Run), Fault>, Fault> {
     let unfit = |err: anyhow::Error| Fault::Unfit(err.to_string());
-    let file = given(data, roles).map_err(unfit)?;
-    let coloured = Blocks::read(&file).map_err(unfit)?;
+    let mut coloured = read(data).map_err(unfit)?;
+    coloured.roles = Some(roles.clone());
+    let file = || given(data, roles).map_err(unfit);
     if quick_first {
         match test.quick(&coloured) {
             Ok(run) if run.wrong == 0 => {}
-            Ok(run) => return Ok(Err(Fault::wrong(&run, &file))),
+            Ok(run) => return Ok(Err(Fault::wrong(&run, &file()?))),
             Err(err) => return Ok(Err(Fault::not_run(&err))),
         }
     }
     Ok(match test.check(&coloured, false) {
-        Ok(run) if run.wrong == 0 => Ok((file, run)),
-        Ok(run) => Err(Fault::wrong(&run, &file)),
+        Ok(run) if run.wrong == 0 => Ok((file()?, run)),
+        Ok(run) => Err(Fault::wrong(&run, &file()?)),
         Err(err) => Err(Fault::not_run(&err)),
     })
+}
+
+/// The latest file read by [`read`], by a hash of its bytes, and its
+/// blocks.
+static LAST_READ: Mutex<Option<(u64, Blocks)>> = Mutex::new(None);
+
+/// The blocks of the file in `data`, read once however many readings of
+/// it probing tries: the latest file's are kept.
+fn read(data: &[u8]) -> anyhow::Result<Blocks> {
+    let key = {
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        hasher.finish()
+    };
+    if let Ok(last) = LAST_READ.lock()
+        && let Some((k, blocks)) = last.as_ref()
+        && *k == key
+    {
+        return Ok(blocks.clone());
+    }
+    let blocks = Blocks::read(data)?;
+    if let Ok(mut last) = LAST_READ.lock() {
+        *last = Some((key, blocks.clone()));
+    }
+    Ok(blocks)
 }
 
 /// Which of two operands probing finds interchangeable, as an adder's or a
