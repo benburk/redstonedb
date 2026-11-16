@@ -115,9 +115,11 @@ async fn index(
     Ok(home_view::home(viewer, &index).into_response())
 }
 
-/// Each category with a build, most builds first and Other last, pictured
-/// by the first on its leaderboard as it opens, the quickest of its most
-/// common width, or by its newest build when none is timed.
+/// Every category, most builds first and Other last, when it has any,
+/// each pictured by the first on its leaderboard as it opens, the quickest
+/// of its most common width, or by its newest build when none is timed; a
+/// category with none yet is still shown, unpictured, so people see the
+/// site takes it.
 fn tiles<'a>(categories: &[Category], all: &'a [Build]) -> Vec<Tile<'a>> {
     let newest = |builds: &[&'a Build]| {
         builds
@@ -127,10 +129,9 @@ fn tiles<'a>(categories: &[Category], all: &'a [Build]) -> Vec<Tile<'a>> {
     };
     let mut tiles: Vec<Tile> = categories
         .iter()
-        .filter_map(|category| {
+        .map(|category| {
             let builds: Vec<&Build> =
                 all.iter().filter(|s| s.category == category.name).collect();
-            let newest = newest(&builds)?;
             let board = leaderboard::board(
                 &builds,
                 &leaderboard::Wanted::default(),
@@ -139,13 +140,13 @@ fn tiles<'a>(categories: &[Category], all: &'a [Build]) -> Vec<Tile<'a>> {
             let leader = leaderboard::fastest(&board.builds, board.ruler)
                 .first()
                 .map(|&(_, s)| s);
-            Some(Tile {
+            Tile {
                 category: category.name.clone(),
                 label: category.plural.clone(),
                 count: builds.len(),
-                best: leader.unwrap_or(newest),
+                best: leader.or_else(|| newest(&builds)),
                 section: category.section,
-            })
+            }
         })
         .collect();
     tiles.sort_by(|a, b| b.count.cmp(&a.count).then(a.label.cmp(&b.label)));
@@ -156,7 +157,7 @@ fn tiles<'a>(categories: &[Category], all: &'a [Build]) -> Vec<Tile<'a>> {
             category: OTHER.to_owned(),
             label: "Other".to_owned(),
             count: other.len(),
-            best: newest,
+            best: Some(newest),
             section: None,
         });
     }
