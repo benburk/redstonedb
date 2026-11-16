@@ -447,12 +447,28 @@ pub async fn publish_suggested(
 /// so its uploader sees the build as it will be: its file as recognized,
 /// its signs and trapdoors out but those its test reads, its unused blocks
 /// out when it passes, in the site's default theme, base64. Its checks'
-/// File stage says what came out. `None` for a build the site can't read,
-/// which is kept as it came.
-async fn as_kept(recognition: &probe::Recognition) -> Option<String> {
-    let read = recognition.file.clone();
+/// File stage says what came out. A build not recognized carries no roles,
+/// so its lines are read by their shape from `standard`, its standard file,
+/// as its inputs and outputs and its test read them, and shown in their
+/// roles' colours, so A and B in the viewer are the A and B its wrong
+/// cases name. `None` for a build the site can't read at all, which is
+/// kept as it came.
+async fn as_kept(
+    recognition: &probe::Recognition,
+    standard: Option<&[u8]>,
+) -> Option<String> {
+    let found = recognition.file.clone();
+    let standard = standard.map(<[u8]>::to_vec);
     let passes = recognition.found.is_some();
     tokio::task::spawn_blocking(move || {
+        let read = if crate::ingest::results::carries_roles(&found) {
+            found
+        } else {
+            let standard = standard?;
+            let blocks = crate::schem::Blocks::read(&standard).ok()?;
+            let roles = interface::roles_of(&interface::read(&blocks));
+            crate::schem::lines::with(&standard, Some(&roles)).ok()?
+        };
         if !crate::ingest::results::carries_roles(&read) {
             return None;
         }
@@ -602,7 +618,8 @@ async fn show_preview(
         (size.x.into(), size.y.into(), size.z.into()),
     )
     .await?;
-    let shown = as_kept(recognition).await;
+    let standard = upload.standard.as_ref().ok().map(|s| s.data.as_slice());
+    let shown = as_kept(recognition, standard).await;
     let file = File::Upload {
         shown: shown.as_deref(),
         data: &STANDARD.encode(&prepared.data),
@@ -620,4 +637,56 @@ async fn show_preview(
         reply: said.reply,
     };
     form::page(&state.db, user, form, shown).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schem::{
+        self, Blocks,
+        lines::Role,
+        turn::{self, Turn},
+    };
+
+    /// The first bit of each operand of the file `data`, by its role.
+    fn operands(data: &[u8]) -> Vec<(Option<Role>, schem::Pos)> {
+        let blocks = Blocks::read(data).unwrap();
+        interface::read(&blocks)
+            .inputs
+            .iter()
+            .filter(|port| matches!(port.role, Some(Role::Operand(_))))
+            .map(|port| (port.role, port.bits[0].pos))
+            .collect()
+    }
+
+    /// A build not recognized, made in game so carrying no roles and lying
+    /// turned from the standard way, is shown with A and B where its test
+    /// reads them, in its standard file, though read by shape as it lies
+    /// it would have them the other way round, as zPippo's adder did.
+    #[tokio::test]
+    async fn an_unrecognized_upload_is_shown_as_its_test_reads_it() {
+        let fixture =
+            std::fs::read("tests/fixtures/inverted-adder-8-cca.schem").unwrap();
+        let standard = Upload::read(&fixture).unwrap().standard.unwrap().data;
+        let turned = turn::turned(
+            &standard,
+            Turn {
+                mirrored: false,
+                quarters: 2,
+            },
+        )
+        .unwrap();
+        let built = schem::lines::with(&turned, None).unwrap();
+        let upload = Upload::read(&built).unwrap();
+        let tested = &upload.standard.as_ref().unwrap().data;
+        let recognition = probe::Recognition {
+            file: built.clone(),
+            found: None,
+            problems: Vec::new(),
+            lines: String::new(),
+        };
+        let shown = as_kept(&recognition, Some(tested)).await.unwrap();
+        let shown = STANDARD.decode(shown).unwrap();
+        assert_eq!(operands(&shown), operands(tested));
+    }
 }
