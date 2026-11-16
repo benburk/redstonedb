@@ -1007,6 +1007,30 @@ fn a_negator_gives_each_inputs_twos_complement() {
     assert_eq!(app::category::guess(&blocks).unwrap().category, "negator");
 }
 
+/// An 8-bit carry-save adder: each bit's sum, A xor B xor C, and carry,
+/// their majority, in an even sample of its cases, once probing has told
+/// its sum from its carry, which share one row of outputs; and guessed as
+/// one.
+#[test]
+fn a_carry_save_adder_gives_each_bits_sum_and_carry() {
+    let raw = read_fixture("tests/fixtures/csa-8.schem").unwrap();
+    let data =
+        prepare::prepare_for(&raw, Purpose::Standard { keep_paste: false })
+            .unwrap()
+            .data;
+    let probed = app::recognize::probe::recognize(&data).unwrap().file;
+    let blocks = Blocks::read(&probed).unwrap();
+    let Report::Ran(run) = Test::CarrySaveAdder.run(&blocks) else {
+        panic!("the carry-save adder was not simulated");
+    };
+    assert_eq!((run.cases, run.wrong), (16384, 0));
+    assert_eq!(run.pattern, "A xor B xor C, maj(A, B, C)");
+    assert_eq!(
+        app::category::guess(&blocks).unwrap().category,
+        "carry_save_adder"
+    );
+}
+
 /// An 8-bit parity circuit: on when an odd number of A's bits are, in
 /// every one of its 256 cases, timed by its one output.
 #[test]

@@ -9,6 +9,7 @@
 
 mod adder;
 mod alu;
+mod carry_save;
 mod catalogue;
 mod converters;
 pub(crate) use converters::MIN_POPCOUNT;
@@ -57,6 +58,7 @@ pub enum Kind {
     InvertedAdder,
     Alu,
     Multiplier,
+    CarrySaveAdder,
     Incrementer,
     IncDec,
     Decrementer,
