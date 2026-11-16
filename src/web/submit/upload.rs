@@ -447,28 +447,12 @@ pub async fn publish_suggested(
 /// so its uploader sees the build as it will be: its file as recognized,
 /// its signs and trapdoors out but those its test reads, its unused blocks
 /// out when it passes, in the site's default theme, base64. Its checks'
-/// File stage says what came out. A build not recognized carries no roles,
-/// so its lines are read by their shape from `standard`, its standard file,
-/// as its inputs and outputs and its test read them, and shown in their
-/// roles' colours, so A and B in the viewer are the A and B its wrong
-/// cases name. `None` for a build the site can't read at all, which is
-/// kept as it came.
-async fn as_kept(
-    recognition: &probe::Recognition,
-    standard: Option<&[u8]>,
-) -> Option<String> {
-    let found = recognition.file.clone();
-    let standard = standard.map(<[u8]>::to_vec);
+/// File stage says what came out. `None` for a build the site can't read,
+/// which is kept as it came.
+async fn as_kept(recognition: &probe::Recognition) -> Option<String> {
+    let read = recognition.file.clone();
     let passes = recognition.found.is_some();
     tokio::task::spawn_blocking(move || {
-        let read = if crate::ingest::results::carries_roles(&found) {
-            found
-        } else {
-            let standard = standard?;
-            let blocks = crate::schem::Blocks::read(&standard).ok()?;
-            let roles = interface::roles_of(&interface::read(&blocks));
-            crate::schem::lines::with(&standard, Some(&roles)).ok()?
-        };
         if !crate::ingest::results::carries_roles(&read) {
             return None;
         }
@@ -618,8 +602,7 @@ async fn show_preview(
         (size.x.into(), size.y.into(), size.z.into()),
     )
     .await?;
-    let standard = upload.standard.as_ref().ok().map(|s| s.data.as_slice());
-    let shown = as_kept(recognition, standard).await;
+    let shown = as_kept(recognition).await;
     let file = File::Upload {
         shown: shown.as_deref(),
         data: &STANDARD.encode(&prepared.data),
@@ -641,6 +624,8 @@ async fn show_preview(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::schem::{
         self, Blocks,
@@ -648,21 +633,24 @@ mod tests {
         turn::{self, Turn},
     };
 
-    /// The first bit of each operand of the file `data`, by its role.
-    fn operands(data: &[u8]) -> Vec<(Option<Role>, schem::Pos)> {
+    /// The role of the operand in the file `data` that holds its one bit
+    /// whose lever no longer drives dust: the one cut.
+    fn cut_in(data: &[u8]) -> Option<Role> {
         let blocks = Blocks::read(data).unwrap();
         interface::read(&blocks)
             .inputs
-            .iter()
-            .filter(|port| matches!(port.role, Some(Role::Operand(_))))
-            .map(|port| (port.role, port.bits[0].pos))
-            .collect()
+            .into_iter()
+            .find(|port| {
+                port.bits.len() > 1 && port.bits.iter().any(|b| !b.hard)
+            })
+            .and_then(|port| port.role)
     }
 
     /// A build not recognized, made in game so carrying no roles and lying
     /// turned from the standard way, is shown with A and B where its test
-    /// reads them, in its standard file, though read by shape as it lies
-    /// it would have them the other way round, as zPippo's adder did.
+    /// reads them, though read by shape as it lies and again as its
+    /// standard file lies, they would be the other way round: probing gives
+    /// it the roles of its shape once, which turning moves with it.
     #[tokio::test]
     async fn an_unrecognized_upload_is_shown_as_its_test_reads_it() {
         let fixture =
@@ -677,16 +665,23 @@ mod tests {
         )
         .unwrap();
         let built = schem::lines::with(&turned, None).unwrap();
-        let upload = Upload::read(&built).unwrap();
+        // Cut the dust beside the lever of B's second bit, so that lever
+        // drives nothing and probing stops before it tries any kind.
+        let blocks = Blocks::read(&built).unwrap();
+        let read = interface::read(&blocks);
+        let b = read.inputs.iter().find(|port| port.name == "B").unwrap();
+        let bit = &b.bits[1];
+        let cut = schem::step(bit.pos, bit.entry.unwrap().opposite());
+        let changes = BTreeMap::from([(cut, "minecraft:glass".to_owned())]);
+        let built = schem::edit(&built, &changes).unwrap();
+        let recognition = probe::recognize(&built).unwrap();
+        assert!(recognition.found.is_none());
+        let shown = STANDARD
+            .decode(as_kept(&recognition).await.unwrap())
+            .unwrap();
+        let upload = Upload::read(&recognition.file).unwrap();
         let tested = &upload.standard.as_ref().unwrap().data;
-        let recognition = probe::Recognition {
-            file: built.clone(),
-            found: None,
-            problems: Vec::new(),
-            lines: String::new(),
-        };
-        let shown = as_kept(&recognition, Some(tested)).await.unwrap();
-        let shown = STANDARD.decode(shown).unwrap();
-        assert_eq!(operands(&shown), operands(tested));
+        assert_eq!(cut_in(&shown), Some(Role::Operand(1)));
+        assert_eq!(cut_in(tested), Some(Role::Operand(1)));
     }
 }
