@@ -66,6 +66,9 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                                 div id={ "category-option-" (category.name) } role="option"
                                     aria-selected="false" data-value=(category.label)
                                     data-name=(category.name)
+                                    // Its other search words, such as csa,
+                                    // which the menu narrows by too.
+                                    data-aliases=(category.aliases.join("|"))
                                     data-logic=(category.logic.map_or("unknown", Logic::name))
                                     data-listed[listed]
                                     data-never-stacks[category::behaviour(&category.name).stacking == category::Stacking::Never]

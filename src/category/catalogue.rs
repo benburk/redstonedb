@@ -109,6 +109,15 @@ fn named(typed: &str) -> String {
     typed.trim().to_lowercase().replace(' ', "_")
 }
 
+/// `text`'s letters and digits alone, in lowercase, so `Carry-Save Adder`,
+/// `carry save adder`, and `carry_save_adder` read alike.
+fn squashed(text: &str) -> String {
+    text.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
 /// An entry in the list of categories a build may have: one function, so
 /// any of its builds could stand in for another. A standard one's is its
 /// kind's row; one off the list has its name alone.
@@ -158,15 +167,19 @@ impl Category {
     }
 
     /// The standard category among `categories` that `typed` names, by its
-    /// name or its label, whatever the capitals and spacing.
+    /// name or its label, whatever the capitals, spacing, and punctuation,
+    /// as `carry save adder` names the Carry-Save Adder.
     pub fn find<'a>(
         categories: &'a [Category],
         typed: &str,
     ) -> Option<&'a Self> {
-        let typed = typed.trim();
-        categories.iter().find(|c| {
-            c.label.eq_ignore_ascii_case(typed) || c.name == named(typed)
-        })
+        let typed = squashed(typed);
+        if typed.is_empty() {
+            return None;
+        }
+        categories
+            .iter()
+            .find(|c| squashed(&c.label) == typed || squashed(&c.name) == typed)
     }
 
     /// The name of the category `typed` names: a standard one's among
@@ -462,6 +475,29 @@ mod tests {
             "8-bit_horizontal_diode"
         );
         assert!(Category::find(&categories, "piston door").is_none());
+    }
+
+    /// Hyphens and other punctuation are left out, so a label is found
+    /// typed with spaces, and no two categories then read alike.
+    #[test]
+    fn a_standard_category_is_found_whatever_its_punctuation() {
+        let categories = Category::all();
+        for typed in ["carry save adder", "Carry-Save Adder", "carrysave adder"]
+        {
+            assert_eq!(
+                Category::name_of(&categories, typed),
+                "carry_save_adder"
+            );
+        }
+        assert_eq!(
+            Category::name_of(&categories, "nand xnor gate"),
+            "nand_xnor_gate"
+        );
+        assert!(Category::find(&categories, " - ").is_none());
+        let mut seen = std::collections::HashSet::new();
+        for c in &categories {
+            assert!(seen.insert(squashed(&c.label)), "{}", c.label);
+        }
     }
 
     #[test]
