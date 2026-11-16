@@ -25,10 +25,13 @@ use crate::{
 };
 
 /// What the check by function makes of an uploaded file: the file carrying
-/// its roles, see [`crate::schem::lines`], when it is recognized as a
-/// category; when not, the closest try's, when that try ran and got cases
-/// wrong, so its test shows which; else none; what was found; and what
-/// only its author can put right. Its blocks keep their colours.
+/// its roles, see [`crate::schem::lines`], always: those of the category
+/// it is recognized as; when none, the closest try's, when that try ran
+/// and got cases wrong, so its test shows which; else those its shape
+/// gives it, see [`shaped`]. So every step after reads its lines from the
+/// roles, however the file is turned, and none guesses them again. Then
+/// what was found, and what only its author can put right. Its blocks keep
+/// their colours.
 pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
@@ -150,10 +153,11 @@ impl Subject {
         Ok(problems)
     }
 
-    /// It recognized as nothing, for `problems`, its file as it is.
+    /// It recognized as nothing, for `problems`, its file carrying the
+    /// roles its shape gives it.
     fn unrecognized(&self, problems: Vec<Problem>) -> Recognition {
         Recognition {
-            file: self.data.clone(),
+            file: shaped(&self.data),
             found: None,
             problems,
             lines: self.report.summary(),
@@ -203,7 +207,7 @@ fn recognize_laid(
 ) -> anyhow::Result<Recognition> {
     match simulate::budget::limited(|| laid(data, meant, trying, reorient)) {
         Err(err) if simulate::budget::ran_out(&err) => Ok(Recognition {
-            file: data.to_vec(),
+            file: shaped(&lines::without(data)?),
             found: None,
             problems: vec![Problem::said(Rule::TookTooLong, err.to_string())],
             lines: inspect::inspect(&Blocks::read(data)?).summary(),
@@ -306,12 +310,32 @@ fn laid(
             .map(Fault::problem)
             .filter(|problem| !problem.message.is_empty()),
     );
-    // The file with the roles of the try whose fault is shown, when it ran.
-    let closest = shown.and_then(Fault::file).unwrap_or(&subject.data);
-    Ok(Recognition {
-        file: closest.to_vec(),
-        ..subject.unrecognized(problems)
+    // The file with the roles of the try whose fault is shown, when it ran;
+    // else, as `unrecognized` gives it, those of its shape.
+    let unrecognized = subject.unrecognized(problems);
+    Ok(match shown.and_then(Fault::file) {
+        Some(closest) => Recognition {
+            file: closest.to_vec(),
+            ..unrecognized
+        },
+        None => unrecognized,
     })
+}
+
+/// The file in `data`, which carries no roles, carrying those its shape
+/// gives it, see [`crate::interface::shaped_roles`]: as every reading of a
+/// file with none would read its lines, but kept, so turning it moves them
+/// with its blocks rather than reading them again as it then lies. A file
+/// that can't be read is left as it is.
+fn shaped(data: &[u8]) -> Vec<u8> {
+    let roles = Blocks::read(data)
+        .map(|blocks| crate::interface::shaped_roles(&blocks));
+    match roles {
+        Ok(roles) if !roles.is_empty() => {
+            lines::with(data, Some(&roles)).unwrap_or_else(|_| data.to_vec())
+        }
+        _ => data.to_vec(),
+    }
 }
 
 impl Subject {
