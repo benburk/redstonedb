@@ -2,7 +2,7 @@
 
 What the site needs from a build, and what it does with one. The How builds are recognized page states the same rules; `rsdb inspect` checks a file or a stored build by them.
 
-A build is on the list only when probing recognizes it as a standard category: adders, ALUs, multipliers, incrementers, decrementers, comparators, carry outs, absolute values, negators, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. A build of one of these that isn't recognized goes up as built under its category, unverified, saying why, and lists only when asked for; a new version that is recognized verifies it. Any other build goes up as built, off the list, under a name of its own, such as `8-bit ram` or `3x3 piston door`, with the facts its author gives.
+A build is on the list only when probing recognizes it as a standard category: adders, ALUs, multipliers, carry-save adders, incrementers, decrementers, comparators, carry outs, absolute values, negators, popcounts, thresholds, binary-to-hex and hex-to-binary converters, gates, inverters, decoders, barrel shifters, monostables, registers, buffers, counters, shift registers, and T flip-flops so far. A build of one of these that isn't recognized goes up as built under its category, unverified, saying why, and lists only when asked for; a new version that is recognized verifies it. Any other build goes up as built, off the list, under a name of its own, such as `8-bit ram` or `3x3 piston door`, with the facts its author gives.
 
 ## Inputs
 
@@ -23,6 +23,7 @@ A build is on the list only when probing recognizes it as a standard category: a
 - A gate has two input lines of one width, A and B, both data inputs, and one output line as wide: an XOR, XNOR, AND, NAND, OR, or NOR gate, each a category of its own, so a gate whose output is inverted is the other gate of its pair.
 - An equality or greater-than comparator, or a carry out, has two input lines of one width, A and B, and one output bit; a carry out may also take a carry in, a lone lever.
 - An inverter has input A, one control line, its invert, and an output as wide as A; an absolute value has input A and one output line, its magnitude.
+- A carry-save adder has three input lines of one width, A, B, and C, and two output lines as wide, its sum and its carry, which probing tells apart, even interleaved on one row: each bit of the sum is A xor B xor C, and each of the carry the majority of A's, B's, and C's, worth twice its place.
 - A negator has input A, an output as wide, and, if it has one, a control line, its negate: its output is −A, or with the line, A while it is off and −A while it is on.
 - An incrementer or decrementer has input A and, if it has one, a control line that adds or subtracts it; an inc/dec's line picks between adding and subtracting 1. Its output may be a bit wider, or have a lone carry out.
 - A barrel shifter has input A, an output as wide, and lines for its shift: the amount's signed with what each is worth, as `1`, `2`, and `4`.

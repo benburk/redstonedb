@@ -41,6 +41,9 @@ pub enum Test {
     IncDec,
     /// The products of A and B, plus C when there is one.
     Multiplier,
+    /// The sum, A xor B xor C, and the carry, the majority of A, B, and
+    /// C, of each bit.
+    CarrySaveAdder,
     /// Each operation an ALU's control lines name, and any other they give.
     Alu,
     /// Each value written into every cell, then read, and each cell read
@@ -320,6 +323,7 @@ impl Test {
             Test::Decrementer => Kind::Decrementer,
             Test::IncDec => Kind::IncDec,
             Test::Multiplier => Kind::Multiplier,
+            Test::CarrySaveAdder => Kind::CarrySaveAdder,
             Test::Alu => Kind::Alu,
             Test::Register => Kind::Register,
             Test::Ram => Kind::Ram,

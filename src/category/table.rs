@@ -7,8 +7,8 @@ use super::Logic;
 use super::{
     Behaviour, Copies, Design, Facts, Flag, Group, Guess, Kind, Line, Lines,
     Measure, Probe, Probing, Reads, Section, Stacking, Test, adder, alu,
-    converters, decoder, gate, incrementer, inverter, monostable, multiplier,
-    negator, register, sequential, shifter,
+    carry_save, converters, decoder, gate, incrementer, inverter, monostable,
+    multiplier, negator, register, sequential, shifter,
 };
 
 /// What the code does with a category's builds when it does nothing
@@ -248,7 +248,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 39] = [
+pub(super) const TABLE: [Facts; 40] = [
     Facts {
         kind: Kind::Adder,
         runs: Some(&adder::ADDER),
@@ -371,6 +371,23 @@ pub(super) const TABLE: [Facts; 39] = [
             lines: Lines::Control("calculate"),
             ..read(Test::Multiplier)
         },
+        ..ROW
+    },
+    Facts {
+        kind: Kind::CarrySaveAdder,
+        runs: Some(&carry_save::CARRY_SAVE_ADDER),
+        name: "carry_save_adder",
+        label: "Carry-Save Adder",
+        noun: "carry-save adder",
+        section: Section::Arithmetic,
+        logic: Some(Logic::Stateless),
+        aliases: &["3:2 compressor", "csa", "full adder array"],
+        listed_as: "carry-save adders",
+        probe: matched(155),
+        guess: Guess::Tried(165),
+        // Each bit is a full adder of its own, so its copies stack as a
+        // gate's do.
+        behaviour: gate(Test::CarrySaveAdder),
         ..ROW
     },
     Facts {

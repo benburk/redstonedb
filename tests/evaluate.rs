@@ -387,6 +387,30 @@ fn a_negator_is_read_whole_from_its_file() {
     assert_eq!(e.logic, Some(Logic::Stateless));
 }
 
+/// A carry-save adder, standardized and coloured by probing as an upload
+/// is, is read whole from its file: its three operands, and its sum and
+/// carry, which share one row of outputs, told apart by what they show.
+#[test]
+fn a_carry_save_adder_is_read_whole_from_its_file() {
+    let recognition =
+        app::recognize::probe::recognize(&uploaded("csa-8")).unwrap();
+    assert_eq!(
+        recognition.found.as_deref(),
+        Some(
+            "a carry-save adder: all 16384 cases right, A xor B xor C, \
+             maj(A, B, C)"
+        ),
+        "{:?}",
+        recognition.problems
+    );
+    let e = evaluate(&recognition.file).unwrap();
+    assert_eq!(e.category, Some("carry_save_adder"));
+    assert!(e.passes(), "{:?}", e.report);
+    assert_eq!(e.width, Some(8));
+    assert!(e.latency.is_some() && e.throughput.is_some());
+    assert_eq!(e.logic, Some(Logic::Stateless));
+}
+
 /// A parity circuit is on for an odd number of A's bits on: the owner's
 /// with its output inverted by a torch, on for an even number, is not
 /// one.

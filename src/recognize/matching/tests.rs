@@ -35,6 +35,7 @@ fn builds_are_matched_as_what_they_are() {
         ("decoder-4-inverted", Kind::Decoder, "bit A off"),
         ("inc-8", Kind::Incrementer, "A + increment"),
         ("negator-8", Kind::Negator, "−A"),
+        ("csa-8", Kind::CarrySaveAdder, "A xor B xor C, maj(A, B, C)"),
         ("adder-8-date-signs", Kind::Adder, "A + B + carry in"),
     ] {
         let found = matched(name);

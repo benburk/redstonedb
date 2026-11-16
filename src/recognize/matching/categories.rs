@@ -26,6 +26,7 @@ pub static CATEGORIES: &[&dyn Category] = &[
     &GreaterThan,
     &CarryOut,
     &Adder,
+    &CarrySaveAdder,
     &Alu,
     &Incrementer,
     &Inverter,
@@ -244,6 +245,35 @@ impl Category for Adder {
             })
             .kind(Kind::InvertedAdder),
         ]
+    }
+}
+
+/// A carry-save adder: A, B, and C into its sum, each bit A xor B xor C,
+/// and its carry, each bit the majority of A's, B's, and C's.
+pub struct CarrySaveAdder;
+
+impl Category for CarrySaveAdder {
+    fn kind(&self) -> Kind {
+        Kind::CarrySaveAdder
+    }
+
+    fn slots(&self) -> &'static [Slot] {
+        const {
+            &[
+                A,
+                B,
+                Slot::new("C", Role::Operand(2), &[N]),
+                Slot::new("sum", Role::Output(0), &[N]),
+                Slot::new("carry", Role::Output(1), &[N]),
+            ]
+        }
+    }
+
+    fn ops(&self, _: &Shape) -> Vec<Op> {
+        vec![Op::new("A xor B xor C, maj(A, B, C)", |v| {
+            let (a, b, c) = (v[0], v[1], v[2]);
+            vec![(a ^ b ^ c).into(), (a & b | a & c | b & c).into()]
+        })]
     }
 }
 
