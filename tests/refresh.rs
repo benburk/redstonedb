@@ -74,7 +74,8 @@ async fn refreshing_sets_what_the_file_says_then_changes_nothing() {
 async fn a_build_without_a_test_keeps_no_result() {
     let db = setup_test_db().await;
     let typed = Details {
-        category: "piston door".to_owned(),
+        category: "other".to_owned(),
+        name: Some("piston door".to_owned()),
         specs: Specs {
             latency: Some(64),
             ..Specs::default()

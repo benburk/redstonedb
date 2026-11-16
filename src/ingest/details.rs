@@ -117,6 +117,7 @@ async fn ready(
         &mut details.built_on,
         &mut details.description,
         &mut details.specs.design,
+        &mut details.name,
     ] {
         *text = text
             .take()
@@ -131,14 +132,21 @@ async fn ready(
     let listed = Category::find(&categories, &details.category).is_some();
     details.category = Category::name_of(&categories, &details.category);
     if details.category.is_empty() {
-        return Err("Choose a category, or type a name of your own."
-            .to_owned()
-            .into());
+        return Err("Choose a category, or Other.".to_owned().into());
     }
     let category = category::check_category(
         &details.category,
         details.specs.design.as_deref(),
     )?;
+    // A build under Other says what it is by its name; one of a standard
+    // category is named by it.
+    if details.category != category::OTHER {
+        details.name = None;
+    } else if details.name.is_none() {
+        return Err("Name the build, such as 8-bit serial write memory."
+            .to_owned()
+            .into());
+    }
     keep_what_applies(&mut details, &category, listed);
 
     // Only a build of a category the site recognizes builds of is

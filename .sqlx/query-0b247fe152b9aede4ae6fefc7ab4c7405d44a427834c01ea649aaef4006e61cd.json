@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT INTO build (id, category, name, width, orientation, encoding,\n            latency, synchronized, size_x, size_y, size_z, built_on,\n            imported_by, conventional, design, description, logic,\n            throughput, at_least, pulse, inputs, outputs, torches,\n            works_from, works_from_by, keeps_paste, uploaded_by, unverified,\n            unverified_wrong)\n         VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,\n            ?, ?, ?, ?, ?, ?, ?)\n         RETURNING id as \"id!\"",
+  "describe": {
+    "columns": [
+      {
+        "name": "id!",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 29
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0b247fe152b9aede4ae6fefc7ab4c7405d44a427834c01ea649aaef4006e61cd"
+}

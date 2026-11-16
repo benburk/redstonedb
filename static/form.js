@@ -67,6 +67,13 @@ for (const input of document.querySelectorAll("input[data-category]")) {
       `As the category usually is (${option?.dataset.logic ?? "unknown"})`;
     const logic = form.querySelector("[data-logic-field]");
     if (logic) logic.hidden = evaluated;
+    // Other asks for the build's own name; a listed category names it.
+    const name = form.querySelector("[data-other-name]");
+    if (name) {
+      const other = option?.dataset.name === "other";
+      name.hidden = !other;
+      name.querySelector("input").required = other;
+    }
   };
   // The checks say whether it goes up unverified once they have run.
   form.addEventListener("filing", () => update(true));

@@ -90,7 +90,7 @@ async fn load(
     deleted: bool,
 ) -> Result<Vec<Build>, sqlx::Error> {
     let rows = sqlx::query!(
-        r#"SELECT build.id, build.category, width, orientation
+        r#"SELECT build.id, build.category, build.name, width, orientation
             as "orientation: Orientation", encoding as "encoding: Encoding", latency,
             synchronized as "synchronized: bool", throughput, at_least, pulse, inputs, outputs,
             torches, works_from, works_from_by, size_x, size_y, size_z,
@@ -160,6 +160,7 @@ async fn load(
                     contributors,
                 },
                 category: row.category,
+                name: row.name,
                 specs: Specs {
                     width: row.width,
                     orientation: row.orientation,

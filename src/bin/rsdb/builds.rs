@@ -25,8 +25,12 @@ use super::{
 #[derive(Args)]
 pub(super) struct Set {
     id: String,
+    /// A standard category, or `other` with `--name`
     #[arg(long)]
     category: Option<String>,
+    /// What a build under Other is, such as `8-bit serial write memory`
+    #[arg(long)]
+    name: Option<String>,
     #[arg(long)]
     orientation: Option<Orientation>,
     #[command(flatten)]
@@ -153,6 +157,7 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let Set {
         id,
         category,
+        name,
         orientation,
         details: given,
         tags,
@@ -164,6 +169,9 @@ pub(super) async fn set(db: &SqlitePool, args: Set) -> Result<()> {
     let mut details = Details::of(&s);
     if let Some(category) = category {
         details.category = category;
+    }
+    if let Some(name) = name {
+        details.name = Some(name);
     }
     if let Some(orientation) = orientation {
         details.specs.orientation = orientation;

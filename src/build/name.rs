@@ -22,6 +22,19 @@ pub fn file_stem(name: &str) -> String {
     stem.trim_end_matches('_').to_owned()
 }
 
+/// `name` with each word's first letter capitalized, the rest as written.
+fn capitalized(name: &str) -> String {
+    name.split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            chars.next().map_or_else(String::new, |first| {
+                first.to_uppercase().chain(chars).collect()
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl Build {
     /// The width in words, such as `8 bits` or `1 bit`.
     pub fn width_label(&self) -> Option<String> {
@@ -30,11 +43,14 @@ impl Build {
             .map(|w| format!("{w} {}", if w == 1 { "bit" } else { "bits" }))
     }
 
-    /// The category as people read it, such as `RAM` or `Line Drawer`.
+    /// The category as people read it, such as `RAM`; for a build under
+    /// Other, the name its author gave it, each word capitalized, such as
+    /// `8-bit Serial Write Memory`.
     pub fn category_label(&self) -> String {
-        match self.kind() {
-            Some(kind) => kind.label().to_owned(),
-            None => category::words(&self.category),
+        match (self.kind(), &self.name) {
+            (Some(kind), _) => kind.label().to_owned(),
+            (None, Some(name)) => capitalized(name),
+            (None, None) => category::words(&self.category),
         }
     }
 
