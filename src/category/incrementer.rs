@@ -1,6 +1,5 @@
-//! Testing an incrementer, a decrementer, or an inc/dec: A, and a control
-//! line that adds or subtracts it, or picks between adding and
-//! subtracting 1.
+//! Testing an incrementer or a decrementer: A, and a control line that
+//! adds or subtracts it.
 
 use crate::simulate::Rule;
 use anyhow::Result;
@@ -17,10 +16,9 @@ use crate::{
 
 /// Every value of A with its control line each way, checked against what
 /// each kind of incrementer that `counts` gives: an incrementer's A plus 1
-/// or plus its control line, a decrementer's A minus either, and an
-/// inc/dec's plus 1 one way and minus 1 the other. With no way of
-/// counting, every kind is tried, as for a guess. The kind it gets most right names its
-/// cases.
+/// or plus its control line, and a decrementer's A minus either. With no
+/// way of counting, both are tried, as for a guess. The kind it gets most
+/// right names its cases.
 pub(super) fn spec(
     interface: &Interface,
     counts: Option<Counts>,
@@ -42,12 +40,6 @@ pub(super) fn spec(
             })
         })
         .collect();
-    if kinds.is_empty() {
-        broken!(
-            "An inc/dec has a control line to choose between adding and \
-             subtracting 1, but this has none."
-        );
-    }
     Ok(Spec { bench, kinds })
 }
 
@@ -57,7 +49,6 @@ impl Counts {
         match self {
             Counts::Up => category::Kind::Incrementer,
             Counts::Down => category::Kind::Decrementer,
-            Counts::Either => category::Kind::IncDec,
         }
     }
 }
@@ -87,28 +78,6 @@ pub(super) fn changes(line: Option<&str>) -> Vec<Change> {
         Some(line) => vec![
             change(format!("A + {line}"), Counts::Up, Value::wrapping_add),
             change(format!("A − {line}"), Counts::Down, Value::wrapping_sub),
-            change(
-                format!("A + 1, or − 1 with {line} on"),
-                Counts::Either,
-                |a, c| {
-                    if c == 1 {
-                        a.wrapping_sub(1)
-                    } else {
-                        a.wrapping_add(1)
-                    }
-                },
-            ),
-            change(
-                format!("A − 1, or + 1 with {line} on"),
-                Counts::Either,
-                |a, c| {
-                    if c == 1 {
-                        a.wrapping_add(1)
-                    } else {
-                        a.wrapping_sub(1)
-                    }
-                },
-            ),
         ],
     }
 }
@@ -179,10 +148,6 @@ pub(super) const DECREMENTER: BySpec = BySpec::stacked(
     |data| super::stacks::chained(data, Test::Decrementer),
 );
 
-pub(super) const INC_DEC: BySpec = BySpec::spec(|_, interface| {
-    counting(category::Kind::IncDec, Counts::Either, interface)
-});
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -195,8 +160,6 @@ mod tests {
             .collect();
         assert_eq!(kinds[0], ("A + increment".to_owned(), "incrementer"));
         assert_eq!(kinds[1].1, "decrementer");
-        // Plus 1 with the line off, minus 1 with it on.
-        let inc_dec = &changes(Some("decrement"))[2];
-        assert_eq!(((inc_dec.apply)(5, 0), (inc_dec.apply)(5, 1)), (6, 4));
+        assert_eq!(kinds.len(), 2);
     }
 }

@@ -354,8 +354,7 @@ impl Category for Alu {
 
 /// An incrementer: A plus 1, or plus its control line if it has one, into
 /// an output that may hold the carry as its top bit, and a carry out, if
-/// it has one; or minus, a decrementer; or, by its control line, either,
-/// an inc/dec.
+/// it has one; or minus, a decrementer.
 pub struct Incrementer;
 
 impl Category for Incrementer {
@@ -390,14 +389,6 @@ impl Category for Incrementer {
             Op::new("A + increment", move |v| carry(v[0] + v[1])),
             Op::new("A − decrement", move |v| carry(v[0].wrapping_sub(v[1])))
                 .kind(Kind::Decrementer),
-            Op::new("A + 1 or A − 1", move |v| {
-                carry(if v[1] == 1 {
-                    v[0] + 1
-                } else {
-                    v[0].wrapping_sub(1)
-                })
-            })
-            .kind(Kind::IncDec),
         ]
     }
 }
