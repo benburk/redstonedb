@@ -4,6 +4,7 @@ mod accounts;
 mod builds;
 mod categories;
 mod inspect;
+mod record;
 mod refresh;
 mod schemati;
 mod seed;
@@ -25,6 +26,7 @@ use accounts::{list_users, set_role};
 use builds::{Set, export, guide_images, remove, search_command, set, show};
 use categories::{define_tag, print_categories, print_tags};
 use inspect::{Inspect, inspect_command};
+use record::{Record, record_command};
 use refresh::refresh;
 use seed::{publish, seed};
 use versions::{Standardizing, merge, new_version};
@@ -135,6 +137,11 @@ enum Command {
     /// outputs in buses and what the site recognizes it as with them. Reads
     /// the database only
     Inspect(Inspect),
+    /// Record what recognition makes of every fixture or stored build, one
+    /// line of JSON each, to compare before and after a change to
+    /// recognizing, testing, or laying builds the standard way. Reads the
+    /// database only
+    Record(Record),
     /// List your Schemati folder, newest first, or fetch one file from it,
     /// such as `temp`, printing where it went; with the session
     /// `SCHEMATI_SESSION` holds, the value of Schemati's sessionId cookie
@@ -204,7 +211,7 @@ async fn main() -> Result<()> {
             None => schemati::list().await,
         };
     }
-    if let Command::Inspect(_) = cli.command {
+    if let Command::Inspect(_) | Command::Record(_) = cli.command {
         // Measuring only, so nothing is written, not even a checkpoint.
         let db = connect_read_only().await?;
         let result = run(&db, cli.command).await;
@@ -253,6 +260,7 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             dry_run,
         } => refresh(db, &ids, all, (prune, probe), dry_run).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
+        Command::Record(args) => record_command(db, &args).await,
         Command::Schemati { .. } => {
             unreachable!("main runs it before opening the database")
         }

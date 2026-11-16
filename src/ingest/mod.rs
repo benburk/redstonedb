@@ -10,6 +10,7 @@ pub mod jobs;
 pub mod prepare;
 pub mod publish;
 pub mod read;
+pub mod record;
 pub mod results;
 pub mod similar;
 pub mod version;

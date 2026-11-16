@@ -53,6 +53,11 @@ test-full:
     cargo test --workspace -- --include-ignored
     @./deploy/tested.sh mark
 
+# Record what recognition makes of every fixture into tests/recognition.jsonl,
+# which the tests hold it to, after a change that is meant to alter it
+record:
+    cargo run -q --bin rsdb -- record --fixtures tests/fixtures --out tests/recognition.jsonl
+
 # Build static/app.css from styles/app.css
 css:
     tailwindcss --input styles/app.css --minify > static/app.css
