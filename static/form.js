@@ -1,16 +1,29 @@
 // Details forms. Without this script every field shows and the server
 // checks them all; with it, fields follow the chosen category.
 
+// `text`'s letters and digits alone, in lowercase, so `Carry-Save Adder`
+// and `carry save adder` read alike, as the server's `squashed` does.
+const squashed = (text) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+
 // The option among a category menu's `options` that `text` names, by its
-// label or its name in any capitals, as the server's `Category::find` reads
-// it; none for a category off the list.
+// label or its name whatever the capitals, spacing, and punctuation, as the
+// server's `Category::find` reads it; none for a category off the list.
 const namedCategory = (options, text) => {
-  const typed = text.trim().toLowerCase();
+  const typed = squashed(text);
+  if (typed === "") return undefined;
   return options.find(
     (option) =>
-      option.dataset.value.toLowerCase() === typed ||
-      option.dataset.name === typed.replaceAll(" ", "_"),
+      squashed(option.dataset.value) === typed ||
+      squashed(option.dataset.name) === typed,
   );
+};
+
+// Whether `option` is one `text` may be after: its label, or one of its
+// other search words, holds what is typed, punctuation aside.
+const offers = (option, text) => {
+  const typed = squashed(text);
+  const words = [option.dataset.value, ...option.dataset.aliases.split("|")];
+  return words.some((word) => squashed(word).includes(typed));
 };
 
 // Category fields: the category is typed, with a menu of the standard ones
@@ -75,10 +88,9 @@ for (const input of document.querySelectorAll("input[data-category]")) {
     }
   };
   const filter = () => {
-    const text = input.value.trim().toLowerCase();
-    const all = text === "" || chosen() !== undefined;
+    const all = squashed(input.value) === "" || chosen() !== undefined;
     for (const option of options) {
-      option.hidden = !all && !option.dataset.value.toLowerCase().includes(text);
+      option.hidden = !all && !offers(option, input.value);
     }
     for (const group of groups) {
       group.hidden = !group.querySelector('[role="option"]:not([hidden])');
