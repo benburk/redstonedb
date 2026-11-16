@@ -98,3 +98,17 @@ prepare:
 [positional-arguments]
 rsdb *args:
     @DATABASE_URL=sqlite:{{ justfile_directory() }}/database.sqlite3 cargo run -q --manifest-path {{ justfile_directory() }}/Cargo.toml --bin rsdb -- "$@"
+
+# List your Schemati folder, newest first, or with a name, such as `temp`,
+# fetch that file into `out`, a new temporary directory by default, and
+# inspect it. Reads your session from SCHEMATI_SESSION in .env.
+[no-cd]
+schemati name="" out="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rsdb() { just --justfile {{ justfile() }} rsdb "$@"; }
+    if [ -z "{{ name }}" ]; then rsdb schemati; exit; fi
+    out="{{ out }}"
+    file=$(rsdb schemati "{{ name }}" --out "${out:-$(mktemp -d)}")
+    echo "$file"
+    rsdb inspect "$file"

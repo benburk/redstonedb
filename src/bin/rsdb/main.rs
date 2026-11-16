@@ -5,6 +5,7 @@ mod builds;
 mod categories;
 mod inspect;
 mod refresh;
+mod schemati;
 mod seed;
 mod versions;
 
@@ -134,6 +135,16 @@ enum Command {
     /// outputs in buses and what the site recognizes it as with them. Reads
     /// the database only
     Inspect(Inspect),
+    /// List your Schemati folder, newest first, or fetch one file from it,
+    /// such as `temp`, printing where it went; with the session
+    /// `SCHEMATI_SESSION` holds, the value of Schemati's sessionId cookie
+    Schemati {
+        /// A file to fetch, such as `temp` or `temp.schem`
+        name: Option<String>,
+        /// The directory to fetch it into
+        #[arg(long, default_value = ".")]
+        out: PathBuf,
+    },
     /// List known tags by kind, or with `--define` create a new one, named
     /// in full words
     Tags {
@@ -186,6 +197,13 @@ async fn main() -> Result<()> {
     // Builds are recognized and evaluated within the time the site gives
     // them, so what this finds is what the site would.
     app::simulate::budget::enforce();
+    if let Command::Schemati { name, out } = &cli.command {
+        // Schemati only, so no database is opened.
+        return match name {
+            Some(name) => schemati::fetch(name, out).await,
+            None => schemati::list().await,
+        };
+    }
     if let Command::Inspect(_) = cli.command {
         // Measuring only, so nothing is written, not even a checkpoint.
         let db = connect_read_only().await?;
@@ -235,6 +253,9 @@ async fn run(db: &SqlitePool, command: Command) -> Result<()> {
             dry_run,
         } => refresh(db, &ids, all, (prune, probe), dry_run).await,
         Command::Inspect(args) => inspect_command(db, &args).await,
+        Command::Schemati { .. } => {
+            unreachable!("main runs it before opening the database")
+        }
         Command::Tags {
             define,
             kind,
