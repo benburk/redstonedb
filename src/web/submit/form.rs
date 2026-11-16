@@ -106,8 +106,11 @@ impl StackRow {
 #[derive(Clone, Default)]
 pub struct Form {
     /// The category as typed: a standard one by its name or label, in any
-    /// capitals, or else a name of the author's own.
+    /// capitals, or Other.
     pub category: String,
+    /// What a build under Other is, as its author names it; ignored for a
+    /// standard category.
+    pub name: String,
     /// An [`Orientation`]'s name.
     pub orientation: String,
     /// In bits, typed for a build unverified as its category, whose file
@@ -187,6 +190,7 @@ impl Form {
         };
         Form {
             category: get("category"),
+            name: get("name"),
             orientation: get("orientation"),
             width: get("width"),
             latency: get("latency"),
@@ -225,6 +229,7 @@ impl Form {
         let name = |name: Option<&str>| name.unwrap_or_default().to_owned();
         Form {
             category: s.category.clone(),
+            name: text(&s.name),
             orientation: s.specs.orientation.name().to_owned(),
             width: number(s.specs.width),
             latency: number(s.specs.latency),
@@ -291,6 +296,7 @@ impl Form {
         };
         Form {
             category: or(self.category, suggested.category),
+            name: or(self.name, suggested.name),
             orientation: or(self.orientation, suggested.orientation),
             width: or(self.width, suggested.width),
             latency: or(self.latency, suggested.latency),
@@ -348,6 +354,7 @@ impl Form {
         let text = |value: &str| Some(value.to_owned());
         Ok(Details {
             category: self.category.clone(),
+            name: text(&self.name),
             specs: Specs {
                 orientation: self.orientation.parse()?,
                 width,

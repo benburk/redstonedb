@@ -13,9 +13,12 @@ use crate::{
 /// rule.
 #[derive(Debug, Clone, Default)]
 pub struct Details {
-    /// A standard category by its name or label, in any capitals, or a name
-    /// of the author's own.
+    /// A standard category by its name or label, in any capitals, or
+    /// `other`.
     pub category: String,
+    /// What a build under Other is, as its author names it; dropped for a
+    /// standard category.
+    pub name: Option<String>,
     /// Its specs as given; its design one of the category's, or `None`
     /// for `other`.
     pub specs: Specs,
@@ -41,6 +44,7 @@ impl Details {
     pub fn of(s: &Build) -> Self {
         Details {
             category: s.category.clone(),
+            name: s.name.clone(),
             specs: s.specs.clone(),
             built_on: s.built_on.clone(),
             description: s.description.clone(),

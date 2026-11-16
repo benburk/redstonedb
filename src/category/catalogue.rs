@@ -361,65 +361,60 @@ pub fn flags_among<S: AsRef<str>>(
     })
 }
 
-/// Words search takes for a category off the list, which has no row to
-/// hold them.
-const OFF_LIST_ALIASES: &[(&str, &str)] = &[
-    ("connect 4", "four_in_a_row_detector"),
-    ("connect4", "four_in_a_row_detector"),
+/// Words search takes for a build under Other named so, in any capitals,
+/// as no category's row holds them.
+const NAME_ALIASES: &[(&str, &str)] = &[
+    ("connect 4", "four in a row detector"),
+    ("connect4", "four in a row detector"),
 ];
 
-/// The other words search takes for the category named `category`, of the
-/// list or off it, alphabetically.
+/// The other words search takes for the category named `category`,
+/// alphabetically; none for Other, whose builds go by their names.
 pub fn aliases(category: &str) -> Vec<String> {
-    let aliases = match Kind::named(category) {
-        Some(kind) => kind.facts().aliases.to_vec(),
-        None => OFF_LIST_ALIASES
-            .iter()
-            .filter(|(_, of)| *of == category)
-            .map(|(alias, _)| *alias)
-            .collect(),
-    };
-    aliases.into_iter().map(str::to_owned).collect()
+    Kind::named(category)
+        .map(|kind| {
+            kind.facts().aliases.iter().map(|&a| a.to_owned()).collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The other words search takes for a build under Other named `name`.
+pub fn name_aliases(name: &str) -> Vec<String> {
+    NAME_ALIASES
+        .iter()
+        .filter(|(_, of)| of.eq_ignore_ascii_case(name.trim()))
+        .map(|(alias, _)| (*alias).to_owned())
+        .collect()
 }
 
 /// The word search and a leaderboard's address name no design by, as a
 /// build of none is found and ranked as one of `other`.
 pub const NO_DESIGN: &str = "other";
 
+/// The category of a build the site has no category for, whose own name
+/// says what it is.
+pub const OTHER: &str = "other";
+
 /// Checks a build's category and design, and returns the category. A
-/// category is a standard one, or any other name made of lowercase words
-/// joined by underscores. A design is none, or one the category lists.
-/// The `Err` is a sentence for the person.
+/// category is a standard one, or [`OTHER`]. A design is none, or one the
+/// category lists. The `Err` is a sentence for the person.
 pub fn check_category(
     category: &str,
     design: Option<&str>,
 ) -> Result<Category, String> {
-    let valid = |name: &str| {
-        name.chars().any(|c| c.is_ascii_alphanumeric())
-            && name.chars().all(|c| {
-                c.is_ascii_lowercase()
-                    || c.is_ascii_digit()
-                    || c == '_'
-                    || c == '-'
-            })
-    };
-    if !valid(category) {
-        return Err(
-            "A category's name is words, numbers, and hyphens, such as line \
-             drawer or 8-bit horizontal diode."
-                .to_owned(),
-        );
-    }
-    // The menu gathers every category off the list under `other`.
-    if category == "other" {
-        return Err("Name the category, rather than other.".to_owned());
-    }
     // A build of a category the site recognizes builds of goes under it,
     // recognized or not, rather than under a name made from it.
     if let Some(kind) = made_from(category) {
         return Err(format!(
             "Choose {} as the category, rather than a name made from it.",
             kind.label()
+        ));
+    }
+    if category != OTHER && Kind::named(category).is_none() {
+        return Err(format!(
+            "{} is not a category. Choose one from the list, or Other and \
+             name the build.",
+            words(category)
         ));
     }
     if let Some(design) = design
@@ -450,11 +445,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_name_made_from_a_recognized_category_is_refused() {
-        for name in ["8-bit_adder", "unrecognized_register", "8-bit_ram"] {
+    fn a_category_is_a_standard_one_or_other() {
+        for name in [
+            "8-bit_adder",
+            "unrecognized_register",
+            "8-bit_ram",
+            "8-bit_horizontal_diode",
+        ] {
             assert!(check_category(name, None).is_err(), "{name}");
         }
-        for name in ["eight-bit_adder", "8-bit_horizontal_diode"] {
+        for name in ["adder", "ram", OTHER] {
             assert!(check_category(name, None).is_ok(), "{name}");
         }
     }
@@ -501,12 +501,13 @@ mod tests {
     }
 
     #[test]
-    fn a_category_off_the_list_has_its_aliases_too() {
+    fn a_build_under_other_has_aliases_by_its_name() {
         assert_eq!(
-            aliases("four_in_a_row_detector"),
+            name_aliases("Four in a row detector"),
             ["connect 4", "connect4"]
         );
         assert_eq!(aliases("monostable"), ["mono", "pulse generator"]);
-        assert!(aliases("piston_door").is_empty());
+        assert!(aliases(OTHER).is_empty());
+        assert!(name_aliases("piston door").is_empty());
     }
 }

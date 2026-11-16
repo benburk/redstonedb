@@ -125,17 +125,18 @@ pub async fn insert(
     let (x, y, z) = (size.x, size.y, size.z);
     let mut tx = db.begin().await?;
     let id = sqlx::query_scalar!(
-        r#"INSERT INTO build (id, category, width, orientation, encoding,
+        r#"INSERT INTO build (id, category, name, width, orientation, encoding,
             latency, synchronized, size_x, size_y, size_z, built_on,
             imported_by, conventional, design, description, logic,
             throughput, at_least, pulse, inputs, outputs, torches,
             works_from, works_from_by, keeps_paste, uploaded_by, unverified,
             unverified_wrong)
          VALUES (coalesce(?, lower(hex(randomblob(16)))), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?, ?)
+            ?, ?, ?, ?, ?, ?, ?)
          RETURNING id as "id!""#,
         new.id,
         details.category,
+        details.name,
         details.specs.width,
         details.specs.orientation,
         details.specs.encoding,
@@ -188,12 +189,13 @@ pub async fn set_details(
     let mut tx = db.begin().await?;
     if ready.evaluated {
         sqlx::query!(
-            "UPDATE build SET category = ?, built_on = ?,
+            "UPDATE build SET category = ?, name = ?, built_on = ?,
                 description = ?, at_least = ?, unverified = NULL,
                 unverified_wrong = 0,
                 edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
              WHERE id = ?",
             details.category,
+            details.name,
             details.built_on,
             details.description,
             details.specs.at_least,
@@ -205,7 +207,7 @@ pub async fn set_details(
         return tx.commit().await;
     }
     sqlx::query!(
-        "UPDATE build SET category = ?, width = ?, orientation = ?,
+        "UPDATE build SET category = ?, name = ?, width = ?, orientation = ?,
             encoding = ?, latency = ?, synchronized = ?, design = ?,
             built_on = ?, description = ?, logic = ?, throughput = ?,
             at_least = ?, pulse = ?, inputs = ?, outputs = ?,
@@ -213,6 +215,7 @@ pub async fn set_details(
             edited_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
          WHERE id = ?",
         details.category,
+        details.name,
         details.specs.width,
         details.specs.orientation,
         details.specs.encoding,

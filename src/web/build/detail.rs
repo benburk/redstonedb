@@ -222,9 +222,13 @@ pub async fn detail(
     // once a theme colours its roles, as for a build that follows the
     // conventions; one kept as built shows only as built.
     let original = crate::ingest::results::carries_roles(&data);
+    // A build under Other shows as its author made it until another is
+    // chosen, as nothing checks what its lines are.
+    let other = s.category == crate::category::OTHER;
     let colours = ColoursShown {
         chosen: match colours {
             Some(Colours::Original) if original => Colours::Original,
+            None if other => Colours::Original,
             Some(Colours::Theme) | None if theme => Colours::Theme,
             _ => Colours::Default,
         },

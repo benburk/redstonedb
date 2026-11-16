@@ -248,6 +248,9 @@ pub fn stacked_width(terms: &[Term], s: &Build) -> Option<(i64, i64)> {
 fn facts(s: &Build) -> Vec<String> {
     let mut facts = vec![s.category.replace('_', " ")];
     facts.extend(crate::category::aliases(&s.category));
+    if let Some(name) = &s.name {
+        facts.extend(crate::category::name_aliases(name));
+    }
     // Its tags as its page shows them, its design, orientation, flags, and
     // stacking among them, each by its name, label, and token.
     for tag in s.every_tag() {
@@ -413,6 +416,7 @@ pub(crate) mod tests {
         Build {
             id: String::new(),
             category: category.to_owned(),
+            name: None,
             specs: Specs {
                 width: Some(8),
                 orientation,

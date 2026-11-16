@@ -8,6 +8,7 @@ fn cla() -> Build {
     Build {
         id: String::new(),
         category: "adder".to_owned(),
+        name: None,
         specs: Specs {
             width: Some(8),
             orientation: Orientation::Horizontal,

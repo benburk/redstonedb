@@ -43,7 +43,12 @@ pub use crate::{
 #[derive(Debug, Clone)]
 pub struct Build {
     pub id: String,
+    /// A standard category's name, such as `adder`, or `other` for a build
+    /// the site has no category for, which its `name` says what it is.
     pub category: String,
+    /// What a build under Other is, as its author names it, such as `8-bit
+    /// serial write memory`; `None` for a build of a standard category.
+    pub name: Option<String>,
     pub specs: Specs,
     pub file: File,
     pub entry: Entry,
