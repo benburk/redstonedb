@@ -50,6 +50,15 @@ fn given(category: &str) -> Details {
     }
 }
 
+/// Details under Other, the build named `name`, the rest as `given` has
+/// them.
+fn other(name: &str) -> Details {
+    Details {
+        name: Some(name.to_owned()),
+        ..given("Other")
+    }
+}
+
 /// `details` checked against the adder's file, as a person who may not
 /// name new tags.
 async fn check(db: &SqlitePool, details: Details) -> Result<Ready, String> {
@@ -74,14 +83,34 @@ async fn check_file(
 }
 
 #[tokio::test]
-async fn a_category_off_the_list_has_no_width_or_encoding() {
+async fn a_build_under_other_has_a_name_but_no_width_or_encoding() {
     let db = common::database().await;
-    let diode = check(&db, given("8-Bit Horizontal Diode")).await.unwrap();
-    assert_eq!(diode.details.category, "8-bit_horizontal_diode");
+    let diode = check(&db, other(" 8-bit horizontal diode ")).await.unwrap();
+    assert_eq!(diode.details.category, "other");
+    assert_eq!(
+        diode.details.name.as_deref(),
+        Some("8-bit horizontal diode")
+    );
     assert_eq!(
         (diode.details.specs.width, diode.details.specs.encoding),
         (None, None)
     );
+}
+
+#[tokio::test]
+async fn a_category_is_one_of_the_list_or_other_and_other_is_named() {
+    let db = common::database().await;
+    let own = check(&db, given("piston door")).await.err().unwrap();
+    assert!(own.contains("Choose one from the list, or Other"), "{own}");
+    let unnamed = check(&db, given("other")).await.err().unwrap();
+    assert!(unnamed.contains("Name the build"), "{unnamed}");
+    // A standard category names the build itself.
+    let named = Details {
+        name: Some("my adder".to_owned()),
+        ..given("adder")
+    };
+    let adder = check(&db, named).await.unwrap();
+    assert_eq!(adder.details.name, None);
 }
 
 #[tokio::test]
@@ -90,7 +119,7 @@ async fn stacking_that_does_not_fit_is_refused() {
     // Two copies this far apart make a stack too large to build.
     let apart = Details {
         stacking: vec!["west=100000".parse::<StackDirection>().unwrap()],
-        ..given("8-bit horizontal diode")
+        ..other("8-bit horizontal diode")
     };
     let refused = check(&db, apart.clone()).await.err().unwrap();
     assert!(refused.contains("don't fit"), "{refused}");
@@ -113,7 +142,7 @@ async fn only_a_mod_or_admin_may_name_a_new_tag_with_the_details() {
     let db = common::database().await;
     let tagged = Details {
         tags: vec!["Made Up".to_owned()],
-        ..given("piston door")
+        ..other("piston door")
     };
     let refused = check(&db, tagged.clone()).await.err().unwrap();
     assert!(refused.contains("only a mod or admin"), "{refused}");
@@ -135,7 +164,7 @@ async fn a_build_date_still_to_come_is_refused() {
     let db = common::database().await;
     let dated = |date: &str| Details {
         built_on: Some(date.to_owned()),
-        ..given("piston door")
+        ..other("piston door")
     };
     let kept = check(&db, dated("2024-02-29")).await.unwrap();
     assert_eq!(kept.details.built_on.as_deref(), Some("2024-02-29"));

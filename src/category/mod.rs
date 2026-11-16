@@ -40,7 +40,8 @@ pub use test::{Guessed, Test, guess};
 
 pub use catalogue::{
     Category, Design, Flag, FlagGroup, Inverts, Logic, Measure, NO_DESIGN,
-    Section, aliases, check_category, flags_among, inverts, words,
+    OTHER, Section, aliases, check_category, flags_among, inverts,
+    name_aliases, words,
 };
 
 pub use crate::{

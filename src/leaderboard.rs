@@ -1796,6 +1796,7 @@ mod tests {
         Build {
             id: id.to_owned(),
             category: "adder".to_owned(),
+            name: None,
             specs: Specs {
                 width: Some(width),
                 orientation: Orientation::Horizontal,

@@ -196,8 +196,12 @@ pub(in crate::web) async fn export(
         .ok_or(AppError::NotFound)?;
     // In its author's colours, as stored, with any kept from before the
     // site kept them, which go on its blocks before any stacking; and so
-    // always for a build the site can't read, its file carrying no roles.
+    // always for a build the site can't read, its file carrying no roles;
+    // and for a build under Other unless another is asked for, as nothing
+    // checks what its lines are.
+    let other = s.category == crate::category::OTHER;
     if asked.colours == Some(Colours::Original)
+        || (other && asked.colours.is_none())
         || !crate::ingest::results::carries_roles(&data)
     {
         let data = match versions::colours(db, id).await? {

@@ -28,14 +28,15 @@ pub struct Choices {
     pub tags: Vec<Tag>,
 }
 
-/// The category: one of the list's, or a name of the author's own.
+/// The category: one of the list's, or Other, with the build's own name.
 fn category_fields(f: &Form, choices: &Choices) -> Markup {
     html! {
         @let chosen = Category::find(&choices.categories, &f.category);
+        @let other = f.category.trim().eq_ignore_ascii_case(category::OTHER);
         // Typed, with a menu of the standard categories under their
-        // sections, as in the sidebar, which form.js opens and narrows as
-        // the box is typed in; a name of the author's own makes a category
-        // off the list. Without the script, the box takes typing alone.
+        // sections, as in the sidebar, then Other, which form.js opens and
+        // narrows as the box is typed in. Without the script, the box takes
+        // typing alone.
         div class="field" {
             // Whether the build is verified as this category, which
             // form.js says once the simulation has run.
@@ -47,7 +48,7 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                 input id="category" name="category" required autocomplete="off"
                     role="combobox" aria-controls="category-menu" aria-expanded="false"
                     aria-autocomplete="list"
-                    value=(chosen.map_or_else(|| f.category.replace('_', " "), |c| c.label.clone()))
+                    value=(chosen.map_or_else(|| if other { "Other".to_owned() } else { f.category.replace('_', " ") }, |c| c.label.clone()))
                     placeholder="Type to search, such as adder" aria-describedby="category-help"
                     class="input" data-category;
                 div id="category-menu" role="listbox" aria-label="Categories" hidden
@@ -78,13 +79,37 @@ fn category_fields(f: &Form, choices: &Choices) -> Markup {
                             }
                         }
                     }
+                    // A build the site has no category for, named below.
+                    div role="group" aria-labelledby="category-group-other" data-group
+                        class="menu-section" {
+                        div id="category-group-other" role="presentation"
+                            class="px-2.5 pt-2 pb-1 text-meta font-bold text-ink" { "Other" }
+                        div id="category-option-other" role="option"
+                            aria-selected="false" data-value="Other"
+                            data-name=(category::OTHER)
+                            data-aliases="custom|none of these|something else"
+                            data-logic="unknown"
+                            class="cursor-pointer rounded-control py-1.5 pr-2.5 pl-5 text-nav hover:bg-selection aria-selected:bg-selection" {
+                            "Other"
+                        }
+                    }
                     p role="presentation" hidden class="px-2.5 py-1.5 text-meta text-muted" data-no-match {
-                        "No category matches; this name makes a new one."
+                        "No category matches. Choose Other to name the build yourself."
                     }
                 }
             }
             span id="category-help" class="text-meta font-normal text-muted" {
-                "Or type your own, such as piston door."
+                "None fits? Choose Other, then name the build."
+            }
+        }
+        // Shown for Other only, as form.js keeps it.
+        div class="field" data-other-name hidden[!other] {
+            label for="name" class="text-meta font-semibold text-muted" { "Name" }
+            input id="name" name="name" autocomplete="off" required[other]
+                value=(f.name) placeholder="Such as 8-bit serial write memory"
+                aria-describedby="name-help" class="input";
+            span id="name-help" class="text-meta font-normal text-muted" {
+                "What the build is, as its title and search show it."
             }
         }
     }
