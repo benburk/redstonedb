@@ -17,14 +17,15 @@ use crate::{
     },
 };
 
-/// A category on the home page's index, pictured by its best build.
+/// A category on the home page's index, pictured by its best build, if it
+/// has one.
 pub struct Tile<'a> {
     /// Such as `adder`, or `other` for every category off the list.
     pub category: String,
     /// Such as `Adders`.
     pub label: String,
     pub count: usize,
-    pub best: &'a Build,
+    pub best: Option<&'a Build>,
     /// Its sidebar section; `None` for Other.
     pub section: Option<Section>,
 }
@@ -64,8 +65,14 @@ pub fn home_index(index: &Index) -> Markup {
                     @for tile in tiles {
                         @let href = HomeQuery::in_category(&tile.category).href();
                         li class="group relative flex flex-col overflow-hidden rounded-overlay border border-line bg-raised shadow-sm transition-colors duration-150 ease-calm hover:border-boundary" {
-                            img src=(thumbnail_src(tile.best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
-                                class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
+                            @if let Some(best) = tile.best {
+                                img src=(thumbnail_src(best, index.viewing.palette.as_deref())) alt="" loading="lazy" decoding="async" width="640" height="480"
+                                    class="aspect-[4/3] w-full border-b border-line bg-sidebar object-contain";
+                            } @else {
+                                div class="flex aspect-[4/3] w-full items-center justify-center border-b border-line bg-sidebar text-meta text-muted" {
+                                    "No builds yet"
+                                }
+                            }
                             div class="flex flex-1 flex-col gap-0.5 px-3 py-2.5" {
                                 h4 class="flex items-baseline justify-between gap-2 font-semibold" {
                                     a href=(href) class="text-ink group-hover:text-brand hover:no-underline after:absolute after:inset-0" { (tile.label) }
@@ -110,8 +117,8 @@ fn tile_groups<'t>(
             .filter(|t| t.section == Some(section))
             .collect()
     };
-    // Every section with a category that has builds keeps its heading, as
-    // the sidebar does.
+    // Every section with a category keeps its heading, as the sidebar
+    // does.
     let headed: Vec<Section> = Section::ALL
         .iter()
         .copied()
