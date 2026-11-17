@@ -4,10 +4,13 @@
 //!
 //! A build turns about the vertical until A's levers are on the south side
 //! of their blocks. It is then mirrored east for west, which keeps them
-//! south, when that makes more of the quick cases of the test it seems to
-//! be come out right, as it does for a build whose least significant bits
-//! sit at its west end. A build whose least significant bits sit at its
-//! top says so with an `lsb` sign.
+//! south, when its reading marks A's lowest bit at the other end from the
+//! one the conventions count from, see [`crate::schem::lines::Roles`], so
+//! the file counts its buses as its reading does whoever reads it. A file
+//! whose reading marks no order is mirrored when that makes more of the
+//! quick cases of the test it seems to be come out right, as it does for a
+//! build whose least significant bits sit at its west end. A build whose
+//! least significant bits sit at its top says so with an `lsb` sign.
 
 use anyhow::Result;
 
@@ -46,8 +49,18 @@ pub fn oriented(blocks: &Blocks) -> Result<(Option<Blocks>, Turn)> {
             blocks.turned(turn).map(Some)
         }
     };
-    let wrong = |laid: &Option<Blocks>| wrong(laid.as_ref().unwrap_or(blocks));
     let plain = laid(candidates[0])?;
+    let counted = |laid: &Option<Blocks>| {
+        counted_as_read(laid.as_ref().unwrap_or(blocks))
+    };
+    match counted(&plain) {
+        Some(true) => return Ok((plain, candidates[0])),
+        Some(false) => {
+            return Ok((laid(candidates[1])?, candidates[1]));
+        }
+        None => {}
+    }
+    let wrong = |laid: &Option<Blocks>| wrong(laid.as_ref().unwrap_or(blocks));
     let plain_wrong = wrong(&plain);
     if plain_wrong == Some(0) {
         return Ok((plain, candidates[0]));
@@ -63,6 +76,32 @@ pub fn oriented(blocks: &Blocks) -> Result<(Option<Blocks>, Turn)> {
     } else {
         (plain, candidates[0])
     })
+}
+
+/// Whether the conventions count A's bits, or with no A its first bus's,
+/// from the bit its reading marks lowest, as the build in `blocks` lies;
+/// `None` when its reading marks no order.
+fn counted_as_read(blocks: &Blocks) -> Option<bool> {
+    let lowest = &blocks.roles.as_ref()?.1;
+    let first_of_a = |interface: &interface::Interface| {
+        interface
+            .inputs
+            .iter()
+            .filter(|port| port.bits.len() > 1 && !port.labelled)
+            .find(|port| port.bits.iter().any(|bit| lowest.contains(&bit.pos)))
+            .map(|port| port.bits[0].pos)
+    };
+    let marked = first_of_a(&interface::read(blocks))?;
+    // As the conventions alone count it: its roles with no order marked.
+    let mut unmarked = blocks.clone();
+    if let Some(roles) = unmarked.roles.as_mut() {
+        roles.1.clear();
+    }
+    let counted = interface::read(&unmarked)
+        .inputs
+        .into_iter()
+        .find(|port| port.bits.iter().any(|bit| bit.pos == marked))?;
+    Some(counted.bits[0].pos == marked)
 }
 
 /// The share of quick cases, in thousandths, the build in `blocks` gets
@@ -121,6 +160,33 @@ mod tests {
         assert_eq!(quarters_to_south(Direction::East), 1);
         assert_eq!(quarters_to_south(Direction::North), 2);
         assert_eq!(quarters_to_south(Direction::West), 3);
+    }
+
+    /// A build matching reads, mirrored from the way it was made, is laid
+    /// by the order its reading marks: A's lowest bit is the one matching
+    /// found lowest, wherever the build lay when it was probed, and the
+    /// conventions count A from it once laid.
+    #[test]
+    fn a_matched_build_is_laid_by_the_order_its_reading_marks() {
+        let data = std::fs::read("tests/fixtures/negator-8.schem").unwrap();
+        for mirrored in [false, true] {
+            let turn = Turn {
+                mirrored,
+                quarters: 0,
+            };
+            let built = crate::schem::lines::without(
+                &crate::schem::turn::turned(&data, turn).unwrap(),
+            )
+            .unwrap();
+            let probed = crate::recognize::probe::recognize(&built).unwrap();
+            assert!(probed.found.is_some(), "{:?}", probed.problems);
+            let blocks = Blocks::read(&probed.file).unwrap();
+            let lowest = blocks.roles.as_ref().unwrap().1.clone();
+            assert!(!lowest.is_empty(), "matching marks the order");
+            let (laid, _) = orient(&probed.file).unwrap();
+            let laid = Blocks::read(&laid).unwrap();
+            assert_eq!(counted_as_read(&laid), Some(true), "{mirrored}");
+        }
     }
 
     /// A T flip-flop has no A, so it is turned by its toggle's button,

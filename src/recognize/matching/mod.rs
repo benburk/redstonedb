@@ -249,6 +249,7 @@ impl Match {
         let mut roles = Roles::default();
         for line in &self.lines {
             roles.mark(line.role, &line.bits);
+            roles.lowest_first(&line.bits);
         }
         roles
     }
