@@ -65,7 +65,7 @@ pub(crate) fn badge(tag: &Tag, s: &Build) -> Markup {
         .append_pair("tag", &tag.name)
         .finish();
     html! {
-        a href={ "/?" (query) }
+        a href={ "/?" (query) } rel="nofollow"
             title=(tag.about())
             class={ "badge " (tag.class()) " relative z-10 hover:no-underline hover:brightness-95" } {
             (tag.label())
@@ -86,6 +86,6 @@ pub(crate) fn private_badge() -> Markup {
 /// own link.
 pub(crate) fn search_link(text: &str, term: &str) -> Markup {
     html! {
-        a href=(href::search(term)) class="relative z-10" { (text) }
+        a href=(href::search(term)) rel="nofollow" class="relative z-10" { (text) }
     }
 }

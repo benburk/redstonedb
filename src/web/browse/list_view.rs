@@ -23,6 +23,7 @@ use crate::{
             category_tabs,
             icons::{self, icon},
             layout::base,
+            nofollow,
         },
     },
 };
@@ -208,7 +209,7 @@ fn listing_header(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
     let every = here.picking(here.picks.any(Field::Category)).href();
     html! {
             @if here.category().is_some() {
-                a href=(every) class="mb-1 inline-flex items-center gap-1 text-meta text-muted hover:text-ink" {
+                a href=(every) rel=[nofollow(&every)] class="mb-1 inline-flex items-center gap-1 text-meta text-muted hover:text-ink" {
                     (icon(icons::ARROW_LEFT, "size-3.5")) "All builds"
                 }
             }
@@ -320,7 +321,7 @@ fn sort_bar(here: &HomeQuery) -> Markup {
     let choice = |value: &str, label: &str| {
         let to = here.sorted(value).href();
         html! {
-            a id={ "sort-" (value) } href=(to) fx-action=(to) fx-target=(LISTING)
+            a id={ "sort-" (value) } href=(to) rel=[nofollow(&to)] fx-action=(to) fx-target=(LISTING)
                 class=(SWITCH) aria-current=[(value == order).then_some("page")] { (label) }
         }
     };
@@ -372,7 +373,7 @@ fn screen_row(row: &Row, here: &HomeQuery, shown: &str, copy: &str) -> Markup {
     let toggle = |choice: &Choice| {
         let to = here.picking(here.picks.toggled(field, &choice.key)).href();
         html! {
-            a id={ "pick-" (field.name()) "-" (choice.key) (copy) } href=(to) fx-action=(to) fx-target=(LISTING)
+            a id={ "pick-" (field.name()) "-" (choice.key) (copy) } href=(to) rel=[nofollow(&to)] fx-action=(to) fx-target=(LISTING)
                 class={ (TOGGLE) @if choice.count == 0 && !choice.chosen { " opacity-50" } }
                 aria-pressed=(choice.chosen) {
                 (choice.label)
@@ -386,7 +387,7 @@ fn screen_row(row: &Row, here: &HomeQuery, shown: &str, copy: &str) -> Markup {
             div class="flex min-w-0 flex-col items-start gap-1" {
                 div class=(SWITCHES) {
                     @let all = here.picking(here.picks.any(field)).href();
-                    a id={ "pick-" (field.name()) (copy) } href=(all) fx-action=(all) fx-target=(LISTING)
+                    a id={ "pick-" (field.name()) (copy) } href=(all) rel=[nofollow(&all)] fx-action=(all) fx-target=(LISTING)
                         class=(TOGGLE) aria-pressed=(here.picks.of(field).is_empty()) {
                         // Where a build must have every pick, none asks
                         // for any build.
@@ -435,7 +436,7 @@ fn near_categories(listing: &Listing, here: &HomeQuery) -> Markup {
         .partition(|(i, choice)| !folds || *i < LEAD || choice.chosen);
     let link = |choice: &Choice| {
         html! {
-            a href=(HomeQuery::in_category(&choice.key).href()) class=(SWITCH)
+            a href=(HomeQuery::in_category(&choice.key).href()) rel="nofollow" class=(SWITCH)
                 aria-current=[choice.chosen.then_some("page")] {
                 (choice.label)
                 span class="ml-1.5 text-meta text-muted tabular-nums" { (choice.count) }
@@ -530,7 +531,7 @@ fn screen_rows(listing: &Listing, here: &HomeQuery) -> Markup {
                 }
             }
             @if narrowed {
-                a href=(cleared.href()) class="w-fit text-meta" { "Clear filters" }
+                a href=(cleared.href()) rel=[nofollow(&cleared.href())] class="w-fit text-meta" { "Clear filters" }
             }
         }
     }
@@ -572,7 +573,7 @@ fn listing_body(listing: &Listing, here: &HomeQuery, title: &str) -> Markup {
                             }
                         }
                     }
-                    a href=(HomeQuery { q: String::new(), ..here.clone() }.href()) class="px-1.5 text-meta" { "Clear" }
+                    a href=(HomeQuery { q: String::new(), ..here.clone() }.href()) rel="nofollow" class="px-1.5 text-meta" { "Clear" }
                 }
             }
             @if total > 0 {
@@ -603,7 +604,7 @@ pub(crate) fn removable(
     words: &str,
 ) -> Markup {
     html! {
-        a href=(href) aria-label=(removes)
+        a href=(href) rel=[nofollow(href)] aria-label=(removes)
             class={ "badge gap-1.5 pr-2 hover:no-underline " (tone) } {
             (words)
             span aria-hidden="true" { "×" }
@@ -703,7 +704,7 @@ fn tag_filters(listing: &Listing, here: &HomeQuery) -> Markup {
                         @let label = filter.tag.label().replace(',', " or ");
                         @let to = here.without_tag(i).href();
                         li {
-                            a id={ "pick-tag-" (filter.tag.name) } href=(to) fx-action=(to) fx-target=(LISTING)
+                            a id={ "pick-tag-" (filter.tag.name) } href=(to) rel=[nofollow(&to)] fx-action=(to) fx-target=(LISTING)
                                 aria-label={ "Remove the tag filter " (label) }
                                 title=(filter.tag.about())
                                 class={ "badge " (filter.tag.class()) " gap-1.5 pr-2 ring-2 ring-brand ring-offset-1 ring-offset-canvas hover:no-underline" } {

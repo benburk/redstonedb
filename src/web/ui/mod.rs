@@ -94,6 +94,13 @@ pub(crate) fn page_header(title: &str, about: &str, message: &str) -> Markup {
     }
 }
 
+/// `nofollow` for a link to `href` when it carries a query: a filtered or
+/// sorted list, of which there is no end, so crawlers are asked not to
+/// follow it, as `robots.txt` asks them not to fetch it.
+pub(crate) fn nofollow(href: &str) -> Option<&'static str> {
+    href.contains('?').then_some("nofollow")
+}
+
 /// One link of a segmented control: what it says, where it goes, whether
 /// it is the one chosen, and how many it leads to, when it says.
 pub(crate) struct Segment<'a> {
@@ -109,7 +116,7 @@ pub(crate) fn segmented(segments: &[Segment]) -> Markup {
     html! {
         div class={ (SWITCHES) " w-fit" } {
             @for segment in segments {
-                a href=(segment.href) class=(SWITCH) aria-current=[segment.chosen.then_some("page")] {
+                a href=(segment.href) rel=[nofollow(&segment.href)] class=(SWITCH) aria-current=[segment.chosen.then_some("page")] {
                     (segment.label)
                     @if let Some(count) = segment.count {
                         span class="ml-1.5 text-meta text-muted tabular-nums" { (count) }

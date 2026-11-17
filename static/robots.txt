@@ -1,0 +1,17 @@
+# Every filtered, sorted, or searched list is the same builds again, and
+# there is no end to the ways of choosing them: crawlers are asked to keep
+# to the pages without a query, which link every build.
+User-agent: *
+Disallow: /*?
+Disallow: /similar
+Disallow: /upload
+Disallow: /log
+Disallow: /settings
+Disallow: /sessions/
+Disallow: /auth/
+Disallow: /schematics/*/download
+Disallow: /schematics/*/versions/
+Disallow: /schematics/*/diff
+Disallow: /schematics/*/simulation
+Disallow: /schematics/*/trace/
+Crawl-delay: 2
