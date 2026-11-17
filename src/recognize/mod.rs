@@ -4,8 +4,8 @@
 
 pub mod bus_drivable;
 pub mod colouring;
+pub mod colours;
 pub mod guide;
-pub mod legacy;
 pub mod matching;
 pub mod palette;
 pub mod probe;

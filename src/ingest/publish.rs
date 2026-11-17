@@ -105,25 +105,16 @@ pub async fn kept(
 /// for a category the site recognizes builds of, its lines read loosely
 /// as a build kept as built may need, see [`probe::kept_roles`]; else, or
 /// when no probe's test runs, those its shapes give it, see
-/// [`interface::shaped_roles`]. Its colours never give a line its role,
-/// but a file carrying no roles is a stored build's from before the site
-/// kept them, or a port of one to the rule for outputs, so its colours are
-/// the marking the site once read: of two operands its test passes either
-/// way round, A is the one they mark A, see
-/// [`crate::recognize::legacy::operand_marks`] and [`probe::Order`]. A file
-/// carrying roles comes back as it is.
+/// [`interface::shaped_roles`]. Of two operands its test passes either
+/// way round, A is as [`probe::Order`] says, by its colours, as for any
+/// build. A file carrying roles comes back as it is.
 pub fn with_roles(data: &[u8], category: &str) -> Result<Vec<u8>> {
     let blocks = Blocks::read(data)?;
     if blocks.roles.is_some() {
         return Ok(data.to_vec());
     }
-    let meant = Kind::named(category);
-    let marked = crate::recognize::legacy::operand_marks(&blocks);
-    let order = probe::Order {
-        marked: Some(&marked),
-    };
-    let probed = match meant {
-        Some(kind) => probe::kept_roles(data, kind, order)?,
+    let probed = match Kind::named(category) {
+        Some(kind) => probe::kept_roles(data, kind)?,
         None => None,
     };
     let roles = probed.unwrap_or_else(|| interface::shaped_roles(&blocks));

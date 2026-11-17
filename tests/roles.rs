@@ -13,10 +13,10 @@ use app::{
 
 /// The fixture file at `path`, carrying the roles its colours mark, as the
 /// fixtures are saved in the site's old colours; see
-/// `legacy::colour_roles`.
+/// `colours::colour_roles`.
 fn read_fixture(path: &str) -> std::io::Result<Vec<u8>> {
     let raw = std::fs::read(path)?;
-    Ok(app::recognize::legacy::with_colour_roles(&raw)
+    Ok(app::recognize::colours::with_colour_roles(&raw)
         .expect("fixture carries its roles"))
 }
 
@@ -25,7 +25,7 @@ fn stored(name: &str) -> Vec<u8> {
     let raw = read_fixture(&format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
     let tidied = standardize::tidy(&raw).expect("fixture tidies");
-    app::recognize::legacy::with_colour_roles(&tidied)
+    app::recognize::colours::with_colour_roles(&tidied)
         .expect("fixture carries its roles")
 }
 

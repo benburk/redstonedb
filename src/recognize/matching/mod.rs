@@ -389,7 +389,9 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
             inverted: false,
         })
     };
-    match probe::alu(data, report, Order::default()) {
+    let colours =
+        crate::recognize::colours::operand_marks(&Blocks::read(data).ok()?);
+    match probe::alu(data, report, Order::coloured(&colours)) {
         Ok(probed) => Some(Match {
             kind: Kind::Alu,
             label: probed.run.pattern.clone(),
@@ -430,7 +432,8 @@ fn signed_alu(data: &[u8], report: &inspect::Report) -> Option<Match> {
 /// category's reading of those gets every case right.
 pub fn closest(blocks: &Blocks, report: &inspect::Report) -> Option<Match> {
     let observed = observe(blocks, report).ok()?;
-    read_as(None, blocks, &observed, true, Order::default())
+    let colours = crate::recognize::colours::operand_marks(blocks);
+    read_as(None, blocks, &observed, true, Order::coloured(&colours))
 }
 
 /// The reading of the build `observed`, of `blocks`, that comes closest,
