@@ -14,7 +14,7 @@ use app::{
 fn stored(name: &str) -> Vec<u8> {
     let tidied =
         standardize::tidy(&common::fixture(name)).expect("fixture tidies");
-    app::recognize::legacy::with_colour_roles(&tidied)
+    app::recognize::colours::with_colour_roles(&tidied)
         .expect("fixture carries its roles")
 }
 

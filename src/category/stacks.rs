@@ -254,7 +254,7 @@ mod tests {
     fn one_wide() -> Vec<u8> {
         let raw = std::fs::read("tests/fixtures/monostable-3-inverted.schem")
             .unwrap();
-        let raw = crate::recognize::legacy::with_colour_roles(&raw).unwrap();
+        let raw = crate::recognize::colours::with_colour_roles(&raw).unwrap();
         prepare::prepare_for(&raw, Purpose::Standard { keep_paste: false })
             .unwrap()
             .data

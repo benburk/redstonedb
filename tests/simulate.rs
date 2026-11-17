@@ -19,10 +19,10 @@ use app::{
 
 /// The fixture file at `path`, carrying the roles its colours mark, as the
 /// fixtures are saved in the site's old colours; see
-/// `legacy::colour_roles`.
+/// `colours::colour_roles`.
 fn read_fixture(path: &str) -> std::io::Result<Vec<u8>> {
     let raw = std::fs::read(path)?;
-    Ok(app::recognize::legacy::with_colour_roles(&raw)
+    Ok(app::recognize::colours::with_colour_roles(&raw)
         .expect("fixture carries its roles"))
 }
 
@@ -32,7 +32,7 @@ fn blocks(name: &str) -> Blocks {
     let raw = read_fixture(&format!("tests/fixtures/{name}.schem"))
         .expect("fixture is readable");
     let tidied = standardize::tidy(&raw).expect("fixture tidies");
-    let stored = app::recognize::legacy::with_colour_roles(&tidied)
+    let stored = app::recognize::colours::with_colour_roles(&tidied)
         .expect("fixture carries its roles");
     Blocks::read(&stored).expect("fixture parses")
 }
@@ -110,7 +110,7 @@ fn a_build_with_a_hopper_gets_every_sum_right() {
 fn a_hopper_swaps_for_a_barrel_of_the_same_strength() {
     let raw = read_fixture("tests/fixtures/diag-3t-cca.schem").unwrap();
     // As the site stores it, with its carry out pink.
-    let stored = app::recognize::legacy::with_colour_roles(
+    let stored = app::recognize::colours::with_colour_roles(
         &standardize::tidy(&raw).unwrap(),
     )
     .unwrap();
@@ -167,7 +167,7 @@ fn unsigned(data: &[u8]) -> Vec<u8> {
 fn an_adders_lone_lines_need_no_signs() {
     let raw = read_fixture("tests/fixtures/cca-8-repeated-out.schem").unwrap();
     let tidied = standardize::tidy(&raw).unwrap();
-    let stored = app::recognize::legacy::with_colour_roles(&tidied).unwrap();
+    let stored = app::recognize::colours::with_colour_roles(&tidied).unwrap();
     let blocks = Blocks::read(&unsigned(&stored)).unwrap();
     assert!(blocks.signs.is_empty());
     let run = adder_run(&blocks).unwrap();
@@ -337,7 +337,7 @@ fn a_sequential_multiplier_is_pressed_to_calculate() {
 #[test]
 fn an_adder_whose_carry_stops_at_its_edge_does_not_stack() {
     let raw = read_fixture("tests/fixtures/alpha-rca.schem").unwrap();
-    let data = app::recognize::legacy::with_colour_roles(
+    let data = app::recognize::colours::with_colour_roles(
         &standardize::tidy(&raw).unwrap(),
     )
     .unwrap();
@@ -1596,7 +1596,7 @@ fn swapped(data: &[u8], from: &str, to: &str) -> Vec<u8> {
 fn a_glass_output_is_read_from_the_repeater_on_it() {
     let raw = read_fixture("tests/fixtures/cca-8-repeated-out.schem").unwrap();
     let tidied = standardize::tidy(&raw).unwrap();
-    let stored = app::recognize::legacy::with_colour_roles(&tidied).unwrap();
+    let stored = app::recognize::colours::with_colour_roles(&tidied).unwrap();
     let glazed = swapped(
         &stored,
         "minecraft:yellow_concrete",
@@ -1782,7 +1782,7 @@ fn a_2_wide_gates_stacking_is_pitch_2_west() {
 #[test]
 fn a_build_is_stored_with_its_inputs_at_logical_0() {
     let raw = read_fixture("tests/fixtures/cca-8-repeated-out.schem").unwrap();
-    let saved = app::recognize::legacy::with_colour_roles(
+    let saved = app::recognize::colours::with_colour_roles(
         &standardize::tidy(&raw).unwrap(),
     )
     .unwrap();

@@ -208,16 +208,26 @@ fn read(data: &[u8]) -> anyhow::Result<Blocks> {
 }
 
 /// Which of two operands probing finds interchangeable, as an adder's or a
-/// gate's, whose test passes either way round, is A: the one the build's
-/// own marking names A, `marked`, as
-/// [`crate::recognize::legacy::operand_marks`] reads a stored build's old
-/// colours while its roles are first found; else, or where the marking
-/// names neither or both, the one holding the least place, west first, then
-/// down, then north, as [`Pos`] orders them. An operand the test passes
-/// only one way round is that way whatever its marking.
+/// gate's, whose test passes either way round, is A: the one its author
+/// coloured A, lime, rather than B, light blue, as
+/// [`crate::recognize::colours::operand_marks`] reads the colours of its
+/// levers' blocks, `marked`; else, where the colours name neither or both,
+/// the one holding the least place, west first, then down, then north, as
+/// [`Pos`] orders them. An operand the test passes only one way round is
+/// that way whatever its colour. Every build is read so, uploaded or kept.
 #[derive(Clone, Copy, Default)]
 pub struct Order<'r> {
     pub marked: Option<&'r Roles>,
+}
+
+impl<'r> Order<'r> {
+    /// The order the colours `marked` give, as
+    /// [`crate::recognize::colours::operand_marks`] reads them.
+    pub fn coloured(marked: &'r Roles) -> Self {
+        Order {
+            marked: Some(marked),
+        }
+    }
 }
 
 impl Order<'_> {

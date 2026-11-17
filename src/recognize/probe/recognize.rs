@@ -115,6 +115,9 @@ struct Subject {
     blocks: Blocks,
     report: inspect::Report,
     observed: Option<matching::Observation>,
+    /// The operands its author's colours name, which say which of two
+    /// interchangeable ones is A; see [`Order`].
+    colours: Roles,
 }
 
 impl Subject {
@@ -125,12 +128,19 @@ impl Subject {
         let blocks = Blocks::read(&data)?;
         let report = inspect::inspect(&blocks);
         let observed = matching::observe(&blocks, &report).ok();
+        let colours = crate::recognize::colours::operand_marks(&blocks);
         Ok(Subject {
             data,
             blocks,
             report,
             observed,
+            colours,
         })
+    }
+
+    /// Which of two interchangeable operands is A; see [`Order`].
+    fn order(&self) -> Order<'_> {
+        Order::coloured(&self.colours)
     }
 
     /// What is wrong with its inputs and outputs, which keeps it from
@@ -258,7 +268,7 @@ fn laid(
             continue;
         }
         trying(kind, i);
-        match subject.probe(kind, how, test, false, Order::default())? {
+        match subject.probe(kind, how, test, false, subject.order())? {
             Ok((_, file, _)) if leaves_digits(&subject.report, &file) => {
                 faults.push((kind, Fault::Unfit(LEAVES_DIGITS.to_owned())));
             }
@@ -364,7 +374,7 @@ impl Subject {
             if !bends || !fits {
                 continue;
             }
-            match self.probe(kind, how, test, true, Order::default())? {
+            match self.probe(kind, how, test, true, self.order())? {
                 Ok(found) => return Ok(Some((kind, found))),
                 Err(fault) if fault.ran() || how == Probe::Register => {
                     match faults.iter().position(|(k, _)| *k == kind) {
@@ -454,8 +464,7 @@ impl Subject {
         meant: Option<Kind>,
     ) -> anyhow::Result<Option<(matching::Match, Vec<u8>)>> {
         let Some(found) = self.observed.as_ref().and_then(|observed| {
-            let order = Order::default();
-            matching::read_as(None, &self.blocks, observed, true, order)
+            matching::read_as(None, &self.blocks, observed, true, self.order())
         }) else {
             return Ok(None);
         };
@@ -486,20 +495,17 @@ pub type Found = (Vec<Pos>, Vec<u8>, String);
 /// read whatever faults the conventions find in them, and its lines laid
 /// out loosely, as only its test says which is which; of a try that got
 /// cases wrong, the closest. Of two operands its test passes either way
-/// round, A is as `order` prefers. `None` when no try's test ran, as for a
+/// round, A is as [`Order`] says. `None` when no try's test ran, as for a
 /// kind never probed.
-pub fn kept_roles(
-    data: &[u8],
-    kind: Kind,
-    order: Order,
-) -> anyhow::Result<Option<Roles>> {
+pub fn kept_roles(data: &[u8], kind: Kind) -> anyhow::Result<Option<Roles>> {
     let kind = kind.probed_as();
     let probed = Kind::probed();
     let Some(&(kind, how, test)) = probed.iter().find(|(k, ..)| *k == kind)
     else {
         return Ok(None);
     };
-    let probed = Subject::of(data)?.probe(kind, how, test, true, order)?;
+    let subject = Subject::of(data)?;
+    let probed = subject.probe(kind, how, test, true, subject.order())?;
     let file = match probed {
         Ok((_, file, _)) => file,
         Err(fault) => match fault.file() {

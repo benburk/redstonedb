@@ -1,11 +1,11 @@
-//! The roles the site's old colours mark on a build's blocks, as the site
+//! The roles the site's colours mark on a build's blocks: lime, light
+//! blue, cyan, and blue its operands, magenta a control line, yellow,
+//! orange, and brown its output buses, and pink a status line, as the site
 //! coloured a build's lines before it kept their roles apart from its
-//! blocks, and as the test fixtures are coloured: lime, light blue, cyan,
-//! and blue its operands, magenta a control line, yellow, orange, and
-//! brown its output buses, and pink a status line. An author's operand
-//! colours are read too, as the order of operands probing finds
-//! interchangeable. Lines themselves are read by the rule for them; see
-//! [`crate::interface::inspect`].
+//! blocks, and as the test fixtures are coloured. Every build's operand
+//! colours are read, as which of two operands probing finds
+//! interchangeable is A; see [`operand_marks`]. Lines themselves are read
+//! by the rule for them; see [`crate::interface::inspect`].
 
 use std::collections::HashSet;
 

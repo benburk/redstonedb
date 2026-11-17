@@ -21,7 +21,7 @@ fn raw(name: &str) -> Vec<u8> {
 /// lines pink, since the fixtures predate that.
 fn slice(name: &str) -> Vec<u8> {
     let tidied = standardize::tidy(&raw(name)).expect("fixture tidies");
-    app::recognize::legacy::with_colour_roles(&tidied)
+    app::recognize::colours::with_colour_roles(&tidied)
         .expect("fixture carries its roles")
 }
 
@@ -381,7 +381,7 @@ fn rebuilt(
 /// mark.
 fn multiplier() -> Vec<u8> {
     let standard = standardize::standardize(&raw("mult-8-buttons")).unwrap();
-    app::recognize::legacy::with_colour_roles(&standard).unwrap()
+    app::recognize::colours::with_colour_roles(&standard).unwrap()
 }
 
 /// The file `data` with the blocks of `at` given `role`.
@@ -480,7 +480,7 @@ fn a_comparator_with_air_behind_is_a_signal_strength_input() {
     // south, on lime concrete, feeding dust into comparators. No lever
     // could give its value.
     let data = standardize::standardize(&raw("hex2bin-raw")).unwrap();
-    let data = app::recognize::legacy::with_colour_roles(&data).unwrap();
+    let data = app::recognize::colours::with_colour_roles(&data).unwrap();
     let blocks = Blocks::read(&data).unwrap();
     let interface = interface::read(&blocks);
     assert_eq!(names(&interface.inputs), [("A", 1)]);
