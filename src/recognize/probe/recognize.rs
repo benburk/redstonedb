@@ -194,7 +194,9 @@ fn probed_kind(meant: &str) -> Option<Kind> {
 /// got cases wrong is probed as that kind again laid the standard way, as
 /// [`orient::orient`] lays it for publishing and the guess and the
 /// simulation read it: one whose lowest bits sit at its west end reads
-/// its buses the wrong way round as it lies.
+/// its buses the wrong way round as it lies, to a kind whose probe reads
+/// them only as they lie, as a hex to binary converter's does. Matching
+/// tries every bus both ways round itself, and marks the order it finds.
 ///
 /// It runs within the time the site gives a build, see
 /// [`simulate::budget::limited`]: once that runs out, it is recognized as

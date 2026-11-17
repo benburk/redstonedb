@@ -565,6 +565,7 @@ impl Kept {
         for line in self.inputs.iter().chain(&self.outputs) {
             if let Some(role) = line.role {
                 roles.mark(role, &line.bits);
+                roles.lowest_first(&line.bits);
             }
         }
         roles
@@ -925,13 +926,30 @@ fn rows(signed: &[Pos], unsigned: &HashSet<Pos>) -> HashMap<Pos, Vec<Pos>> {
     rows
 }
 
-/// A bus's `members` ordered from the one nearest the south-east-bottom
-/// corner of the bounding box along the way the bus runs, unless an `lsb`
-/// sign on its far end or an `msb` sign on its near one turns it round.
+/// A bus's `members` ordered from the one its roles mark its lowest bit,
+/// where the reading that found them decided it, see [`Roles`]; else from
+/// the one nearest the south-east-bottom corner of the bounding box along
+/// the way the bus runs, unless an `lsb` sign on its far end or an `msb`
+/// sign on its near one turns it round.
 pub fn lsb_first(blocks: &Blocks, members: &mut [Pos]) {
+    let axis = longest_axis(members);
+    let marked = blocks.roles.as_ref().and_then(|roles| {
+        members.iter().copied().find(|pos| roles.1.contains(pos))
+    });
+    if let Some(lowest) = marked {
+        members.sort_by_key(|&pos| along(pos, lowest, axis));
+        return;
+    }
+    counted_from_corner(blocks, members);
+}
+
+/// A bus's `members` ordered as the conventions count them, whatever its
+/// roles mark: from the one nearest the south-east-bottom corner of the
+/// bounding box, unless an `lsb` or `msb` sign turns it round.
+pub fn counted_from_corner(blocks: &Blocks, members: &mut [Pos]) {
+    let axis = longest_axis(members);
     let [width, _, length] = blocks.size;
     let corner = [width - 1, 0, length - 1];
-    let axis = longest_axis(members);
     if let Some(&lsb) = members
         .iter()
         .min_by_key(|&&pos| schem::distance(pos, corner))

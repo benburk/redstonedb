@@ -244,7 +244,9 @@ fn along(
 
     let mut nbt = schem::decode(data)?;
     if blocks.roles.is_some() {
-        nbt.set_roles(Some(&Roles(roles)));
+        // Copies make one wider bus of each, counted as the conventions
+        // count it.
+        nbt.set_roles(Some(&Roles(roles, std::collections::BTreeSet::new())));
     }
     let entities = nbt.take_entities();
     // Where copies overlap, a later copy's entity stands, as its block
