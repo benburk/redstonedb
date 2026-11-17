@@ -319,15 +319,20 @@ fn key(name: &str) -> [u32; 4] {
 }
 
 /// Every release search knows by name: each that added a component, and
-/// each from 1.0 to the newest, as in `version:1.12`.
-pub fn known() -> Vec<String> {
-    let newest = RELEASES.last().map_or(0, |r| key(r.name)[2]);
-    let mut names: Vec<String> =
-        RELEASES.iter().map(|r| r.name.to_owned()).collect();
-    names.extend((0..=newest).map(|minor| format!("1.{minor}")));
-    names.sort_by_key(|name| key(name));
-    names.dedup();
-    names
+/// each from 1.0 to the newest, as in `version:1.12`. Worked out once, as
+/// search asks for it for every build.
+pub fn known() -> &'static [String] {
+    static KNOWN: std::sync::LazyLock<Vec<String>> =
+        std::sync::LazyLock::new(|| {
+            let newest = RELEASES.last().map_or(0, |r| key(r.name)[2]);
+            let mut names: Vec<String> =
+                RELEASES.iter().map(|r| r.name.to_owned()).collect();
+            names.extend((0..=newest).map(|minor| format!("1.{minor}")));
+            names.sort_by_key(|name| key(name));
+            names.dedup();
+            names
+        });
+    &KNOWN
 }
 
 /// Whether a build that works from `from` works in `release` too, as it

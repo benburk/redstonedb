@@ -135,12 +135,27 @@ pub(crate) const GUIDE: [Asset; 11] = [
     guide_image!("bus-uneven"),
 ];
 
+/// What crawlers are asked to leave alone.
+const ROBOTS: &str = include_str!("../../static/robots.txt");
+
 /// The static assets, served without request logging.
 pub fn static_router() -> Router<AppState> {
+    let robots = Router::new().route(
+        "/robots.txt",
+        get(|| async {
+            (
+                [
+                    (header::CONTENT_TYPE, "text/plain; charset=utf-8"),
+                    (header::CACHE_CONTROL, "public, max-age=86400"),
+                ],
+                ROBOTS,
+            )
+        }),
+    );
     ASSETS
         .into_iter()
         .chain(GUIDE)
-        .fold(Router::new(), |router, asset| {
+        .fold(robots, |router, asset| {
             router.route(
                 asset.path,
                 get(move || async move {

@@ -302,13 +302,7 @@ impl Field {
         }
         match self {
             Field::Category => match s.kind() {
-                Some(_) => {
-                    let label = crate::category::Category::all()
-                        .into_iter()
-                        .find(|category| category.name == s.category)
-                        .map_or_else(|| s.category.clone(), |c| c.plural);
-                    one(&s.category, &label)
-                }
+                Some(kind) => one(&s.category, &kind.plural()),
                 None => one("other", "Other"),
             },
             Field::Status => {

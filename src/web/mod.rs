@@ -31,6 +31,7 @@ pub mod error;
 pub mod extractors;
 mod href;
 mod leaderboard;
+mod limit;
 mod moderation;
 mod people;
 mod schemati;
@@ -117,4 +118,5 @@ pub fn router(state: AppState) -> Router<AppState> {
         .merge(about::routes())
         .fallback(fallback)
         .layer(middleware::from_fn_with_state(state, error_pages))
+        .layer(middleware::from_fn(limit::queries))
 }

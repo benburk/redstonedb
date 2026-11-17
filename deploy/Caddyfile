@@ -1,4 +1,20 @@
 redstonedb.com {
+	log {
+		output file /var/log/caddy/redstonedb.log {
+			roll_size 50MiB
+			roll_keep 5
+		}
+	}
+
+	# Filtered and sorted lists have no end of combinations, and robots.txt
+	# asks crawlers to leave them alone. This holds to it the ones that
+	# don't listen, by their user agent; browsers are unaffected.
+	@crawling_lists {
+		header_regexp User-Agent (?i)(bot|crawler|spider|slurp|scraper)
+		expression {query} != ""
+	}
+	respond @crawling_lists 403
+
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:3100
 }

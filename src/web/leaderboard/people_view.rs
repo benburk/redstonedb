@@ -12,8 +12,8 @@ use crate::{
         href,
         leaderboard::view::{and_more, blocks, heading},
         ui::{
-            SECTION_TITLE, TABLE_CELL, TABLE_HEAD, layout::base, person,
-            summary::latency, text::count,
+            SECTION_TITLE, TABLE_CELL, TABLE_HEAD, layout::base, nofollow,
+            person, summary::latency, text::count,
         },
     },
 };
@@ -109,7 +109,8 @@ pub(crate) fn record_table(
                         @let href = href::build(&holder.id);
                         tr class="hover:bg-selection/50" {
                             th scope="row" class={ (TABLE_CELL) " text-left font-normal" } {
-                                a href=(record_href(record)) class="font-semibold" { (record.name()) }
+                                @let board = record_href(record);
+                                a href=(board) rel=[nofollow(&board)] class="font-semibold" { (record.name()) }
                                 div class="mt-1 text-meta text-muted" {
                                     (count(record.authors, "author")) " · " (count(record.field.len(), "build"))
                                 }

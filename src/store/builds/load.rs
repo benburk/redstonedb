@@ -223,20 +223,48 @@ async fn layouts_by_schematic(
     .bind(only)
     .fetch_all(db)
     .await?;
+    let mut read = READ_LAYOUTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Only stored files' roles are read, so this outgrows them only after
+    // very many new versions; it starts afresh then.
+    if read.len() > 10_000 {
+        read.clear();
+    }
     Ok(rows
         .into_iter()
         .filter_map(|(id, roles)| {
-            let kept = serde_json::from_str::<Kept>(&roles).ok()?;
-            let operands = if kept.interleaved() {
-                Operands::Interleaved
-            } else {
-                Operands::Split
-            };
-            let unaligned = kept.unaligned();
+            let layout = *read.entry(roles).or_insert_with_key(|roles| {
+                serde_json::from_str::<Kept>(roles)
+                    .ok()
+                    .map(|kept| layout(&kept))
+            });
+            let (operands, unaligned) = layout?;
             (operands != Operands::Split || unaligned)
                 .then_some((id, (operands, unaligned)))
         })
         .collect())
+}
+
+/// How a file's operands lie and whether it is unaligned, by the roles it
+/// keeps, as JSON: reading them walks every line's bits, which every list
+/// of builds would otherwise do again for each build.
+static READ_LAYOUTS: std::sync::LazyLock<std::sync::Mutex<Layouts>> =
+    std::sync::LazyLock::new(std::sync::Mutex::default);
+
+/// Each file's layout by the roles it keeps, or `None` for roles that
+/// don't read.
+type Layouts = HashMap<String, Option<(Operands, bool)>>;
+
+/// How the operands of a file keeping `kept` lie, and whether it is
+/// unaligned.
+fn layout(kept: &Kept) -> (Operands, bool) {
+    let operands = if kept.interleaved() {
+        Operands::Interleaved
+    } else {
+        Operands::Split
+    };
+    (operands, kept.unaligned())
 }
 
 /// The stored tags of the builds `only` names, as `load` takes it, by id,
