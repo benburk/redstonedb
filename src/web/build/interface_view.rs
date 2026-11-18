@@ -8,7 +8,7 @@ use crate::{
     ingest::read::Analysis,
     interface::{Bit, Port, colour},
     schem::lines::Role,
-    simulate::{InputTiming, OutputTiming, Strength, Timing},
+    simulate::{InputTiming, OutputStrength, OutputTiming, Strength, Timing},
     web::{
         href,
         ui::{
@@ -77,12 +77,15 @@ impl Inversions<'_> {
 /// to `read 15`, as one. With its `timing`, each input says when it
 /// switches for the build to stay synced and each output when it changes
 /// and settles, in ticks from t = 0, as the inputs the outputs wait
-/// longest on switch. When any line reads
-/// inverted, each says whether it does.
+/// longest on switch. With its `strength`, each data input says how
+/// weakly it may be driven, and with its `arriving`, each output the
+/// weakest and strongest strength arriving at its repeaters. When any line
+/// reads inverted, each says whether it does.
 pub(crate) fn interface_section(
     analysis: &Analysis,
     timing: Option<&Timing>,
     strength: Option<&Strength>,
+    arriving: &[OutputStrength],
     inversions: &Inversions,
 ) -> Markup {
     let (inputs, outputs) =
@@ -99,6 +102,12 @@ pub(crate) fn interface_section(
             .inputs
             .iter()
             .find(|input| input.name == entry.ports[0].name)
+    };
+    let measured = !arriving.is_empty();
+    let arrived = |entry: &PortEntry| {
+        arriving
+            .iter()
+            .find(|output| output.name == entry.ports[0].name)
     };
     let timed_out = |entry: &PortEntry| {
         timing?
@@ -149,24 +158,15 @@ pub(crate) fn interface_section(
                     }
                     tbody {
                         tr aria-hidden="true" { td class="h-6" {} }
-                        tr {
-                            (head("out-name", "Output", None))
-                            (head("out-bits", "Bits", Some(BITS_NOTE)))
-                            @if any_inverted { (head("out-inverted", "Inverted", Some(INVERTED_NOTE))) }
-                            @if strength.is_some() { (head("out-ss", "Min SS", Some(OUTPUT_SS_NOTE))) }
-                            @if timing.is_some() {
-                                (head("out-first", "First change", Some(FIRST_CHANGE_NOTE)))
-                                (head("out-settles", "Settles", Some(SETTLES_NOTE)))
-                            }
-                        }
+                        (output_heads(any_inverted, measured, timing.is_some()))
                         @for entry in port_entries(outputs) {
-                            @let rows = bit_rows(&entry, timed_out(&entry), strength);
+                            @let rows = bit_rows(&entry, timed_out(&entry), arrived(&entry));
                             tr {
                                 (line_cell(&entry, false, rows.as_ref().map(|rows| rows.ids.as_str())))
                                 td class=(TABLE_CELL) { (bits(&entry)) }
                                 @if any_inverted { (inverted_cell(inverted(&entry, false))) }
-                                @if let Some(strength) = strength {
-                                    (output_strength(&entry, strength))
+                                @if measured {
+                                    (strength_cells(arriving_range(&entry, arriving), TABLE_CELL))
                                 }
                                 @if timing.is_some() {
                                     @match timed_out(&entry) {
@@ -179,7 +179,7 @@ pub(crate) fn interface_section(
                                 }
                             }
                             @if let Some(rows) = rows {
-                                (rows.markup(any_inverted, strength.is_some(), timing.is_some()))
+                                (rows.markup(any_inverted, measured, timing.is_some()))
                             }
                         }
                     }
@@ -189,13 +189,36 @@ pub(crate) fn interface_section(
     }
 }
 
+/// The outputs' headings: their names and bits, whether they are
+/// inverted, the strengths arriving at their repeaters, and their ticks,
+/// as the table shows them.
+fn output_heads(inverted: bool, strength: bool, timing: bool) -> Markup {
+    html! {
+        tr {
+            (head("out-name", "Output", None))
+            (head("out-bits", "Bits", Some(BITS_NOTE)))
+            @if inverted { (head("out-inverted", "Inverted", Some(INVERTED_NOTE))) }
+            @if strength {
+                (head("out-min-ss", "Min SS", Some(OUTPUT_MIN_SS_NOTE)))
+                (head("out-max-ss", "Max SS", Some(OUTPUT_MAX_SS_NOTE)))
+            }
+            @if timing {
+                (head("out-first", "First change", Some(FIRST_CHANGE_NOTE)))
+                (head("out-settles", "Settles", Some(SETTLES_NOTE)))
+            }
+        }
+    }
+}
+
 const BITS_NOTE: &str = "Bits on the bus, or lines in a numbered row";
 const INVERTED_NOTE: &str = "Yes: powered reads as 0";
 const INPUT_SS_NOTE: &str = "Weakest signal strength the data inputs work at, all driven \
     at it together, every case still right";
-const OUTPUT_SS_NOTE: &str = "Weakest signal strength arriving at a bit's output \
-    repeater or comparator while on, from the dust, block, or comparator behind it, \
-    not what the output gives out; a dust output's own. The data inputs at their weakest";
+const OUTPUT_MIN_SS_NOTE: &str = "Weakest signal strength arriving at an output \
+    repeater while on, through the test's cases, from the dust, block, or comparator \
+    behind it, not the 15 it gives out";
+const OUTPUT_MAX_SS_NOTE: &str = "Strongest signal strength arriving at an output \
+    repeater while on, through the test's cases";
 const POWER_NOTE: &str = "Hard: dust touches the input block, so a repeater, comparator, \
     or torch must drive it. Soft: dust may drive it.";
 const DELAY_NOTE: &str = "Tick to switch it, from t = 0, when the inputs the \
@@ -221,11 +244,12 @@ fn head(id: &str, label: &str, note: Option<&str>) -> Markup {
 const BIT_CELL: &str = "border-b border-line py-1.5 pr-4 align-top";
 
 /// An output's bits, each a row hidden under the output's own until its
-/// name opens them: each bit's weakest strength while on and its ticks.
+/// name opens them: the weakest and strongest strength arriving at each
+/// bit's repeater while on, and its ticks.
 struct BitRows<'a> {
     /// The rows' ids, space-separated, for the name to open.
     ids: String,
-    strengths: Option<&'a [u8]>,
+    strengths: Option<&'a [(u8, u8)]>,
     timing: Option<&'a OutputTiming>,
 }
 
@@ -234,11 +258,10 @@ struct BitRows<'a> {
 fn bit_rows<'a>(
     entry: &PortEntry,
     timing: Option<&'a OutputTiming>,
-    strength: Option<&'a Strength>,
+    arrived: Option<&'a OutputStrength>,
 ) -> Option<BitRows<'a>> {
     let port = entry.ports[0];
-    let strengths =
-        strength.and_then(|strength| output_bits_strength(port, strength));
+    let strengths = arrived.map(|arrived| arrived.bits.as_slice());
     let timed = timing.filter(|t| t.bits.len() == port.bits.len());
     let wide = entry.ports.len() == 1 && port.bits.len() > 1;
     (wide && (strengths.is_some() || timed.is_some())).then(|| BitRows {
@@ -260,10 +283,10 @@ impl BitRows<'_> {
                     td class=(BIT_CELL) {}
                     @if inverted { td class=(BIT_CELL) {} }
                     @if strength {
-                        @match self.strengths.and_then(|bits| bits.get(bit)).filter(|&&s| s > 0) {
-                            Some(s) => td class=(BIT_CELL) { (s) },
-                            None => td class={ (BIT_CELL) " text-muted" } { "—" },
-                        }
+                        (strength_cells(
+                            self.strengths.and_then(|bits| bits.get(bit)).copied().filter(|&(s, _)| s > 0),
+                            BIT_CELL,
+                        ))
                     }
                     @if timing {
                         @match self.timing.and_then(|t| t.bits.get(bit)) {
@@ -281,19 +304,6 @@ impl BitRows<'_> {
             }
         }
     }
-}
-
-/// The weakest strength each bit of output `port` showed while on, as
-/// `strength` measured it.
-fn output_bits_strength<'a>(
-    port: &Port,
-    strength: &'a Strength,
-) -> Option<&'a [u8]> {
-    strength
-        .outputs
-        .iter()
-        .find(|(name, _)| *name == port.name)
-        .map(|(_, bits)| bits.as_slice())
 }
 
 /// A line's name beside a swatch of the colour the site shows its role in,
@@ -342,16 +352,34 @@ fn inverted_cell(inverted: Inverted) -> Markup {
     }
 }
 
-/// The weakest strength any bit of output `entry` carries while on, as
-/// `strength` measured it, each bit's in its row; a dash for an output it
-/// didn't measure, as a status line.
-fn output_strength(entry: &PortEntry, strength: &Strength) -> Markup {
-    let weakest = output_bits_strength(entry.ports[0], strength)
-        .and_then(|bits| bits.iter().copied().filter(|&s| s > 0).min());
+/// The weakest and strongest strength arriving at the repeaters of
+/// output `entry`, as `arriving` measured them, a row of numbered lines
+/// spanning every one of them.
+fn arriving_range(
+    entry: &PortEntry,
+    arriving: &[OutputStrength],
+) -> Option<(u8, u8)> {
+    arriving
+        .iter()
+        .filter(|output| entry.ports.iter().any(|p| p.name == output.name))
+        .filter_map(OutputStrength::range)
+        .reduce(|(a, b), (c, d)| (a.min(c), b.max(d)))
+}
+
+/// The weakest and strongest strength arriving at an output's repeaters,
+/// or a bit's, as cells of class `class`; dashes for one never on, or
+/// carried out by comparators.
+fn strength_cells(range: Option<(u8, u8)>, class: &str) -> Markup {
     html! {
-        @match weakest {
-            Some(weakest) => td class=(TABLE_CELL) { (weakest) },
-            None => td class={ (TABLE_CELL) " text-muted" } { "—" },
+        @match range {
+            Some((weakest, strongest)) => {
+                td class=(class) { (weakest) }
+                td class=(class) { (strongest) }
+            }
+            None => {
+                td class={ (class) " text-muted" } { "—" }
+                td class={ (class) " text-muted" } { "—" }
+            }
         }
     }
 }

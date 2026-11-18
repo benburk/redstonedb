@@ -1820,23 +1820,31 @@ fn a_build_is_stored_with_its_inputs_at_logical_0() {
 /// Driven weakly, as a comparator into each block would, every data input
 /// at one strength: this carry-cancel adder's operands reach its
 /// comparators through dust, so it needs 5; the ripple carry slice needs
-/// 8. Each output leaves through a repeater, which gives 15, but its
-/// strength is what arrives there: the carry-cancel adder's comparators
-/// leave its sum at 1, the slice's dust at 14.
+/// 8. Each output leaves through a repeater, which gives 15, but what
+/// arrives there through the cases, the inputs at 15, is read: the
+/// carry-cancel adder's comparators leave its sum between 1 and 13, the
+/// slice's dust between 14 and 15; each carry out arrives at 15.
 #[test]
 fn an_adders_data_inputs_are_driven_as_weakly_as_they_work() {
-    let strength = |name: &str| {
+    let run = |name: &str| {
         let Report::Ran(run) = Test::Adder.run(&blocks(name)) else {
             panic!("{name} was not simulated");
         };
-        run.strength.expect("a passing adder is measured")
+        let strength = run.strength.expect("a passing adder is measured");
+        let ranges: Vec<_> = run
+            .output_strengths
+            .iter()
+            .map(|output| (output.name.clone(), output.range()))
+            .collect();
+        (strength.input, ranges)
     };
-    let cca = strength("cca-8-repeated-out");
-    assert_eq!(cca.input, 5);
-    assert_eq!(cca.outputs, [("output".to_owned(), vec![1; 8])]);
-    let rca = strength("rca-slice-capped");
-    assert_eq!(rca.input, 8);
-    assert_eq!(rca.outputs, [("output".to_owned(), vec![14])]);
+    let output = |range| ("output".to_owned(), Some(range));
+    let carry = ("carry out".to_owned(), Some((15, 15)));
+    assert_eq!(
+        run("cca-8-repeated-out"),
+        (5, vec![output((1, 13)), carry.clone()])
+    );
+    assert_eq!(run("rca-slice-capped"), (8, vec![output((14, 15)), carry]));
 }
 
 /// A hex adder of 16 digits, 64 bits a side, gives a sum and a carry out

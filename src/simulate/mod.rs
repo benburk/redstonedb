@@ -118,7 +118,7 @@ pub use report::{
     Report, Run, Signal, Terms, Wrong,
 };
 pub use stacking::{Copying, Group, Stacker, Stacking, Step, Way as StackWay};
-pub use strength::Strength;
+pub use strength::{OutputStrength, Strength};
 pub use throughput::throughput;
 pub use timing::{
     BitTiming, Edge, Glitch, InputTiming, OutputTiming, Pulse, Start, Takes,

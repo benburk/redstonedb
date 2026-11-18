@@ -10,6 +10,7 @@ use anyhow::{Context, Result, bail};
 use super::{
     BitCount, Reading, Run, Signal, Timing, Value, Wrong,
     circuit::{Circuit, bit_labels, input_bits, output_bits},
+    strength::Arriving,
     timing,
 };
 use crate::{interface::Interface, schem::Blocks};
@@ -199,13 +200,15 @@ impl Spec {
         let widths = self.bench.widths(interface);
         let lines = self.bench.pressed_bits();
         let (cases, exhaustive, patterns) = chosen(&widths, lines, quick);
-        let got = observe(blocks, interface, &self.bench, &cases, None)?;
+        let (got, arriving) =
+            measuring(blocks, interface, &self.bench, &cases, None)?;
         let run = best(interface, &self.bench, &self.kinds, &cases, &got)
             .context("a test has something to check")?;
         let mut run = run.covering(exhaustive, patterns);
         // How weakly its data inputs may be driven, once it gets every case
         // right; a build that can't be measured so says nothing of it.
         if !quick && run.wrong == 0 {
+            run.output_strengths = arriving.measured(interface);
             run.strength = super::strength::measure(
                 blocks,
                 interface,
@@ -645,8 +648,12 @@ pub(crate) fn sweep(
     flip: Flip,
     expected: impl Fn(&Case) -> Value,
 ) -> Result<Run> {
-    let got = observe(blocks, interface, bench, cases, flip)?;
-    Ok(judge(interface, bench, cases, &got, expected))
+    let (got, arriving) = measuring(blocks, interface, bench, cases, flip)?;
+    let mut run = judge(interface, bench, cases, &got, expected);
+    if run.wrong == 0 {
+        run.output_strengths = arriving.measured(interface);
+    }
+    Ok(run)
 }
 
 /// What the bench's outputs show, read together as one number, for each
@@ -659,7 +666,20 @@ pub(crate) fn observe(
     cases: &[Case],
     flip: Flip,
 ) -> Result<Vec<Value>> {
+    Ok(measuring(blocks, interface, bench, cases, flip)?.0)
+}
+
+/// [`observe`], with what arrived at the output repeaters through the
+/// cases.
+fn measuring(
+    blocks: &Blocks,
+    interface: &Interface,
+    bench: &Bench,
+    cases: &[Case],
+    flip: Flip,
+) -> Result<(Vec<Value>, Arriving)> {
     let mut circuit = Circuit::new(blocks, interface)?;
+    let mut arriving = Arriving::new(bench);
     for &(port, value) in &bench.held {
         circuit.set(port, value);
     }
@@ -675,6 +695,7 @@ pub(crate) fn observe(
             pulse(&mut circuit, port)?;
             circuit.settle()?;
         }
+        arriving.read(&circuit);
         let mut got = 0;
         let mut shift = 0;
         for (&port, &width) in bench.outputs.iter().zip(&widths) {
@@ -683,7 +704,7 @@ pub(crate) fn observe(
         }
         results.push(got);
     }
-    Ok(results)
+    Ok((results, arriving))
 }
 
 /// Whether the build holds state: a copy run through the telling cases in

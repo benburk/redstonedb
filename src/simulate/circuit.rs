@@ -501,11 +501,11 @@ impl Circuit {
         })
     }
 
-    /// The strength each bit of output `port` carries out of the build,
-    /// as of the last `settle`, least significant first: for a repeater
-    /// or comparator standing on its block, on, the strength arriving at
-    /// its input, as [`Circuit::arriving_at`] reads it, whatever it gives
-    /// out itself; for dust there, its power; 0 for a bit off.
+    /// The strength arriving at each bit of output `port` that is a
+    /// repeater standing on its block, on, as of the last `settle`, least
+    /// significant first, as [`Circuit::arriving_at`] reads it, whatever
+    /// it gives out itself, which is 15; 0 for a bit off, and for one a
+    /// comparator or dust carries out, whose own strength is what it reads.
     pub fn arriving_strengths(&self, port: usize) -> Vec<u8> {
         let (blocks, _) = &self.outputs[port];
         blocks
@@ -513,11 +513,7 @@ impl Circuit {
             .map(|&pos| {
                 let top = pos.offset(BlockFace::Top);
                 match self.world.get_block(top) {
-                    Block::RedstoneWire(wire) => wire.power,
                     Block::Repeater(repeater) if repeater.powered => {
-                        self.arriving_at(top)
-                    }
-                    Block::Comparator(comparator) if comparator.powered => {
                         self.arriving_at(top)
                     }
                     _ => 0,
