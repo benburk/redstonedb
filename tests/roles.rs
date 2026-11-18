@@ -51,6 +51,30 @@ fn with_stub(data: &[u8]) -> (Vec<u8>, Pos) {
     (schem::encode(nbt).unwrap(), stub)
 }
 
+/// `data` one block wider to the west, with a block standing on its own
+/// in the new column, holding a tripwire hook on its east face, as builds
+/// hang hooks to turn dust.
+fn with_hook(data: &[u8]) -> (Vec<u8>, Pos) {
+    let blocks = Blocks::read(data).unwrap();
+    let [x, y, z] = blocks.size;
+    let mut grid: HashMap<Pos, String> = blocks
+        .iter()
+        .map(|([px, py, pz], s)| ([px + 1, py, pz], s.to_owned()))
+        .collect();
+    let base = [0, 0, 0];
+    grid.insert(base, "minecraft:white_concrete".to_owned());
+    grid.insert(
+        [1, 0, 0],
+        "minecraft:tripwire_hook[attached=false,facing=east,powered=false]"
+            .to_owned(),
+    );
+    let mut nbt = schem::decode(data).unwrap();
+    let entities = nbt.take_entities();
+    nbt.write_blocks([0, 0, 0], [x + 1, y, z], &grid, entities)
+        .unwrap();
+    (schem::encode(nbt).unwrap(), base)
+}
+
 /// `data` with the blocks at `gone` taken out.
 fn without(data: &[u8], gone: impl IntoIterator<Item = Pos>) -> Vec<u8> {
     let changes: BTreeMap<Pos, String> = gone
@@ -76,6 +100,15 @@ fn a_block_holding_dust_that_leads_nowhere_stays() {
     let found = unused(&roles::roles(&data, &[], stack::Buses::own()).unwrap());
     assert!(!found.contains(&stub));
     assert!(!found.contains(&schem::step(stub, schem::Direction::Up)));
+}
+
+/// The game drops a tripwire hook whose block is gone, though the
+/// simulator runs it floating, so its block stays.
+#[test]
+fn a_block_holding_a_tripwire_hook_stays() {
+    let (data, base) = with_hook(&stored("rca-slice-capped"));
+    let found = unused(&roles::roles(&data, &[], stack::Buses::own()).unwrap());
+    assert!(!found.contains(&base));
 }
 
 #[test]

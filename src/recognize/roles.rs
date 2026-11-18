@@ -329,7 +329,9 @@ impl World {
                             .map(|f| schem::step(q, f.opposite())),
                     }
                 }
-                name if name.ends_with("_wall_sign") => {
+                name if name.ends_with("_wall_sign")
+                    || name == "tripwire_hook" =>
+                {
                     Direction::facing(state)
                         .map(|f| schem::step(q, f.opposite()))
                 }
