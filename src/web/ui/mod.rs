@@ -32,6 +32,9 @@ pub(crate) const TOGGLE: &str = "rounded-control px-3 py-1 text-muted hover:bg-s
 /// One choice of a segmented control in a form: a label around a hidden
 /// radio, the chosen one marked as `SWITCH` marks its link.
 pub(crate) const CHOICE: &str = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink has-checked:bg-raised has-checked:font-semibold has-checked:text-ink has-checked:shadow-sm has-focus-visible:outline-2 has-focus-visible:outline-brand";
+/// One button of a segmented control that a script switches, such as the
+/// viewer's camera or a diff's side; the chosen one is pressed.
+pub(crate) const SWITCH_BUTTON: &str = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink disabled:cursor-wait aria-pressed:bg-raised aria-pressed:font-semibold aria-pressed:text-ink aria-pressed:shadow-sm";
 /// The bar holding a segmented control's links.
 pub(crate) const SWITCHES: &str =
     "flex flex-wrap items-center gap-1 rounded-control bg-sidebar p-1";

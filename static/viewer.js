@@ -4,7 +4,8 @@
 // points the renderer's own imports, three and nucleation, at the same CDN.
 // A diff's canvas also names its older side in `data-before`, and each
 // `data-side` button swaps the side drawn for its own, the camera staying
-// where it is.
+// where it is. The `data-camera` buttons choose between orbiting the build
+// and flying through it, first-person, once a click locks the pointer.
 const CDN = "https://cdn.jsdelivr.net/npm";
 const RENDERER = `${CDN}/schematic-renderer@1.6.1/dist`;
 const { SchematicRenderer } = await import(`${RENDERER}/schematic-renderer.es.js`);
@@ -21,6 +22,7 @@ new SchematicRenderer(canvas, {}, {
         await manager.loadSchematicFromURL(canvas.dataset.src, "after");
         renderer.cameraManager.focusOnSchematics();
         status.hidden = true;
+        camera(renderer.cameraManager);
         if (canvas.dataset.before) {
           sides(manager);
         }
@@ -31,6 +33,23 @@ new SchematicRenderer(canvas, {}, {
     },
   },
 });
+
+// The camera's buttons, each switching to its own mode.
+function camera(cameras) {
+  const buttons = document.querySelectorAll("[data-camera]");
+  for (const button of buttons) {
+    button.disabled = false;
+    button.addEventListener("click", () => {
+      const fly = button.dataset.camera === "fly";
+      if (fly === cameras.isFlyControlsEnabled()) return;
+      if (fly) cameras.enableFlyControls();
+      else cameras.disableFlyControls();
+      for (const other of buttons) {
+        other.setAttribute("aria-pressed", String(other === button));
+      }
+    });
+  }
+}
 
 // The diff's buttons, each drawing its side in place of the other, one
 // swap at a time.
