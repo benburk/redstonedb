@@ -304,7 +304,7 @@ fn matching_agrees_with_probing() {
     let known: Vec<Kind> = CATEGORIES
         .iter()
         .map(|category| category.kind())
-        .chain([Kind::Subtractor, Kind::Decrementer])
+        .chain([Kind::Subtractor, Kind::Decrementer, Kind::IncDec])
         .collect();
     let mut names: Vec<String> = std::fs::read_dir("tests/fixtures")
         .unwrap()

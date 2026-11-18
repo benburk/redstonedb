@@ -380,6 +380,8 @@ pub enum Counts {
     Up,
     /// Down, by 1 or by its control line: a decrementer.
     Down,
+    /// Up one way of its control line and down the other: an inc/dec.
+    Either,
 }
 
 /// How an adder makes its carries.

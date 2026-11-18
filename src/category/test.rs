@@ -38,6 +38,7 @@ pub enum Test {
     /// A minus 1, or minus its control line.
     Decrementer,
     /// A plus 1 one way of its control line and minus 1 the other.
+    IncDec,
     /// The products of A and B, plus C when there is one.
     Multiplier,
     /// The sum, A xor B xor C, and the carry, the majority of A, B, and
@@ -320,6 +321,7 @@ impl Test {
             Test::BarrelShifter => Kind::BarrelShifter,
             Test::Incrementer => Kind::Incrementer,
             Test::Decrementer => Kind::Decrementer,
+            Test::IncDec => Kind::IncDec,
             Test::Multiplier => Kind::Multiplier,
             Test::CarrySaveAdder => Kind::CarrySaveAdder,
             Test::Alu => Kind::Alu,
