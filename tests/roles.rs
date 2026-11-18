@@ -103,12 +103,14 @@ fn a_block_holding_dust_that_leads_nowhere_stays() {
 }
 
 /// The game drops a tripwire hook whose block is gone, though the
-/// simulator runs it floating, so its block stays.
+/// simulator runs it floating, so its block stays, and the hook too.
 #[test]
 fn a_block_holding_a_tripwire_hook_stays() {
     let (data, base) = with_hook(&stored("rca-slice-capped"));
-    let found = unused(&roles::roles(&data, &[], stack::Buses::own()).unwrap());
-    assert!(!found.contains(&base));
+    let roles = roles::roles(&data, &[], stack::Buses::own()).unwrap();
+    assert!(!unused(&roles).contains(&base));
+    // Nor is the hook a building block, to be taken out itself.
+    assert!(!roles.contains_key(&schem::step(base, schem::Direction::East)));
 }
 
 #[test]

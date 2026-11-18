@@ -152,9 +152,12 @@ pub fn roles(
     let mut found = BTreeMap::new();
     for (p, state) in file.iter() {
         let output = outputs.contains(&p);
-        // Any building block, whatever its author made it.
-        let kind = crate::schem::block::block_kind(schem::short(state));
-        let building = matches!(kind, Some("Solid" | "Transparent"));
+        // Any building block, whatever its author made it, but not a
+        // component `block_kind` counts as solid, such as a tripwire hook.
+        let name = schem::short(state);
+        let kind = crate::schem::block::block_kind(name);
+        let building = matches!(kind, Some("Solid" | "Transparent"))
+            && !crate::schem::block::is_component(name);
         if !building || inputs.contains(&p) {
             continue;
         }
