@@ -82,7 +82,7 @@ pub(crate) fn viewer_canvas(file: &str, before: Option<&str>) -> Markup {
             div class={ (SWITCHES) " absolute top-2 right-2 z-[1000] shadow-sm" } role="group" aria-label="Camera" {
                 button type="button" class=(SWITCH_BUTTON) data-camera="orbit" aria-pressed="true" disabled { "Orbit" }
                 button type="button" class=(SWITCH_BUTTON) data-camera="fly" aria-pressed="false" disabled
-                    title="Click the view to fly: WASD to move, Space and C up and down, Shift to sprint, Esc to let go" { "Fly" }
+                    title="Click the view to fly: WASD to move, Space up, Shift down, Q to sprint, Esc to stop" { "Fly" }
             }
         }
         script type="module" src=(VIEWER_JS.url()) {}
