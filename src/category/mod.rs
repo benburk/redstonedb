@@ -61,6 +61,7 @@ pub enum Kind {
     Multiplier,
     CarrySaveAdder,
     Incrementer,
+    IncDec,
     Decrementer,
     Equality,
     GreaterThan,
@@ -215,8 +216,8 @@ pub enum Guess {
     /// A's bits xor or xnor, as neither does.
     Tried(u16),
     /// Found by this other kind's run, which tells which it is: a hex
-    /// adder and a subtractor by the adder's, a decrementer by the
-    /// incrementer's, which tries both ways of counting.
+    /// adder and a subtractor by the adder's, a decrementer and an inc/dec
+    /// by the incrementer's, which tries every way of counting.
     ByRunOf(Kind),
 }
 

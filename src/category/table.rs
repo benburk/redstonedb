@@ -248,7 +248,7 @@ const ALU_FLAGS: &[Flag] = &[
     flag("nsub", "NSUB"),
 ];
 
-pub(super) const TABLE: [Facts; 39] = [
+pub(super) const TABLE: [Facts; 40] = [
     Facts {
         kind: Kind::Adder,
         runs: Some(&adder::ADDER),
@@ -410,6 +410,23 @@ pub(super) const TABLE: [Facts; 39] = [
             Test::Incrementer,
             Stacking::Inferred,
         ),
+        ..ROW
+    },
+    Facts {
+        kind: Kind::IncDec,
+        runs: Some(&incrementer::INC_DEC),
+        name: "inc_dec",
+        label: "Inc/Dec",
+        noun: "inc/dec",
+        plural: Some("Inc/Dec"),
+        section: Section::Arithmetic,
+        logic: Some(Logic::Stateless),
+        aliases: &["incdec", "incrementer decrementer"],
+        listed_as: "incrementers",
+        probe: matched(180),
+        guess: Guess::ByRunOf(Kind::Incrementer),
+        // Its line may mean either way, so it keeps its own name.
+        behaviour: read(Test::IncDec),
         ..ROW
     },
     Facts {

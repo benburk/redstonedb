@@ -254,9 +254,9 @@ fn a_multiplier_is_named_by_its_operands_and_product() {
 
 #[test]
 fn a_category_label_keeps_its_symbols_out_of_the_filename() {
-    let s = of("nand_xnor_gate", plain());
-    assert_eq!(s.name(), "8-bit NAND+XNOR Gate");
-    assert_eq!(s.filename(), "8_bit_NAND_XNOR_Gate.schem");
+    let s = of("inc_dec", plain());
+    assert_eq!(s.name(), "8-bit Inc/Dec");
+    assert_eq!(s.filename(), "8_bit_Inc_Dec.schem");
 }
 
 #[test]
