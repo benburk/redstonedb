@@ -425,8 +425,13 @@ pub(super) const TABLE: [Facts; 40] = [
         listed_as: "incrementers",
         probe: matched(180),
         guess: Guess::ByRunOf(Kind::Incrementer),
-        // Its line may mean either way, so it keeps its own name.
-        behaviour: read(Test::IncDec),
+        // Its line adds 1 while on and subtracts 1 while off; a build
+        // whose line means the other reads it inverted.
+        behaviour: lined(
+            Lines::Control("increment"),
+            Test::IncDec,
+            Stacking::Given,
+        ),
         ..ROW
     },
     Facts {

@@ -25,7 +25,7 @@ A build is on the list only when probing recognizes it as a standard category: a
 - An inverter has input A, one control line, its invert, and an output as wide as A; an absolute value has input A and one output line, its magnitude.
 - A carry-save adder has three input lines of one width, A, B, and C, and two output lines as wide, its sum and its carry, which probing tells apart, even interleaved on one row: each bit of the sum is A xor B xor C, and each of the carry the majority of A's, B's, and C's, worth twice its place.
 - A negator has input A, an output as wide, and, if it has one, a control line, its negate: its output is −A, or with the line, A while it is off and −A while it is on.
-- An incrementer or decrementer has input A and, if it has one, a control line that adds or subtracts it; an inc/dec's line picks between adding and subtracting 1. Its output may be a bit wider, or have a lone carry out.
+- An incrementer or decrementer has input A and, if it has one, a control line that adds or subtracts it; an inc/dec's line, its increment, picks between adding and subtracting 1. Its output may be a bit wider, or have a lone carry out.
 - A barrel shifter has input A, an output as wide, and lines for its shift: the amount's signed with what each is worth, as `1`, `2`, and `4`.
 - A binary-to-hex converter has input A, of at most 4 bits, and one output block whose strength is A.
 - A hex-to-binary converter has input A, a hex digit a block, each a comparator with air behind, and outputs giving A's bits, four a digit; a lone output beside a bus is its lowest bit or its highest, which the test finds.

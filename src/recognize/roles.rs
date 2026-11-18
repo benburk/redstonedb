@@ -154,10 +154,18 @@ pub fn roles(
         let output = outputs.contains(&p);
         // Any building block, whatever its author made it, but not a
         // component `block_kind` counts as solid, such as a tripwire hook.
+        // A lamp is one too: it powers nothing, so it only carries power
+        // and holds things up, as concrete does.
         let name = schem::short(state);
-        let kind = crate::schem::block::block_kind(name);
-        let building = matches!(kind, Some("Solid" | "Transparent"))
-            && !crate::schem::block::is_component(name);
+        let lamp = name == "redstone_lamp";
+        let kind = if lamp {
+            Some("Solid")
+        } else {
+            crate::schem::block::block_kind(name)
+        };
+        let building = lamp
+            || matches!(kind, Some("Solid" | "Transparent"))
+                && !crate::schem::block::is_component(name);
         if !building || inputs.contains(&p) {
             continue;
         }
@@ -187,7 +195,8 @@ pub fn roles(
 /// What differs between the circuits of the builds in `before` and
 /// `after`, alone and stacked each of `ways`: each component whose kind
 /// changed, and each link between components; empty when they compute the
-/// same in the same ticks.
+/// same in the same ticks. A lamp `after` takes out is no change, nor the
+/// links into it, as a lamp powers nothing.
 pub fn changed(
     before: &[u8],
     after: &[u8],
@@ -199,19 +208,22 @@ pub fn changed(
         .into_iter()
         .zip(circuits(after, ways, buses)?)
     {
+        let lamp_gone = |p: &Pos| {
+            old.kinds.get(p).is_some_and(|kind| kind == "Lamp")
+                && !new.kinds.contains_key(p)
+        };
         let positions: BTreeSet<&Pos> =
             old.kinds.keys().chain(new.kinds.keys()).collect();
         for p in positions {
-            if old.kinds.get(p) != new.kinds.get(p) {
+            if old.kinds.get(p) != new.kinds.get(p) && !lamp_gone(p) {
                 found.push(format!("the component at {p:?}"));
             }
         }
         let links: BTreeSet<&Link> =
             old.links.keys().chain(new.links.keys()).collect();
-        for (from, to, _) in links
-            .into_iter()
-            .filter(|k| old.links.get(k) != new.links.get(k))
-        {
+        for (from, to, _) in links.into_iter().filter(|k| {
+            old.links.get(k) != new.links.get(k) && !lamp_gone(&k.1)
+        }) {
             found.push(format!("the link from {from:?} to {to:?}"));
         }
     }

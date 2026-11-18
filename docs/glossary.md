@@ -92,7 +92,7 @@ A register's cells share an output bus, each shown on it only while its read lev
 
 A comparison takes two operands, A and B, of one width, and gives one line. Greater Than says whether A is greater than B, both unsigned, or with the flag Signed, both in two's complement; the simulation ticks it for a build that compares signed. Equality says whether A equals B, which is the same either way. A build giving whether A is less than B is a Greater Than with its operands named the other way. `comparator` finds both.
 
-An incrementer adds 1, a decrementer subtracts 1, and an inc/dec does either as a control line says; each is its own category. An incrementer's or a decrementer's control line, if it has one, is the 1 it adds or subtracts.
+An incrementer adds 1, a decrementer subtracts 1, and an inc/dec does either as a control line says; each is its own category. An incrementer's or a decrementer's control line, if it has one, is the 1 it adds or subtracts. An inc/dec's line is its increment: on, it adds 1, and off, it subtracts 1, or the other way round, read inverted.
 
 A carry-save adder, or 3:2 compressor, takes three operands of one width, A, B, and C, and gives two outputs as wide: its sum, each bit A xor B xor C, and its carry, each bit the majority of A's, B's, and C's, worth twice its place, so the sum plus twice the carry is A + B + C. Each bit is a full adder of its own, so its copies stack as a gate's do. `csa` and `3:2 compressor` find it.
 
