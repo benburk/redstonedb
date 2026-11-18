@@ -96,7 +96,7 @@ pub fn build_info(
                         "Kept as built, so its inputs and outputs are not read."
                     }
                 }
-                Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing), report.and_then(Report::strength), &Inversions {
+                Ok(file) => (interface_section(&file.analysis, report.and_then(Report::timing), report.and_then(Report::strength), report.map_or(&[], Report::output_strengths), &Inversions {
                     category: &s.category,
                     flags: &flag_names,
                     found: report.map_or(&[], Report::inverted),

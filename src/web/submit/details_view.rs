@@ -184,7 +184,7 @@ pub fn details_page(user: &User, page: &DetailsPage) -> Markup {
                 (file_chooser(page))
                 (details_form(user, page))
             }, true))
-            div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, None, &Inversions { category: "", flags: &[], found: &[] })) }
+            div class="mt-12 max-w-calm" { (interface_section(page.analysis, None, None, &[], &Inversions { category: "", flags: &[], found: &[] })) }
             // Its checks, as a build's page shows them, redrawn as the
             // category and width change: asked for once the page loads.
             @let simulate = simulate_url(page);

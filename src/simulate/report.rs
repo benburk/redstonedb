@@ -6,7 +6,7 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::{Broken, Stacking, Strength, Timing, Value, value};
+use super::{Broken, OutputStrength, Stacking, Strength, Timing, Value, value};
 use crate::schem::Pos;
 
 /// What a test found.
@@ -61,6 +61,14 @@ impl Report {
         match self {
             Report::Ran(run) => run.strength.as_ref(),
             _ => None,
+        }
+    }
+
+    /// What arrives at its output repeaters, once measured.
+    pub fn output_strengths(&self) -> &[OutputStrength] {
+        match self {
+            Report::Ran(run) => &run.output_strengths,
+            _ => &[],
         }
     }
 
@@ -123,9 +131,14 @@ pub struct Run {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reading: Option<Reading>,
     /// For a stateless build that gets every case right, how weakly its
-    /// data inputs may be driven, and how weak its data outputs then get.
+    /// data inputs may be driven.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub strength: Option<Strength>,
+    /// For a stateless build that gets every case right, the weakest and
+    /// strongest strength arriving at each output's repeaters through its
+    /// cases.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_strengths: Vec<OutputStrength>,
     /// For a failing register or buffer, its cells' controls, by the
     /// number its faults give each.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
