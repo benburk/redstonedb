@@ -1,6 +1,7 @@
 //! Testing a negator: input A, and perhaps a control line, its negate,
 //! giving −A in two's complement, or with a line, A while it is off and −A
-//! while it is on, on an output as wide as A.
+//! while it is on, on an output as wide as A, or a bit wider, its top bit
+//! the borrow out of 0 − A, on whenever A is not 0.
 
 use crate::simulate::Rule;
 use anyhow::Result;
@@ -43,10 +44,10 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         .iter()
         .map(|&port| output_bits(interface, &interface.outputs[port]))
         .sum();
-    if bits != width {
+    if !(width..=width + 1).contains(&bits) {
         broken!(
             "A has {width} bits, but its outputs have {bits}; a negator \
-             gives −A in as many bits as A."
+             gives −A in as many bits as A, or one more for a borrow out."
         );
     }
     let pattern = match lines.first() {
@@ -63,7 +64,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         bench,
         kinds: vec![Kind::new(&pattern, move |case| {
             if negated || case[1] == 1 {
-                case[0].wrapping_neg() & mask(width)
+                case[0].wrapping_neg() & mask(bits)
             } else {
                 case[0]
             }

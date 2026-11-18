@@ -29,6 +29,9 @@
 //!   a comparator's strength is read as a bit or a value from 0 to 15 its
 //!   category's test decides. Each is read by the block holding it up, as
 //!   a signal-strength input is.
+//! - A repeater with air behind it, beyond the file's box too, is an
+//!   input missing its lever and the block it hangs on: nothing can power
+//!   it.
 //! - A bus's bits run in a line, evenly spaced: straight, or rising one
 //!   block for each block across, or two such lines with their bits
 //!   alternating, as [`repeater_outputs::lines`] groups outputs.
@@ -101,6 +104,7 @@ pub fn inspect(blocks: &Blocks) -> Report {
             .collect::<Vec<_>>(),
     );
     report.digits = digits(blocks, &mut report);
+    unpowered_repeaters(blocks, &mut report);
     if blocks.switches().is_empty() && report.digits.is_empty() {
         problem(&mut report, Rule::NoInputs, Vec::new(), NO_INPUTS, &[]);
     }
@@ -114,6 +118,31 @@ pub fn inspect(blocks: &Blocks) -> Report {
         ));
     }
     report
+}
+
+/// Each repeater with air behind it, which nothing can power: an input
+/// missing its lever and the block it hangs on.
+fn unpowered_repeaters(blocks: &Blocks, report: &mut Report) {
+    let unpowered: Vec<Pos> = blocks
+        .matching(|state| schem::short(state) == "repeater")
+        .filter(|&(at, state)| {
+            Direction::facing(state).is_some_and(|facing| {
+                let behind = blocks.get(schem::step(at, facing));
+                matches!(schem::short(behind), "air" | "cave_air" | "void_air")
+            })
+        })
+        .map(|(at, _)| at)
+        .collect();
+    for at in unpowered {
+        problem(
+            report,
+            Rule::RepeaterWithoutInput,
+            vec![at],
+            "Repeater at {}: nothing behind it can power it, as an input's \
+             lever and block would",
+            &[at],
+        );
+    }
 }
 
 /// Each of `found`, standing at the position `at` gives, by the block
@@ -629,6 +658,38 @@ mod tests {
             .filter(|problem| problem.rule == Rule::InputBlockWiring)
             .map(|problem| problem.message)
             .collect()
+    }
+
+    /// What the check finds of a repeater on a block giving out north into
+    /// dust, with `behind` south of it.
+    fn repeater_faults(behind: &str) -> Vec<Rule> {
+        let states: HashMap<Pos, String> = [
+            ([0, 0, 0], "white_concrete"),
+            ([0, 0, 1], "white_concrete"),
+            (
+                [0, 1, 0],
+                "redstone_wire[east=none,north=side,power=0,south=side,west=none]",
+            ),
+            ([0, 1, 1], "repeater[delay=1,facing=south,locked=false,powered=false]"),
+            ([0, 1, 2], behind),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        inspect(&Blocks::from_grid([1, 2, 3], &states))
+            .errors
+            .into_iter()
+            .map(|problem| problem.rule)
+            .filter(|&rule| rule == Rule::RepeaterWithoutInput)
+            .collect()
+    }
+
+    /// A repeater with air behind it can never turn on: an input missing
+    /// its block and lever, as on the negator 6379e1df's version 2.
+    #[test]
+    fn a_repeater_nothing_can_power_is_a_fault() {
+        assert_eq!(repeater_faults("air"), [Rule::RepeaterWithoutInput]);
+        assert_eq!(repeater_faults("redstone_block"), []);
     }
 
     #[test]

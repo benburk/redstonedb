@@ -33,6 +33,9 @@ pub enum Rule {
     SwitchTouchesRedstone,
     InputBlockWiring,
     InputDrivesNothing,
+    /// A repeater with air behind it, which nothing can power: an input
+    /// missing its lever and the block it hangs on.
+    RepeaterWithoutInput,
     /// A block under a lever, where a repeater would stand to let a bus
     /// drive the input.
     NoRoomForRepeater,
@@ -98,6 +101,7 @@ impl Rule {
             Rule::SwitchTouchesRedstone => "switch touches redstone",
             Rule::InputBlockWiring => "input block wiring",
             Rule::InputDrivesNothing => "input drives nothing",
+            Rule::RepeaterWithoutInput => "repeater with nothing behind",
             Rule::NoRoomForRepeater => "no room for a repeater",
             Rule::BlockBehindLever => "block behind a lever",
             Rule::NotBusDrivable => "lever not bus-drivable",
@@ -144,6 +148,7 @@ impl Rule {
             | Rule::SwitchTouchesRedstone
             | Rule::InputBlockWiring
             | Rule::InputDrivesNothing
+            | Rule::RepeaterWithoutInput
             | Rule::NoRoomForRepeater
             | Rule::BlockBehindLever
             | Rule::NotBusDrivable
@@ -196,6 +201,10 @@ impl Rule {
             Rule::InputDrivesNothing => {
                 "Wire the input's block into the circuit, or take the input \
                  out."
+            }
+            Rule::RepeaterWithoutInput => {
+                "Put its input's block behind it with a lever on the \
+                 block's side, or take the repeater out."
             }
             Rule::NoRoomForRepeater | Rule::BlockBehindLever => {
                 "Clear that block, so a repeater could drive the input in \

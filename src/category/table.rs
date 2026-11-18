@@ -558,9 +558,9 @@ pub(super) const TABLE: [Facts; 40] = [
         listed_as: "negators",
         probe: matched(125),
         guess: Guess::Tried(215),
-        role_words: &["negate", "neg"],
+        role_words: &["negate", "neg", "borrow out", "bout"],
         behaviour: lined(
-            Lines::Control("negate"),
+            lone("negate", "borrow out"),
             Test::Negator,
             Stacking::Never,
         ),
