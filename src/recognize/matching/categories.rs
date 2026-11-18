@@ -444,7 +444,8 @@ impl Category for AbsoluteValue {
 }
 
 /// A negator: −A in two's complement, or A until its control line, if it
-/// has one, turns on.
+/// has one, turns on, into an output that may hold the borrow out of 0 −
+/// A as its top bit, and a borrow out, if it has one.
 pub struct Negator;
 
 impl Category for Negator {
@@ -457,17 +458,23 @@ impl Category for Negator {
             &[
                 A,
                 Slot::new("negate", Role::Control, &[Bit]).optional(),
-                OUTPUT,
+                Slot::new("output", Role::Output(0), &[N, NPlus1]),
+                Slot::new("borrow out", Role::Status, &[Bit]).optional(),
             ]
         }
     }
 
     fn ops(&self, shape: &Shape) -> Vec<Op> {
+        let n = shape.n;
+        // Above A's bits, −A is all ones unless A is 0: the borrow out.
+        let borrow = move |r: u128| -> Vec<Want> {
+            vec![r.into(), (r >> n & 1 == 1).into()]
+        };
         if !shape.has(1) {
-            return vec![Op::new("−A", |v| vec![v[0].wrapping_neg().into()])];
+            return vec![Op::new("−A", move |v| borrow(v[0].wrapping_neg()))];
         }
-        vec![Op::new("A, or −A with negate on", |v| {
-            vec![if v[1] == 1 { v[0].wrapping_neg() } else { v[0] }.into()]
+        vec![Op::new("A, or −A with negate on", move |v| {
+            borrow(if v[1] == 1 { v[0].wrapping_neg() } else { v[0] })
         })]
     }
 }
