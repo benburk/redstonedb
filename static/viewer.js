@@ -23,7 +23,7 @@ new SchematicRenderer(canvas, {}, {
         await manager.loadSchematicFromURL(canvas.dataset.src, "after");
         renderer.cameraManager.focusOnSchematics();
         status.hidden = true;
-        camera(renderer.cameraManager);
+        camera(renderer);
         if (canvas.dataset.before) {
           sides(manager);
         }
@@ -57,8 +57,14 @@ const OVERLAY = `
     <div>Esc to stop</div>
   </div>`;
 
-// The camera's buttons, each switching to its own mode.
-function camera(cameras) {
+// The camera's buttons, each switching to its own mode. The renderer draws
+// once a second while it thinks nothing moves, and only a click, scroll, or
+// touch wakes it, so flying with the mouse still would move a step a second;
+// while the pointer is locked to fly, it draws every frame.
+function camera(renderer) {
+  const cameras = renderer.cameraManager;
+  cameras.on("flyControlsLocked", () => renderer.setContinuous("fly", true));
+  cameras.on("flyControlsUnlocked", () => renderer.setContinuous("fly", false));
   const buttons = document.querySelectorAll("[data-camera]");
   for (const button of buttons) {
     button.disabled = false;
