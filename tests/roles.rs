@@ -198,3 +198,26 @@ fn the_blocks_under_a_hex_maxs_barrels_are_taken_out() {
         assert_eq!(schem::short(blocks.get(above)), "barrel", "{pos:?}");
     }
 }
+
+/// zPippo_'s Incrementer/Decrementer, fd6f7e47, with a lamp lit by each
+/// output bit: the lamps power nothing, so they are taken out, and nothing
+/// else; the lamps its levers hang on stay.
+#[test]
+fn an_inc_decs_output_lamps_are_taken_out() {
+    let data =
+        read_fixture("tests/fixtures/inc-dec-8-indicator-lamps.schem").unwrap();
+    let found = app::recognize::probe::recognize(&data).unwrap();
+    let blocks = Blocks::read(&found.file).unwrap();
+    let lamps = blocks
+        .iter()
+        .filter(|(_, state)| schem::short(state) == "redstone_lamp")
+        .count();
+    let pruned = roles::prune(&found.file, &[], stack::Buses::own())
+        .unwrap()
+        .expect("it has blocks to take out");
+    assert_eq!(pruned.gone.len(), 8);
+    for pos in &pruned.gone {
+        assert_eq!(schem::short(blocks.get(*pos)), "redstone_lamp", "{pos:?}");
+    }
+    assert_eq!(lamps, 16);
+}

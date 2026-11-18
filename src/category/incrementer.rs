@@ -18,8 +18,9 @@ use crate::{
 /// Every value of A with its control line each way, checked against what
 /// each kind of incrementer that `counts` gives: an incrementer's A plus 1
 /// or plus its control line, a decrementer's A minus either, and an
-/// inc/dec's plus 1 one way and minus 1 the other. With no way of
-/// counting, every kind is tried, as for a guess. The kind it gets most right names its
+/// inc/dec's plus 1 with its line on and minus 1 with it off, a line that
+/// means the other the test reads inverted. With no way of counting, every
+/// kind is tried, as for a guess. The kind it gets most right names its
 /// cases.
 pub(super) fn spec(
     interface: &Interface,
@@ -87,17 +88,6 @@ pub(super) fn changes(line: Option<&str>) -> Vec<Change> {
         Some(line) => vec![
             change(format!("A + {line}"), Counts::Up, Value::wrapping_add),
             change(format!("A − {line}"), Counts::Down, Value::wrapping_sub),
-            change(
-                format!("A + 1, or − 1 with {line} on"),
-                Counts::Either,
-                |a, c| {
-                    if c == 1 {
-                        a.wrapping_sub(1)
-                    } else {
-                        a.wrapping_add(1)
-                    }
-                },
-            ),
             change(
                 format!("A − 1, or + 1 with {line} on"),
                 Counts::Either,
@@ -195,8 +185,9 @@ mod tests {
             .collect();
         assert_eq!(kinds[0], ("A + increment".to_owned(), "incrementer"));
         assert_eq!(kinds[1].1, "decrementer");
-        // Plus 1 with the line off, minus 1 with it on.
-        let inc_dec = &changes(Some("decrement"))[2];
-        assert_eq!(((inc_dec.apply)(5, 0), (inc_dec.apply)(5, 1)), (6, 4));
+        // Minus 1 with the line off, plus 1 with it on.
+        let inc_dec = &changes(Some("increment"))[2];
+        assert_eq!(((inc_dec.apply)(5, 0), (inc_dec.apply)(5, 1)), (4, 6));
+        assert_eq!(kinds.len(), 3);
     }
 }
