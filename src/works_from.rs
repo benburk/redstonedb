@@ -170,9 +170,12 @@ fn place(name: &str) -> usize {
 
 /// The oldest release `blocks` works in, its interface left out.
 pub fn of(blocks: &Blocks) -> WorksFrom {
+    // An output fed from the side, a comparator subtracting or a repeater
+    // locked, is a gate of the build's, though it faces air.
     let interface: HashSet<Pos> = repeater_outputs::find(blocks)
         .into_iter()
         .map(|output| output.at)
+        .filter(|&at| !fed_sideways(blocks, at))
         .chain(
             repeater_outputs::strength_inputs(blocks)
                 .into_iter()
@@ -252,6 +255,24 @@ fn toward(facing: &str) -> Option<Pos> {
     Direction::parse(facing)
         .filter(|d| Direction::SIDES.contains(d))
         .map(Direction::offset)
+}
+
+/// Whether the repeater or comparator at `pos` takes power into a side:
+/// from a repeater or comparator pointing into it, dust beside it, which
+/// turns to it, or a block of redstone beside it.
+fn fed_sideways(blocks: &Blocks, pos: Pos) -> bool {
+    let state = blocks.get(pos);
+    let Some([x, _, z]) = schem::property(state, "facing").and_then(toward)
+    else {
+        return false;
+    };
+    locked(blocks, pos, state)
+        || [[z, 0, x], [-z, 0, -x]].into_iter().any(|side| {
+            matches!(
+                schem::id(blocks.get(schem::add(pos, side))),
+                "minecraft:redstone_wire" | "minecraft:redstone_block"
+            )
+        })
 }
 
 /// Whether the repeater at `pos` has a repeater or comparator pointing
@@ -422,6 +443,25 @@ mod tests {
             &[([0, 1, 0], comparator), ([-1, 1, 0], wall)],
         );
         assert_eq!(input.release, "Alpha");
+    }
+
+    #[test]
+    fn an_output_fed_from_the_side_is_the_builds() {
+        // A comparator facing air, fed from behind by dust, is an output;
+        // one a repeater feeds the side of subtracts, which a repeater
+        // could not do in its place.
+        let dust =
+            "redstone_wire[east=side,north=none,power=0,south=none,west=side]";
+        let comparator = "comparator[facing=east,mode=subtract,powered=false]";
+        let output = [([0, 1, 0], comparator), ([1, 1, 0], dust)];
+        assert_eq!(on("white_concrete", &output).release, "Alpha");
+        let side = "repeater[delay=1,facing=north,locked=false,powered=false]";
+        let gate = on(
+            "white_concrete",
+            &[output[0], output[1], ([0, 1, -1], side)],
+        );
+        assert_eq!(gate.release, "1.5");
+        assert_eq!(gate.because.as_deref(), Some("comparator"));
     }
 
     #[test]
