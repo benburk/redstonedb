@@ -14,7 +14,7 @@ use crate::{
     web::{
         href,
         ui::{
-            PAGE_TITLE, SECTION_TITLE, SWITCHES,
+            PAGE_TITLE, SECTION_TITLE, SWITCH_BUTTON, SWITCHES,
             layout::base,
             locked_download,
             text::{dimensions, plural},
@@ -22,9 +22,6 @@ use crate::{
         },
     },
 };
-
-/// One button of the viewer's two sides; the side shown is pressed.
-const SIDE: &str = "cursor-pointer rounded-control px-3 py-1 text-muted hover:bg-selection hover:text-ink disabled:cursor-wait aria-pressed:bg-raised aria-pressed:font-semibold aria-pressed:text-ink aria-pressed:shadow-sm";
 
 /// The diff of build `s`'s versions `from` and `to`, older first, of its
 /// `versions`, newest first, which changed as `counts` says.
@@ -61,8 +58,8 @@ pub fn diff_page(
                 div class="desktop:sticky desktop:top-4 desktop:order-last" {
                     div class="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1" {
                         div class=(SWITCHES) role="group" aria-label="Version shown" {
-                            button type="button" class=(SIDE) data-side="before" aria-pressed="false" disabled { "Before, v" (from) }
-                            button type="button" class=(SIDE) data-side="after" aria-pressed="true" disabled { "After, v" (to) }
+                            button type="button" class=(SWITCH_BUTTON) data-side="before" aria-pressed="false" disabled { "Before, v" (from) }
+                            button type="button" class=(SWITCH_BUTTON) data-side="after" aria-pressed="true" disabled { "After, v" (to) }
                         }
                     }
                     (viewer_3d_sides(&preview("after"), &preview("before")))

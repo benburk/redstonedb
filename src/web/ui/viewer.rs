@@ -3,7 +3,10 @@
 
 use maud::{Markup, PreEscaped, html};
 
-use crate::web::assets::VIEWER_JS;
+use crate::web::{
+    assets::VIEWER_JS,
+    ui::{SWITCH_BUTTON, SWITCHES},
+};
 
 /// The layout of a build's page and of an upload's preview: `side`, its
 /// facts or form, on the left, and the 3D view of the file at `file` on
@@ -61,7 +64,8 @@ pub(crate) fn viewer_3d_sides(after: &str, before: &str) -> Markup {
     viewer_canvas(after, Some(before))
 }
 
-/// The viewer's canvas, drawing `file`, and `before` too, hidden, if given.
+/// The viewer's canvas, drawing `file`, and `before` too, hidden, if given,
+/// with a choice of orbiting the build or flying through it.
 pub(crate) fn viewer_canvas(file: &str, before: Option<&str>) -> Markup {
     html! {
         script type="importmap" { (PreEscaped(VIEWER_IMPORTS)) }
@@ -72,6 +76,13 @@ pub(crate) fn viewer_canvas(file: &str, before: Option<&str>) -> Markup {
                 class="absolute inset-0 size-full" {}
             p id="viewer-status" class="absolute inset-0 flex items-center justify-center text-muted" {
                 "Loading viewer…"
+            }
+            // Over the renderer's own fly overlay, which covers the canvas
+            // until a click locks the pointer.
+            div class={ (SWITCHES) " absolute top-2 right-2 z-[1000] shadow-sm" } role="group" aria-label="Camera" {
+                button type="button" class=(SWITCH_BUTTON) data-camera="orbit" aria-pressed="true" disabled { "Orbit" }
+                button type="button" class=(SWITCH_BUTTON) data-camera="fly" aria-pressed="false" disabled
+                    title="Click the view to fly: WASD to move, Space and C up and down, Shift to sprint, Esc to let go" { "Fly" }
             }
         }
         script type="module" src=(VIEWER_JS.url()) {}
