@@ -138,7 +138,7 @@ pub fn recognized(viewer: Option<&User>) -> Markup {
                      A sign naming one, like carry out, goes under the air it gives out into, on the block \
                      holding it up. An outer layer of nothing but outputs, the blocks holding them up, and \
                      their signs doesn't add to a build's size, nor one of nothing but its levers and the \
-                     blocks they're on.",
+                     blocks they're on. Latency leaves out an output repeater's own delay, as your own repeater there would take it, unless the block under it is part of the circuit, like one a torch hangs on: then nothing else could stand there, so it counts.",
                     &["output", "output-powering"],
                 ))
                 (rule(

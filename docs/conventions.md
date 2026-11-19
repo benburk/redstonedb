@@ -7,6 +7,7 @@ A build is on the list only when probing recognizes it as a standard category: a
 ## Inputs
 
 - An input is a lever on the side of a solid block, or a button for a pulse, such as a register's write: stone for 10 ticks, wooden for 15. Never on the top or bottom.
+- A lever or button powers a repeater or comparator only at its back, so one beside it, facing another way, is no fault.
 - The block drives dust on any side but its lever's, on top and below too, and torches, repeaters, and comparators reading it. No other redstone touches it, though a target may, and a redstone block may sit on top.
 - A data input, such as an operand's bit or a register's data bus, is one a bus may drive: a repeater must fit where its lever is, standing on a block or above air, with nothing behind it but air or a sign, where the bus's driver feeds it.
 - A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so it may have a block behind its lever.
@@ -17,6 +18,7 @@ A build is on the list only when probing recognizes it as a standard category: a
 ## Outputs
 
 - Each output bit is the dust, repeater, or comparator on a block with no block of its own kind touching it, even diagonally: any solid block but a redstone component, such as a target or lamp, or stained glass of any colour but white. Plain and white glass are what a build holds dust up with. A kind of block marks outputs only where every block of it does, so one a build is also built of never does. The bit is on while that component is. A repeater or comparator powering a block in front of it carries the circuit on, so the block under it is no output.
+- An output is timed as its signal reaches its repeater or comparator, leaving out that one's own delay, as a repeater of the tester's would take it. Where the block under any of an output's repeaters is part of the circuit, a torch hanging on it or a repeater or comparator reading it, no tester's repeater could stand there, so the build's own repeaters' delay counts.
 - No output reads inverted: each bit is the answer as it shows. A register's reads may show its cells inverted and a monostable's pulse may be low, each under a flag, and a decoder's outputs are inverted, its selected bit off and the rest on.
 - An adder's or ALU's widest output is its output and each lone one a status line, such as a carry out. A multiplier's product may be up to three lines, which probing puts in order, lowest first.
 - A counter's or shift register's widest output is the value it holds, and each lone output a status line, such as a shift out. An input bus as wide is A, which it loads.

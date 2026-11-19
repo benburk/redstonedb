@@ -138,8 +138,7 @@ fn unpowered_repeaters(blocks: &Blocks, report: &mut Report) {
             report,
             Rule::RepeaterWithoutInput,
             vec![at],
-            "Repeater at {}: nothing behind it can power it, as an input's \
-             lever and block would",
+            "Repeater at {}: unpowered, with nothing behind it",
             &[at],
         );
     }
@@ -374,27 +373,26 @@ fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
 }
 
 /// What the switch itself touches: it powers dust and components beside
-/// it, not only its block.
+/// it, not only its block. A repeater or comparator takes power from a
+/// switch only at its back, so one with the switch at its side or front
+/// is no fault.
 fn lever_touches(blocks: &Blocks, switch: &Switch, report: &mut Report) {
     let (lever, block) = (switch.pos, switch.block);
     let name = short(blocks, lever).to_owned();
-    // What the lever itself touches: it powers dust and components
-    // beside it, not only its block.
     for side in Direction::ALL {
         let next = schem::step(lever, side);
         if next == block {
             continue;
         }
         let touched = short(blocks, next);
-        if matches!(
-            touched,
-            "redstone_wire"
-                | "repeater"
-                | "comparator"
-                | "redstone_lamp"
-                | "piston"
-                | "sticky_piston"
-        ) {
+        let powered = match touched {
+            "redstone_wire" | "redstone_lamp" | "piston" | "sticky_piston" => {
+                true
+            }
+            "repeater" | "comparator" => reads_from(blocks, next, lever),
+            _ => false,
+        };
+        if powered {
             problem(
                 report,
                 Rule::SwitchTouchesRedstone,
@@ -690,6 +688,45 @@ mod tests {
     fn a_repeater_nothing_can_power_is_a_fault() {
         assert_eq!(repeater_faults("air"), [Rule::RepeaterWithoutInput]);
         assert_eq!(repeater_faults("redstone_block"), []);
+    }
+
+    /// What the check finds of a lever on a block's south, a repeater
+    /// east of the lever facing `facing`.
+    fn lever_beside_repeater(facing: &str) -> Vec<Rule> {
+        let repeater = format!(
+            "repeater[delay=1,facing={facing},locked=false,powered=false]"
+        );
+        let states: HashMap<Pos, String> = [
+            ([1, 0, 1], "stone".to_owned()),
+            ([2, 0, 2], "stone".to_owned()),
+            ([1, 1, 1], "stone".to_owned()),
+            (
+                [1, 1, 2],
+                "lever[face=wall,facing=south,powered=false]".to_owned(),
+            ),
+            ([2, 1, 2], repeater),
+        ]
+        .into_iter()
+        .map(|(pos, state)| (pos, format!("minecraft:{state}")))
+        .collect();
+        inspect(&Blocks::from_grid([3, 2, 3], &states))
+            .errors
+            .into_iter()
+            .map(|problem| problem.rule)
+            .filter(|&rule| rule == Rule::SwitchTouchesRedstone)
+            .collect()
+    }
+
+    /// A lever powers a repeater only at its back: one beside the lever
+    /// facing elsewhere, as on the negator 4962de32, is no fault.
+    #[test]
+    fn a_lever_touches_a_repeater_only_at_its_back() {
+        assert_eq!(
+            lever_beside_repeater("west"),
+            [Rule::SwitchTouchesRedstone]
+        );
+        assert_eq!(lever_beside_repeater("north"), []);
+        assert_eq!(lever_beside_repeater("east"), []);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use mchprs_blocks::{
-    BlockFace, BlockPos,
+    BlockDirection, BlockFace, BlockPos,
     block_entities::{BlockEntity, ContainerType},
     blocks::Block,
 };
@@ -594,7 +594,11 @@ impl Circuit {
     /// a strength. One fed from a side, a repeater a side may lock or a
     /// comparator a side may subtract from or compare against, does the
     /// build's own work, as a latch holding its bit does, so carries it out
-    /// in no ticks: its own count in the build's.
+    /// in no ticks: its own count in the build's. So does every bit of an
+    /// output any of whose blocks the circuit itself uses, a torch hanging
+    /// on it or a repeater or comparator reading it: a tester's repeater
+    /// can't stand there in place of the build's, so the build's is the
+    /// last of its own work.
     pub fn carried(&self) -> Carried {
         let delay = |pos: BlockPos| {
             let top = pos.offset(BlockFace::Top);
@@ -609,6 +613,9 @@ impl Circuit {
             self.outputs
                 .iter()
                 .map(|(blocks, digits)| {
+                    if blocks.iter().any(|&pos| self.in_use(pos)) {
+                        return Vec::new();
+                    }
                     let each = if *digits { 4 } else { 1 };
                     blocks
                         .iter()
@@ -617,6 +624,28 @@ impl Circuit {
                 })
                 .collect(),
         )
+    }
+
+    /// Whether the circuit uses the block at `pos` beyond what stands on
+    /// it: a torch hangs on a side of it, or a repeater or comparator
+    /// beside it reads it.
+    fn in_use(&self, pos: BlockPos) -> bool {
+        [
+            BlockDirection::North,
+            BlockDirection::South,
+            BlockDirection::East,
+            BlockDirection::West,
+        ]
+        .into_iter()
+        .any(|side| {
+            match self.world.get_block(pos.offset(side.block_face())) {
+                Block::RedstoneWallTorch { facing, .. } => facing == side,
+                // A diode faces the side it reads from.
+                Block::Repeater(r) => r.facing == side.opposite(),
+                Block::Comparator(c) => c.facing == side.opposite(),
+                _ => false,
+            }
+        })
     }
 
     /// Whether the repeater or comparator at `pos` has a side something may
