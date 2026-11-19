@@ -203,8 +203,8 @@ impl Rule {
                  out."
             }
             Rule::RepeaterWithoutInput => {
-                "Put its input's block behind it with a lever on the \
-                 block's side, or take the repeater out."
+                "To make it an input, put a block behind it with a lever \
+                 on the block's side."
             }
             Rule::NoRoomForRepeater | Rule::BlockBehindLever => {
                 "Clear that block, so a repeater could drive the input in \
