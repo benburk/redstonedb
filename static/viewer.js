@@ -87,7 +87,11 @@ function camera(renderer) {
 }
 
 // The diff's buttons, each drawing its side in place of the other, one
-// swap at a time.
+// swap at a time. The renderer keeps the geometry it built for each entry
+// of the last file's palette, and reuses it for a new palette as long as
+// its length and its first and last entries match, so a side whose blocks
+// differ only in the middle of it, such as a lever turned, would be drawn
+// with the other side's blocks; the cache is cleared before each swap.
 function sides(manager) {
   const buttons = document.querySelectorAll("[data-side]");
   const files = { after: canvas.dataset.src, before: canvas.dataset.before };
@@ -100,6 +104,7 @@ function sides(manager) {
       for (const other of buttons) other.disabled = true;
       try {
         await manager.removeSchematic(shown);
+        manager.worldMeshBuilder.invalidateCache();
         await manager.loadSchematicFromURL(files[side], side, { focused: false });
         shown = side;
         for (const other of buttons) {
