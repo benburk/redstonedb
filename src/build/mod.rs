@@ -100,6 +100,16 @@ impl Build {
             && !self.tags.iter().any(Tag::is_unverified)
     }
 
+    /// Whether the site may colour its roles: when they are its category's
+    /// reading, its test passing or running and finding it wrong, or it is
+    /// under Other, coloured only when asked. Any other build's roles are
+    /// at most its shape's guess, so it shows and downloads only in its
+    /// author's colours.
+    pub fn coloured(&self) -> bool {
+        self.category == crate::category::OTHER
+            || matches!(self.status, Status::Passing | Status::Failing)
+    }
+
     /// Whether it ranks on its category's boards: working, kept to the
     /// conventions, and with nothing stored against it; see
     /// [`Build::unranked`].

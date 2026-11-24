@@ -206,11 +206,16 @@ pub async fn detail(
         Some(user) => builds::favorited(db, user.id, &id).await?,
         None => false,
     };
+    // A build under Other shows as its author made it until another is
+    // chosen, as nothing checks what its lines are.
+    let other = s.category == crate::category::OTHER;
+    let coloured = s.coloured();
     // A theme or an author's colours give the page a choice of colours; a
     // theme only for a build recognized, verified, and passing, whose
     // blocks the site knows the needs of, as any other's blocks are its
     // author's own.
-    let themeable = crate::store::versions::needs(db, &id).await?.is_some();
+    let themeable =
+        coloured && crate::store::versions::needs(db, &id).await?.is_some();
     let theme = themeable
         && match &user_opt {
             Some(user) => {
@@ -221,10 +226,7 @@ pub async fn detail(
     // Its stored blocks, its author's, differ from the site's colours
     // once a theme colours its roles, as for a build that follows the
     // conventions; one kept as built shows only as built.
-    let original = crate::ingest::results::carries_roles(&data);
-    // A build under Other shows as its author made it until another is
-    // chosen, as nothing checks what its lines are.
-    let other = s.category == crate::category::OTHER;
+    let original = coloured && crate::ingest::results::carries_roles(&data);
     let colours = ColoursShown {
         chosen: match colours {
             Some(Colours::Original) if original => Colours::Original,
