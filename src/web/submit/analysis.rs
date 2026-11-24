@@ -195,6 +195,7 @@ pub fn start(
             .unwrap_or_else(|err| Recognition {
                 file: file.clone(),
                 found: None,
+                read: false,
                 problems: vec![Problem::said(Rule::Other, format!("{err:#}"))],
                 lines: String::new(),
             });

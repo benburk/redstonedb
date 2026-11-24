@@ -448,8 +448,12 @@ pub async fn publish_suggested(
 /// its signs and trapdoors out but those its test reads, its unused blocks
 /// out when it passes, in the site's default theme, base64. Its checks'
 /// File stage says what came out. `None` for a build the site can't read,
-/// which is kept as it came.
+/// whose roles are only its shape's, which is shown as it came, in its
+/// author's colours.
 async fn as_kept(recognition: &probe::Recognition) -> Option<String> {
+    if !recognition.read {
+        return None;
+    }
     let read = recognition.file.clone();
     let passes = recognition.found.is_some();
     tokio::task::spawn_blocking(move || {
@@ -647,12 +651,13 @@ mod tests {
     }
 
     /// A build not recognized, made in game so carrying no roles and lying
-    /// turned from the standard way, is shown with A and B where its test
-    /// reads them, though read by shape as it lies and again as its
-    /// standard file lies, they would be the other way round: probing gives
-    /// it the roles of its shape once, which turning moves with it.
+    /// turned from the standard way, keeps A and B where its test reads
+    /// them, though read by shape as it lies and again as its standard file
+    /// lies, they would be the other way round: probing gives it the roles
+    /// of its shape once, which turning moves with it. Its roles only its
+    /// shape's guess, it is shown as it came, in its author's colours.
     #[tokio::test]
-    async fn an_unrecognized_upload_is_shown_as_its_test_reads_it() {
+    async fn an_unrecognized_upload_keeps_its_shape_s_roles_uncoloured() {
         let fixture =
             std::fs::read("tests/fixtures/inverted-adder-8-cca.schem").unwrap();
         let standard = Upload::read(&fixture).unwrap().standard.unwrap().data;
@@ -676,12 +681,10 @@ mod tests {
         let built = schem::edit(&built, &changes).unwrap();
         let recognition = probe::recognize(&built).unwrap();
         assert!(recognition.found.is_none());
-        let shown = STANDARD
-            .decode(as_kept(&recognition).await.unwrap())
-            .unwrap();
+        assert!(!recognition.read);
+        assert_eq!(as_kept(&recognition).await, None);
         let upload = Upload::read(&recognition.file).unwrap();
         let tested = &upload.standard.as_ref().unwrap().data;
-        assert_eq!(cut_in(&shown), Some(Role::Operand(1)));
         assert_eq!(cut_in(tested), Some(Role::Operand(1)));
     }
 }

@@ -349,3 +349,20 @@ fn unknown_parts_are_left_out() {
     assert_eq!(s.title(), "Adder");
     assert_eq!(s.filename(), "Adder.schem");
 }
+
+/// The site colours a build's roles only when its category's test read
+/// them, passing or failing, or it is under Other; a build its test
+/// couldn't run on keeps its author's colours, its roles only a guess.
+#[test]
+fn only_a_build_its_test_read_is_coloured() {
+    let with = |status| Build { status, ..cla() };
+    assert!(with(Status::Passing).coloured());
+    assert!(with(Status::Failing).coloured());
+    assert!(!with(Status::NotTested).coloured());
+    assert!(!with(Status::NoTest).coloured());
+    let other = Build {
+        status: Status::NoTest,
+        ..of(crate::category::OTHER, Specs::default())
+    };
+    assert!(other.coloured());
+}

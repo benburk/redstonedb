@@ -35,6 +35,11 @@ use crate::{
 pub struct Recognition {
     pub file: Vec<u8>,
     pub found: Option<String>,
+    /// Whether its roles are a category's reading: the one it was
+    /// recognized as, or the closest try, which ran and got cases wrong.
+    /// Else they are only those its shape gives it, a guess the site
+    /// shows in no colours of its own.
+    pub read: bool,
     pub problems: Vec<Problem>,
     /// Its inputs and outputs as the check found them, in short; see
     /// [`inspect::Report::summary`].
@@ -169,6 +174,7 @@ impl Subject {
         Recognition {
             file: shaped(&self.data),
             found: None,
+            read: false,
             problems,
             lines: self.report.summary(),
         }
@@ -187,6 +193,7 @@ impl Subject {
         Recognition {
             file,
             found: Some(found),
+            read: true,
             problems: Vec::new(),
             lines: self.report.summary(),
         }
@@ -221,6 +228,7 @@ fn recognize_laid(
         Err(err) if simulate::budget::ran_out(&err) => Ok(Recognition {
             file: shaped(&lines::without(data)?),
             found: None,
+            read: false,
             problems: vec![Problem::said(Rule::TookTooLong, err.to_string())],
             lines: inspect::inspect(&Blocks::read(data)?).summary(),
         }),
@@ -328,6 +336,7 @@ fn laid(
     Ok(match shown.and_then(Fault::file) {
         Some(closest) => Recognition {
             file: closest.to_vec(),
+            read: true,
             ..unrecognized
         },
         None => unrecognized,
