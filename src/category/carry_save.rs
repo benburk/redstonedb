@@ -27,12 +27,13 @@ const CARRY_SUM: &str = "maj(A, B, C), A xor B xor C";
 /// they come. No line reads inverted, as an inverted operand makes
 /// another circuit of it.
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
-    let &[a, b, c] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
-    else {
+    let inputs: Vec<usize> = (0..interface.inputs.len()).collect();
+    let &[a, b, c] = inputs.as_slice() else {
         broken!(
             "A carry-save adder takes three operands and no lines, but this \
-             has {} inputs.",
-            interface.inputs.len()
+             has {} inputs.{}",
+            inputs.len(),
+            interface.lever_under_block(&inputs, 3)
         );
     };
     let &[first, second] =

@@ -309,8 +309,9 @@ fn one_line(
 ) -> Result<(usize, usize, usize)> {
     let &[a, b] = operands else {
         broken!(
-            "A {built} takes two operands, but this has {}.",
-            operands.len()
+            "A {built} takes two operands, but this has {}.{}",
+            operands.len(),
+            interface.lever_under_block(operands, 2)
         );
     };
     let (a_bits, b_bits) = (
@@ -366,8 +367,9 @@ pub(super) fn adder_ports(
         .collect();
     let &[a, b] = operands.as_slice() else {
         broken!(
-            "{built} takes two operands, but this has {}.",
-            operands.len()
+            "{built} takes two operands, but this has {}.{}",
+            operands.len(),
+            interface.lever_under_block(&operands, 2)
         );
     };
     let buses: Vec<usize> = (0..interface.outputs.len())
@@ -607,6 +609,31 @@ mod tests {
         assert!(broken(adder(8, 8, 9, true)));
         // Without a carry out line, the output holds the carry on top.
         assert!(!broken(adder(8, 8, 9, false)));
+    }
+
+    /// A carry in whose lever hangs under its block reads as a third
+    /// operand, C, and the error says to put the lever on the block's side.
+    #[test]
+    fn a_lever_under_its_block_is_named_when_there_are_too_many_operands() {
+        let reason = |mut interface: Interface| {
+            adder_ports(&mut interface, &ADD)
+                .err()
+                .map(|err| err.to_string())
+                .unwrap_or_default()
+        };
+        let mut under = port("C", Role::Operand(2), false, 1);
+        under.bits[0].entry = Some(crate::schem::Direction::Down);
+        let mut hanging = adder(8, 8, 8, true);
+        hanging.inputs.push(under);
+        let said = reason(hanging);
+        assert!(
+            said.contains("takes two operands, but this has 3"),
+            "{said}"
+        );
+        assert!(said.contains("side of its block"), "{said}");
+        let mut beside = adder(8, 8, 8, true);
+        beside.inputs.push(port("C", Role::Operand(2), false, 1));
+        assert!(!reason(beside).contains("side of its block"));
     }
 
     #[test]
