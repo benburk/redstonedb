@@ -48,6 +48,36 @@ pub struct Interface {
     pub binary_outputs: bool,
 }
 
+impl Interface {
+    /// What to say after an error finding more operands than `expected`
+    /// among `operands`, by their place in its inputs: when one is a lever
+    /// under its block, that the site reads levers only on a block's side,
+    /// as a carry in's lever under its block reads as one more operand.
+    /// Empty when there are no more, or none hangs under its block.
+    pub fn lever_under_block(
+        &self,
+        operands: &[usize],
+        expected: usize,
+    ) -> String {
+        if operands.len() <= expected {
+            return String::new();
+        }
+        let under = operands.iter().any(|&i| {
+            self.inputs[i]
+                .bits
+                .iter()
+                .any(|bit| bit.entry == Some(Direction::Down))
+        });
+        if under {
+            " A lever under its block reads as an operand of its own, such \
+             as a carry in's: put each lever on the side of its block."
+                .to_owned()
+        } else {
+            String::new()
+        }
+    }
+}
+
 /// A bus, or one named line such as `carry in`.
 #[derive(Clone)]
 pub struct Port {
