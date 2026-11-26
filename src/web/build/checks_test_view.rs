@@ -282,7 +282,7 @@ pub(crate) fn stacking_stage(known: &Known) -> Stage {
             let ways: Vec<String> = found
                 .directions()
                 .iter()
-                .map(StackDirection::describe)
+                .map(StackDirection::short)
                 .collect();
             (State::Pass, ways.join(", "))
         }

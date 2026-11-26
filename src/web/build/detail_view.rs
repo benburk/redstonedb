@@ -329,10 +329,7 @@ fn colours_switch(
 pub(crate) fn similar_section(similar: &[(Build, u32)]) -> Markup {
     html! {
         section aria-labelledby="similar-heading" {
-            h2 id="similar-heading" class={ (SECTION_TITLE) " mb-1" } { "Similar builds" }
-            p class="mb-3 text-meta text-muted" {
-                "Share of their redstone that lines up, turned or mirrored as need be."
-            }
+            h2 id="similar-heading" class={ (SECTION_TITLE) " mb-3" } { "Similar builds" }
             ul class="flex flex-col gap-1.5" {
                 @for (other, permille) in similar {
                     li class="flex items-baseline justify-between gap-4" {
