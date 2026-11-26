@@ -137,10 +137,9 @@ impl Fault {
         match self {
             Fault::Unfit(why) => Problem::said(Rule::Lines, why),
             Fault::Breaks(rule, why) => Problem::said(*rule, why),
-            Fault::NotRun(reason, rule) => Problem::said(
-                rule.unwrap_or(Rule::Lines),
-                format!("Test couldn't run: {reason}"),
-            ),
+            Fault::NotRun(reason, rule) => {
+                Problem::said(rule.unwrap_or(Rule::Lines), reason)
+            }
             Fault::Wrong { said, .. } => Problem::said(Rule::WrongCases, said),
         }
     }

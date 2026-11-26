@@ -63,10 +63,6 @@ pub const INVERTS_SUM: &str = "Expected sum as is, found sum inverted";
 /// Why an adder is not verified as an inverted adder.
 pub const KEEPS_SUM: &str = "Expected sum inverted, found sum as is";
 
-/// Why a build its test finds broken is not verified, and a build that got
-/// some cases of its test wrong was, before each said which.
-pub const WRONG_OUTPUTS: &str = "Wrong outputs for some inputs";
-
 /// Why a build whose inputs take a signal strength, rather than a lever's
 /// on or off, is not recognized.
 pub const WITHOUT_LEVERS: &str =

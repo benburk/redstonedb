@@ -227,6 +227,34 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     assert_eq!(recognized.details.unverified, None);
 }
 
+/// Unverified, a build says the problem that kept it so: kept as built,
+/// what probing it as its category finds, each kind once with its places
+/// counted; and a test that couldn't run, why, untested rather than
+/// failing, as nothing it gave was wrong.
+#[tokio::test]
+async fn an_unverified_build_says_its_own_problem() {
+    let db = common::database().await;
+    let reason = |ready: Result<Ready, String>| {
+        ready.unwrap().details.unverified.expect("unverified")
+    };
+    let levers_on_top = reason(
+        check_file(&db, given("adder"), &common::fixture("vert-3t-cca"), false)
+            .await,
+    );
+    assert!(
+        levers_on_top.contains("on top of block") && !levers_on_top.wrong,
+        "{levers_on_top:?}"
+    );
+    let incrementer = reason(
+        check_file(&db, given("adder"), &prepared("inc-8", false), true).await,
+    );
+    assert!(
+        incrementer.why.ends_with("found \"increment\""),
+        "{incrementer:?}"
+    );
+    assert!(!incrementer.wrong);
+}
+
 /// A stored build whose test has passed is not tested again when only its
 /// details are saved, which keeps a save quick: its file goes unchecked,
 /// so even one the test would find unverified stays verified.

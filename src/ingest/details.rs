@@ -5,13 +5,16 @@
 use crate::{
     build::status::{
         ADDS, INVERTS_SUM, KEEPS_SUM, NO_HEX_INPUTS, Reason, SUBTRACTS,
-        WITHOUT_LEVERS, WRONG_OUTPUTS,
+        WITHOUT_LEVERS,
     },
     build::{Details, Prepared, Ready, tag, valid_player_name},
     category::{self, Category, Kind, Measure, Test},
     external::mojang,
     ingest::{jobs, results},
-    interface::Orientation,
+    interface::{
+        Orientation,
+        problem::{self, Rule},
+    },
     players,
     simulate::Report,
     stack::{self},
@@ -306,7 +309,7 @@ pub async fn unrecognized(
         return off(WITHOUT_LEVERS.to_owned());
     }
     if !build.conventional {
-        return off("Inputs and outputs can't be read".to_owned());
+        return Ok(Some(not_recognized(category, build.data).await));
     }
     if kind.digit_inputs() && !hex {
         return off(NO_HEX_INPUTS.to_owned());
@@ -349,7 +352,35 @@ pub async fn unrecognized(
         Report::Skipped { reason } => {
             off(reason.trim().trim_end_matches('.').to_owned())
         }
-        Report::Broken { .. } => Ok(Some(Reason::failing(WRONG_OUTPUTS))),
+        // Its test couldn't run, so nothing it gave was wrong.
+        Report::Broken { reason } => off(reason.clone()),
+    }
+}
+
+/// Why a build kept as built isn't recognized as `category`: the first
+/// problem probing it as that category finds, failing when that is cases
+/// its test got wrong; or, when probing finds none, as for a hex adder's,
+/// whose digit inputs it doesn't read, only that its lines can't be read.
+async fn not_recognized(category: &Category, data: &[u8]) -> Reason {
+    let (data, meant) = (data.to_vec(), category.name.clone());
+    let found = tokio::task::spawn_blocking(move || {
+        crate::recognize::probe::recognize_as(&data, Some(&meant))
+    })
+    .await;
+    let problems = match found {
+        Ok(Ok(recognition)) if recognition.found.is_none() => {
+            recognition.problems
+        }
+        _ => Vec::new(),
+    };
+    match problems.first() {
+        Some(first) if first.rule == Rule::WrongCases => {
+            Reason::failing(first.message.clone())
+        }
+        _ => problem::grouped(&problems).into_iter().next().map_or_else(
+            || Reason::untested("Inputs and outputs can't be read"),
+            Reason::untested,
+        ),
     }
 }
 

@@ -337,6 +337,29 @@ impl Problem {
     }
 }
 
+/// Each kind of problem among `problems` once: as said, at its one place,
+/// or with its places counted, as `Lever at …: on bottom of block (16
+/// places)`.
+pub fn grouped<'a>(
+    problems: impl IntoIterator<Item = &'a Problem>,
+) -> Vec<String> {
+    let mut kinds: Vec<(String, &Problem, usize)> = Vec::new();
+    for problem in problems {
+        let kind = problem.kind();
+        match kinds.iter_mut().find(|(k, _, _)| *k == kind) {
+            Some((_, _, n)) => *n += 1,
+            None => kinds.push((kind, problem, 1)),
+        }
+    }
+    kinds
+        .into_iter()
+        .map(|(kind, first, n)| match n {
+            1 => first.message.clone(),
+            n => format!("{kind} ({n} places)"),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,7 +12,7 @@ use crate::{
     build::Build,
     compare::blocks::{Comparison, MAX_CHANGED, MIN_SAME_PERCENT},
     ingest::read::Analysis,
-    interface::problem::{Problem, Rule},
+    interface::problem::{self, Problem, Rule},
     simulate::Report,
     web::{
         assets::FORM_JS,
@@ -366,24 +366,9 @@ fn checks(page: &DetailsPage) -> Markup {
 }
 
 /// Each kind of problem once, but wrong cases, which are the test's to
-/// show: as said, at its one place, or with its places counted, as
-/// `Lever at …: on bottom of block (16 places)`.
+/// show; see [`problem::grouped`].
 fn grouped_problems(problems: &[Problem]) -> Vec<String> {
-    let mut kinds: Vec<(String, &Problem, usize)> = Vec::new();
-    for problem in problems.iter().filter(|p| p.rule != Rule::WrongCases) {
-        let kind = problem.kind();
-        match kinds.iter_mut().find(|(k, _, _)| *k == kind) {
-            Some((_, _, n)) => *n += 1,
-            None => kinds.push((kind, problem, 1)),
-        }
-    }
-    kinds
-        .into_iter()
-        .map(|(kind, first, n)| match n {
-            1 => first.message.clone(),
-            n => format!("{kind} ({n} places)"),
-        })
-        .collect()
+    problem::grouped(problems.iter().filter(|p| p.rule != Rule::WrongCases))
 }
 
 /// Whether the build is verified as far as is known before the simulation
