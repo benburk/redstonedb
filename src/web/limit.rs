@@ -91,7 +91,7 @@ pub(crate) async fn queries(request: Request, next: Next) -> Response {
         Err(wait) => (
             StatusCode::TOO_MANY_REQUESTS,
             [(header::RETRY_AFTER, wait.as_secs().max(1).to_string())],
-            "Too many requests. Wait a moment and try again.",
+            "Too many requests",
         )
             .into_response(),
     }

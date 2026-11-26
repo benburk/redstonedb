@@ -110,8 +110,7 @@ pub fn check() -> Result<()> {
     {
         untested!(
             Rule::TookTooLong;
-            "It was still being simulated after {} seconds, the most the \
-             site gives a build.",
+            "Took too long to simulate: over {} seconds",
             limit.as_secs_f32()
         );
     }
@@ -127,7 +126,7 @@ mod tests {
         assert!(check().is_ok());
         within(Duration::ZERO, || {
             let err = check().unwrap_err();
-            assert!(err.to_string().contains("still being simulated"));
+            assert!(err.to_string().contains("Took too long to simulate"));
             assert!(ran_out(&err));
             // Work within it has no more time than it.
             within(Duration::from_secs(10), || assert!(check().is_err()));

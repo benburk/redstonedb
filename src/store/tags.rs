@@ -45,10 +45,10 @@ pub async fn check_new(
     Ok(match unknown.as_slice() {
         [] => Ok(()),
         [one] => Err(format!(
-            "There is no tag {one}, and only a mod or admin can make a new one."
+            "Unknown tag: {one} (only a mod or admin can make new tags)"
         )),
         many => Err(format!(
-            "There are no tags {}, and only a mod or admin can make new ones.",
+            "Unknown tags: {} (only a mod or admin can make new tags)",
             many.join(", ")
         )),
     })

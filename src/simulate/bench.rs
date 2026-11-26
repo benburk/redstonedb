@@ -73,8 +73,7 @@ impl Bench {
             .find(|&(_, bits)| bits > super::MAX_WIDTH)
         {
             bail!(
-                "Too wide to simulate: {} has {bits} bits, and the simulator \
-                 takes at most {}.",
+                "Too wide to simulate: {} has {bits} bits, at most {}",
                 interface.inputs[port].name,
                 super::MAX_WIDTH
             );
@@ -82,8 +81,7 @@ impl Bench {
         let bits: usize = self.output_widths(interface).iter().sum();
         if bits > Value::BITS as usize {
             bail!(
-                "Too wide to simulate: its outputs have {bits} bits, and the \
-                 simulator reads at most {}.",
+                "Too wide to simulate: outputs have {bits} bits, at most {}",
                 Value::BITS
             );
         }

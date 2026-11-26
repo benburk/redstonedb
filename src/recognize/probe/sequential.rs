@@ -29,7 +29,7 @@ pub fn sequential(
 ) -> Result<SequentialProbed, Fault> {
     let Some(held) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {
-        return Err(Fault::Unfit("Outputs: none".to_owned()));
+        return Err(Fault::Unfit("Missing outputs".to_owned()));
     };
     let width = held.bits.len();
     if report
@@ -38,7 +38,7 @@ pub fn sequential(
         .any(|run| run.bits != held.bits && run.bits.len() > 1)
     {
         return Err(Fault::Unfit(format!(
-            "Outputs: line lengths {}, need one line and lone status lines",
+            "Expected 1 output bus, found outputs of {} bits",
             lengths(&report.outputs)
         )));
     }
@@ -117,7 +117,7 @@ mod tests {
             found
                 .problems
                 .iter()
-                .any(|p| p.message.contains("are levers")),
+                .any(|p| p.message.contains("found a button")),
             "{:?}",
             found.problems
         );

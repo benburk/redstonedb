@@ -34,7 +34,7 @@ pub fn one_operand(
 ) -> Result<OneInputProbed, Fault> {
     let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {
-        return Err(Fault::Unfit("Outputs: none".to_owned()));
+        return Err(Fault::Unfit("Missing outputs".to_owned()));
     };
     let status: Vec<Pos> = report
         .outputs
@@ -48,7 +48,7 @@ pub fn one_operand(
         .any(|run| run.bits != out.bits && run.bits.len() > 1)
     {
         return Err(Fault::Unfit(format!(
-            "Outputs: line lengths {}, need one line and lone status lines",
+            "Expected 1 output bus, found outputs of {} bits",
             lengths(&report.outputs)
         )));
     }
@@ -66,7 +66,7 @@ pub fn one_operand(
             .collect(),
         Line::Never => vec![None],
     };
-    let mut why = Fault::Unfit("Inputs: none".to_owned());
+    let mut why = Fault::Unfit("Missing inputs".to_owned());
     for line in tried {
         let a: Vec<Pos> = levers
             .iter()

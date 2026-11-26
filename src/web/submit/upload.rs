@@ -105,9 +105,7 @@ pub(crate) async fn posted(
         }
     };
     if broken {
-        return Err("That file did not arrive whole. Files up to 2 MB are \
-                    accepted; a build's .schem is usually a few kilobytes."
-            .to_owned());
+        return Err("File arrived incomplete or over 2 MB".to_owned());
     }
     Ok(posted)
 }
@@ -335,7 +333,7 @@ pub async fn publish(
         match standardize::barrels(&data, &["hopper"]) {
             Ok(swapped) => swapped,
             Err(err) => {
-                let message = format!("Could not swap them: {err:#}.");
+                let message = format!("Swap failed: {err:#}");
                 return upload_page(&state, &user, &message).await;
             }
         }
@@ -345,7 +343,7 @@ pub async fn publish(
     let upload = match Upload::read(&data) {
         Ok(upload) => upload,
         Err(err) => {
-            let message = format!("Could not read that file: {err:#}.");
+            let message = format!("File can't be read: {err:#}");
             return upload_page(&state, &user, &message).await;
         }
     };

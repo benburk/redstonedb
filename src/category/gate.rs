@@ -87,27 +87,20 @@ impl Gate {
 pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
     let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A gate takes two operands and no lines, but this has {} \
-             inputs.",
-            interface.inputs.len()
-        );
+        broken!("Expected 2 inputs, found {}", interface.inputs.len());
     };
     let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A gate has one output, but this has {}.",
-            interface.outputs.len()
-        );
+        broken!("Expected 1 output, found {}", interface.outputs.len());
     };
     let width = interface.inputs[a].bits.len();
     let b_bits = interface.inputs[b].bits.len();
     let out_bits = interface.outputs[out].bits.len();
     if b_bits != width || out_bits != width {
-        broken!(
-            "A has {width} bits, B {b_bits}, and the output {out_bits}, but \
-             a gate's operands and output have the same number."
-        );
+        if b_bits != width {
+            broken!("A and B differ in width: {width} and {b_bits} bits");
+        }
+        broken!("Expected output width {width}, found {out_bits}");
     }
     let pattern = gate.pattern();
     let mut bench = Bench::new(vec![a, b], vec![out], pattern);
@@ -132,19 +125,12 @@ const XNOR_NAND: &str = "A xnor B, A nand B";
 pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
     let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A NAND+XNOR gate takes two operands and no lines, but this has \
-             {} inputs.",
-            interface.inputs.len()
-        );
+        broken!("Expected 2 inputs, found {}", interface.inputs.len());
     };
     let &[first, second] =
         (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A NAND+XNOR gate has two outputs, but this has {}.",
-            interface.outputs.len()
-        );
+        broken!("Expected 2 outputs, found {}", interface.outputs.len());
     };
     let width = interface.inputs[a].bits.len();
     let bits = |port: usize| interface.outputs[port].bits.len();
@@ -152,9 +138,16 @@ pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
         || bits(first) != width
         || bits(second) != width
     {
+        if interface.inputs[b].bits.len() != width {
+            broken!(
+                "A and B differ in width: {width} and {} bits",
+                interface.inputs[b].bits.len()
+            );
+        }
         broken!(
-            "A NAND+XNOR gate's operands and two outputs have the same \
-             number of bits, but this one's differ."
+            "Expected width {width} on each output, found {} and {}",
+            bits(first),
+            bits(second)
         );
     }
     let all = mask(width);
@@ -176,8 +169,7 @@ pub fn nand_xnor_stacker(data: &[u8]) -> Option<Stacker<'_>> {
         data,
         Test::NandXnor,
         |interface| nand_xnor(interface).ok().map(|_| 0),
-        "No pitch west or up makes copies whose bits together give A nand \
-         B and A xnor B.",
+        "No pitch makes copies that together give A nand B and A xnor B",
     )
 }
 
@@ -191,10 +183,7 @@ pub fn stacker(data: &[u8], gate: Gate) -> Option<Stacker<'_>> {
         data,
         gate.test(),
         move |interface| spec(interface, gate).ok().map(|_| 0),
-        &format!(
-            "No pitch west or up makes copies whose bits together give \
-             {pattern}."
-        ),
+        &format!("No pitch makes copies that together give {pattern}"),
     )
 }
 

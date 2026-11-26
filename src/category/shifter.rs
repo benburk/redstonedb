@@ -164,10 +164,7 @@ fn ports(interface: &Interface) -> Result<Shifter> {
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a] = operands.as_slice() else {
-        broken!(
-            "A barrel shifter takes one operand, A, but this has {}.",
-            operands.len()
-        );
+        broken!("Expected 1 operand, found {}", operands.len());
     };
     let worth = |i: usize| -> Option<Value> {
         let words = &interface.inputs[i].words;
@@ -179,30 +176,22 @@ fn ports(interface: &Interface) -> Result<Shifter> {
     let (amount, modes): (Vec<usize>, Vec<usize>) =
         lines.into_iter().partition(|&i| worth(i).is_some());
     if amount.is_empty() {
-        broken!(
-            "A barrel shifter's amount is lines signed with what each is \
-             worth, as 1, 2, and 4, but this has none."
-        );
+        broken!("Missing amount lines, signed 1, 2, 4, and on");
     }
     if modes.len() > 6 {
         broken!(
-            "A barrel shifter's lines choosing its shift are tried in every \
-             combination, but this has {}, too many to try.",
+            "Expected at most 6 lines choosing the shift, found {}",
             modes.len()
         );
     }
     let &[output] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A barrel shifter has one output, but this has {}.",
-            interface.outputs.len()
-        );
+        broken!("Expected 1 output, found {}", interface.outputs.len());
     };
     let width = interface.inputs[a].bits.len();
-    if output_bits(interface, &interface.outputs[output]) != width {
-        broken!(
-            "A barrel shifter's output is as wide as A, but this one's is not."
-        );
+    let out_bits = output_bits(interface, &interface.outputs[output]);
+    if out_bits != width {
+        broken!("Expected output width {width}, found {out_bits}");
     }
     Ok(Shifter {
         a,
@@ -293,7 +282,7 @@ fn selections(
         });
     }
     if found.iter().all(|s| s.shift == Shift::Off) {
-        broken!("No setting of its lines shifts A.");
+        broken!("No setting of the lines shifts A");
     }
     Ok(found)
 }
@@ -426,7 +415,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
         .map(|setting| setting.held)
         .collect();
     if settings.is_empty() {
-        broken!("It has no shift to time.");
+        broken!("No shift to time");
     }
     timing::measure_controlled(
         blocks,

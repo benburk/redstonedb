@@ -79,7 +79,7 @@ pub async fn restore(
     let current = versions::list(db, &id).await?.first().map(|v| v.version);
     if current == Some(number) {
         return Err(AppError::BadRequest(
-            "That version is the current one.".to_owned(),
+            "Already the current version".to_owned(),
         ));
     }
     let file = versions::file(db, &id, number)
@@ -130,15 +130,11 @@ pub async fn merge(
         .find(|part| part.len() == 32)
         .map(str::to_ascii_lowercase)
         .ok_or_else(|| {
-            AppError::BadRequest(
-                "Give the build to merge into by its link or id.".to_owned(),
-            )
+            AppError::BadRequest("Missing build link or id".to_owned())
         })?;
     let from = builds::get(db, &id).await?.ok_or(AppError::NotFound)?;
     let Some(into) = builds::get(db, &into).await? else {
-        return Err(AppError::BadRequest(
-            "There is no build to merge into at that link.".to_owned(),
-        ));
+        return Err(AppError::BadRequest("No build at that link".to_owned()));
     };
     let note = match merging.note.trim() {
         "" => format!("Merged from {}, {}", from.name(), &from.id[..8]),

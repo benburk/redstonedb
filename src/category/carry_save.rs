@@ -29,20 +29,12 @@ const CARRY_SUM: &str = "maj(A, B, C), A xor B xor C";
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let &[a, b, c] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A carry-save adder takes three operands and no lines, but this \
-             has {} inputs.",
-            interface.inputs.len()
-        );
+        broken!("Expected 3 inputs, found {}", interface.inputs.len());
     };
     let &[first, second] =
         (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A carry-save adder has two outputs, its sum and its carry, but \
-             this has {}.",
-            interface.outputs.len()
-        );
+        broken!("Expected 2 outputs, found {}", interface.outputs.len());
     };
     let width = interface.inputs[a].bits.len();
     let input = |port: usize| interface.inputs[port].bits.len();
@@ -53,8 +45,12 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         || output(second) != width
     {
         broken!(
-            "A carry-save adder's three operands and two outputs have the \
-             same number of bits, but this one's differ."
+            "Expected width {width} on each input and output, found A {width}, \
+             B {}, C {}, outputs {} and {}",
+            input(b),
+            input(c),
+            output(first),
+            output(second)
         );
     }
     let sum = |case: &Case| case[0] ^ case[1] ^ case[2];
@@ -78,8 +74,7 @@ pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
         data,
         Test::CarrySaveAdder,
         |interface| spec(interface).ok().map(|_| 0),
-        "No pitch west or up makes copies whose bits together give the sum \
-         and carry of A, B, and C.",
+        "No pitch makes copies that together give the sum and carry",
     )
 }
 

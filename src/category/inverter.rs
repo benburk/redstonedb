@@ -28,10 +28,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         .map(|&port| output_bits(interface, &interface.outputs[port]))
         .sum();
     if bits != width {
-        broken!(
-            "A has {width} bits, but its outputs have {bits}; an inverter \
-             gives each bit of A, inverted or not."
-        );
+        broken!("Expected output width {width}, found {bits}");
     }
     let pattern = format!("A xor {}", interface.inputs[line].name);
     Ok(Spec {
@@ -48,24 +45,15 @@ fn ports(interface: &Interface) -> Result<(usize, usize)> {
         .filter(|&i| interface.inputs[i].control())
         .collect();
     let &[line] = lines.as_slice() else {
-        broken!(
-            "An inverter has one control line, which inverts every bit of \
-             A, but this has {}.",
-            lines.len()
-        );
+        broken!("Expected 1 control line, found {}", lines.len());
     };
     if interface.inputs.len() != 2 {
-        broken!(
-            "An inverter takes A and its control line, but this has {} \
-             inputs.",
-            interface.inputs.len()
-        );
+        broken!("Expected 2 inputs, found {}", interface.inputs.len());
     }
     let a = 1 - line;
     if interface.inputs[a].signal_strength {
         bail!(
-            "Input {} takes a signal strength, which the inverter test does \
-             not drive.",
+            "Input {}: signal strength not supported",
             interface.inputs[a].name
         );
     }
@@ -81,8 +69,7 @@ pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
         data,
         Test::Inverter,
         |interface| ports(interface).ok().map(|(a, _)| a),
-        "No pitch west or up makes copies that one control line inverts \
-         together.",
+        "No pitch makes copies that one control line inverts together",
     )
 }
 

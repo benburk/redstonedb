@@ -76,21 +76,22 @@ impl StackRow {
             .parse()
             .ok()
             .filter(|n| *n > 0)
-            .ok_or("A stacking step must be a whole number of blocks.")?;
+            .ok_or_else(|| {
+                format!("Expected a whole number of blocks as stacking step, found {step}")
+            })?;
         let (west, up) = match self.direction.as_str() {
             "west" => (step, 0),
             "up" => (0, step),
             "west-up" => (step, step),
-            _ => return Err("Choose a stacking direction.".to_owned()),
+            _ => return Err("Missing stacking direction".to_owned()),
         };
         let max = self.max.trim();
         let max_copies = if max.is_empty() {
             None
         } else {
-            Some(max.parse().ok().filter(|n| *n >= 2).ok_or(
-                "The most copies must be a whole number, 2 or more; leave \
-                 it empty for no limit.",
-            )?)
+            Some(max.parse().ok().filter(|n| *n >= 2).ok_or_else(|| {
+                format!("Expected 2 or more as most copies, found {max}")
+            })?)
         };
         Ok(Some(StackDirection {
             west,
@@ -323,13 +324,16 @@ impl Form {
         for row in &self.stack_rows {
             if let Some(direction) = row.parse()? {
                 if directions.iter().any(|d| d.name() == direction.name()) {
-                    return Err("Give each stacking direction once.".to_owned());
+                    return Err(format!(
+                        "Stacking {} given twice",
+                        direction.name()
+                    ));
                 }
                 directions.push(direction);
             }
         }
         if directions.is_empty() {
-            return Err("Give a stacking step, or untick Stackable.".to_owned());
+            return Err("Missing stacking step".to_owned());
         }
         Ok(directions)
     }
@@ -344,8 +348,12 @@ impl Form {
             let text = text.trim();
             (!text.is_empty())
                 .then(|| {
-                    text.parse()
-                        .map_err(|_| format!("{what} must be a whole number."))
+                    text.parse().map_err(|_| {
+                        format!(
+                            "Expected a whole number for {}, found {text}",
+                            what.to_lowercase()
+                        )
+                    })
                 })
                 .transpose()
         };

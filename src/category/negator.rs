@@ -25,16 +25,12 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a] = operands.as_slice() else {
-        broken!(
-            "A negator takes one operand, A, but this has {}.",
-            operands.len()
-        );
+        broken!("Expected 1 operand, found {}", operands.len());
     };
     if lines.len() > 1 {
         broken!(
             rule: Rule::TooManyControlLines;
-            "Too many control lines: {} (a negator takes at most one, its \
-             negate).",
+            "Expected at most 1 control line, found {}",
             lines.len()
         );
     }
@@ -46,8 +42,8 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         .sum();
     if !(width..=width + 1).contains(&bits) {
         broken!(
-            "A has {width} bits, but its outputs have {bits}; a negator \
-             gives −A in as many bits as A, or one more for a borrow out."
+            "Expected output width {width} or {}, found {bits}",
+            width + 1
         );
     }
     let pattern = match lines.first() {

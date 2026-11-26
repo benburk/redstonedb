@@ -35,18 +35,14 @@ pub fn adder(data: &[u8]) -> Option<Stacker<'_>> {
     let carry_in = ports.carry_in.is_some();
     let works = move |step: Step, copies: usize, _| {
         if !carry_in {
-            return Err("It has no carry in, so a copy cannot take the carry \
-                        from the one before."
-                .to_owned());
+            return Err("Missing carry in".to_owned());
         }
         if width * copies > MAX_STACKED {
-            return Err(format!(
-                "{copies} copies would be wider than the simulator tests."
-            ));
+            return Err(format!("Too wide to simulate: {copies} copies"));
         }
         stacked(data, step, copies, width, variant)
     };
-    let not = "No pitch west or up makes copies that add right.";
+    let not = "No pitch makes copies that add right";
     let ways = (width, bit_ways(&interface, width));
     // A hex adder's copies add digits, its pitch the blocks a digit.
     let place = if interface.inputs[ports.a].signal_strength {
@@ -71,9 +67,7 @@ fn stacked(
 ) -> Result<u64, String> {
     let (stacked, _) =
         stack::stack(data, &[(step.direction(), copies)], stack::Buses::own())
-            .map_err(|err| {
-                format!("Its copies do not fit together: {err:#}.")
-            })?;
+            .map_err(|err| format!("Copies don't fit together: {err:#}"))?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
     let mut interface = interface::read(&blocks);
     let carries_in = interface
@@ -82,19 +76,18 @@ fn stacked(
         .filter(|port| port.control())
         .count();
     if carries_in > 1 {
-        return Err("The carry does not pass between copies: each keeps its \
-                    own carry in, which lands past the copy before."
-            .to_owned());
+        return Err("Carry doesn't pass between copies".to_owned());
     }
     let bench = adder::adder(&mut interface)
-        .map_err(|err| format!("{copies} copies do not make one adder: {err}"))?
+        .map_err(|err| format!("{copies} copies don't make one adder: {err}"))?
         .bench;
     // Its seams read as the copy does, as a subtractor's, B inverted.
     let bits = copies * width;
     let widths = bench.widths(&interface);
     if widths[..2] != [bits, bits] {
         return Err(format!(
-            "{copies} copies make A and B of {} and {} bits, not {bits}.",
+            "Expected A and B width {bits} from {copies} copies, found {} \
+             and {}",
             widths[0], widths[1]
         ));
     }
@@ -106,8 +99,8 @@ fn stacked(
         .map_err(|err| err.to_string())?;
     if let Some(wrong) = seam.examples.first() {
         return Err(format!(
-            "The carry does not pass between copies: A {} + B {} + carry \
-             in {} gives {}, not {}.",
+            "Carry doesn't pass between copies: A={} B={} carry in={} → {}, \
+             expected {}",
             wrong.inputs[0],
             wrong.inputs[1],
             wrong.inputs.get(2).copied().unwrap_or(0),
@@ -120,7 +113,7 @@ fn stacked(
         .map_err(|err| err.to_string())?;
     if run.wrong > 0 {
         return Err(format!(
-            "{copies} copies get {} of {} sums wrong.",
+            "{} of {} cases wrong with {copies} copies",
             run.wrong, run.cases
         ));
     }
@@ -165,14 +158,14 @@ pub(super) fn chained(data: &[u8], test: Test) -> Option<Stacker<'_>> {
             let a = stacked.inputs.first().map_or(0, |a| a.bits.len());
             if a != width * copies || stacked.inputs.iter().any(wide) {
                 return Err(format!(
-                    "{copies} copies make A of {a} bits, not {}.",
+                    "Expected A width {} from {copies} copies, found {a}",
                     width * copies
                 ));
             }
             match test.run(blocks) {
                 Report::Ran(run) if run.wrong == 0 => Ok(run.cases),
                 Report::Ran(run) => Err(format!(
-                    "{copies} copies get {} of {} cases wrong.",
+                    "{} of {} cases wrong with {copies} copies",
                     run.wrong, run.cases
                 )),
                 Report::Skipped { reason } | Report::Broken { reason } => {
@@ -181,8 +174,7 @@ pub(super) fn chained(data: &[u8], test: Test) -> Option<Stacker<'_>> {
             }
         })
     };
-    let not = "No pitch west or up makes copies whose carries chain into a \
-               wider one.";
+    let not = "No pitch makes copies whose carries chain";
     let ways = (width, bit_ways(&interface, width));
     Some(Stacker::new(data, test.kind().copying(), ways, works, not))
 }
@@ -206,13 +198,11 @@ pub(super) fn bitwise<'a>(
     let works = move |step: Step, copies: usize, buses| {
         run_stacked(data, (step, copies), buses, |blocks| {
             if width * copies > MAX_STACKED {
-                return Err(format!(
-                    "{copies} copies would be wider than the simulator tests."
-                ));
+                return Err(format!("Too wide to simulate: {copies} copies"));
             }
             let interface = interface::read(blocks);
             let a = a(&interface)
-                .ok_or_else(|| format!("{copies} copies have no input A."))?;
+                .ok_or_else(|| format!("{copies} copies: missing input A"))?;
             match test.run(blocks) {
                 Report::Ran(run)
                     if run.wrong == 0
@@ -221,11 +211,11 @@ pub(super) fn bitwise<'a>(
                     Ok(run.cases)
                 }
                 Report::Ran(run) if run.wrong > 0 => Err(format!(
-                    "{copies} copies get {} of {} cases wrong.",
+                    "{} of {} cases wrong with {copies} copies",
                     run.wrong, run.cases
                 )),
                 Report::Ran(_) => Err(format!(
-                    "{copies} copies do not make A of {} bits.",
+                    "Expected A width {} from {copies} copies",
                     width * copies
                 )),
                 Report::Skipped { reason } | Report::Broken { reason } => {

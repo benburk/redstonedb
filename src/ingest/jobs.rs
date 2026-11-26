@@ -136,7 +136,7 @@ pub async fn run(test: Test, data: Vec<u8>) -> Result<Report> {
         Ok(report) => report?,
         Err(err) if err.is_panic() => Report::Skipped {
             reason: format!(
-                "The simulator failed on it: {}.",
+                "Simulator crashed: {}",
                 crate::simulate::panic_message(&*err.into_panic())
             ),
         },

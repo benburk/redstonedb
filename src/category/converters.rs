@@ -24,9 +24,9 @@ use crate::{
 /// most negative A, which has no positive, gives itself, as negating it
 /// does; checked on as many low bits as the outputs hold.
 pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "absolute value")?;
+    let bench = one_input_bench(interface)?;
     let width = bench.widths(interface)[0];
-    at_least_two(width, "An absolute value")?;
+    at_least_two(width)?;
     Ok(Spec {
         bench,
         kinds: vec![Kind::new("|A|", move |case| absolute(case[0], width))],
@@ -36,12 +36,12 @@ pub(super) fn absolute_value(interface: &Interface) -> Result<Spec> {
 /// The fewest bits a popcount counts.
 pub(crate) const MIN_POPCOUNT: usize = 4;
 
-/// Refuses `what`, a build of A alone, for an A of `width` bits under two:
-/// one bit's absolute value, parity, or threshold is the bit itself, as a
+/// Refuses a build of A alone for an A of `width` bits under two: one
+/// bit's absolute value, parity, or threshold is the bit itself, as a
 /// buffer's is.
-fn at_least_two(width: usize, what: &str) -> Result<()> {
+fn at_least_two(width: usize) -> Result<()> {
     if width < 2 {
-        broken!("{what} takes at least 2 bits, but A has {width}.");
+        broken!("Expected A of at least 2 bits, found {width}");
     }
     Ok(())
 }
@@ -51,15 +51,12 @@ fn at_least_two(width: usize, what: &str) -> Result<()> {
 /// hold A's width, in binary, or as the strength of its one output block,
 /// as one with too few blocks for the binary count shows it.
 pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "popcount")?;
+    let bench = one_input_bench(interface)?;
     let width = bench.widths(interface)[0];
     // Fewer, and its count is little more than its inputs: one bit's is
     // the bit itself, as a buffer's.
     if width < MIN_POPCOUNT {
-        broken!(
-            "A popcount counts at least {MIN_POPCOUNT} bits, but A has \
-             {width}."
-        );
+        broken!("Expected A of at least {MIN_POPCOUNT} bits, found {width}");
     }
     let needed = usize::BITS - width.leading_zeros();
     if let &[out] = bench.outputs.as_slice()
@@ -75,10 +72,7 @@ pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
         .map(|&i| output_bits(interface, &interface.outputs[i]))
         .sum();
     if has < needed as usize {
-        broken!(
-            "A has {width} bits, so its count takes {needed}, but the \
-             outputs have {has}."
-        );
+        broken!("Expected output width {needed}, found {has}");
     }
     Ok(Spec {
         bench,
@@ -91,17 +85,17 @@ pub(super) fn popcount(interface: &mut Interface) -> Result<Spec> {
 /// A binary-to-hex converter's every value of A: A as the strength of
 /// its one output block, from 0 to 15.
 pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "binary-to-hex converter")?;
+    let bench = one_input_bench(interface)?;
     let width = bench.widths(interface)[0];
     let &[out] = bench.outputs.as_slice() else {
-        broken!("A binary-to-hex converter has one output block, its digit.");
+        broken!("Expected 1 output, found {}", bench.outputs.len());
     };
-    if interface.outputs[out].bits.len() != 1 || width > 4 {
+    if width > 4 {
+        broken!("Expected A of at most 4 bits, found {width}");
+    }
+    if interface.outputs[out].bits.len() != 1 {
         broken!(
-            "A binary-to-hex converter shows A, of at most 4 bits, as the \
-             strength of one output block, but this has {} bits and {} \
-             output blocks.",
-            width,
+            "Expected 1 output block, found {}",
             interface.outputs[out].bits.len()
         );
     }
@@ -116,8 +110,8 @@ pub(super) fn binary_to_hex(interface: &mut Interface) -> Result<Spec> {
 /// digit a block as each block's strength: A in binary, four bits a digit,
 /// on outputs that give a bit a block.
 pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "hex-to-binary converter")?;
-    takes_digits(interface, "hex-to-binary converter")?;
+    let bench = one_input_bench(interface)?;
+    takes_digits(interface)?;
     interface.binary_outputs = true;
     let width = bench.widths(interface)[0];
     let has: usize = bench
@@ -126,10 +120,7 @@ pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
         .map(|&i| output_bits(interface, &interface.outputs[i]))
         .sum();
     if has < width {
-        broken!(
-            "A has {} hex digits, so {width} bits, but the outputs have {has}.",
-            width / 4
-        );
+        broken!("Expected output width {width}, found {has}");
     }
     Ok(Spec {
         bench,
@@ -137,13 +128,10 @@ pub(super) fn hex_to_binary(interface: &mut Interface) -> Result<Spec> {
     })
 }
 
-/// Refuses `what`, a build of digits, whose A has levers.
-fn takes_digits(interface: &Interface, what: &str) -> Result<()> {
+/// Refuses a build of digits whose A has levers.
+fn takes_digits(interface: &Interface) -> Result<()> {
     if !interface.inputs[0].signal_strength {
-        broken!(
-            "A {what} takes a hex digit a block as its strength, through a \
-             comparator with air behind, but A has levers."
-        );
+        broken!("Expected hex digits on A, found levers");
     }
     Ok(())
 }
@@ -152,15 +140,15 @@ fn takes_digits(interface: &Interface, what: &str) -> Result<()> {
 /// as each block's strength: A again on each of at least two copies of
 /// it, its outputs a digit a block too.
 pub(super) fn hex_input_spread(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "hex input spread")?;
-    takes_digits(interface, "hex input spread")?;
+    let bench = one_input_bench(interface)?;
+    takes_digits(interface)?;
     let width = bench.widths(interface)[0];
     let has: usize = bench.output_widths(interface).iter().sum();
     if !has.is_multiple_of(width) || has / width < 2 {
         broken!(
-            "A hex input spread gives A, of {} digits, on at least two \
-             copies, but its outputs have {} digits.",
+            "Expected a multiple of {} output digits, at least {}, found {}",
             width / 4,
+            width / 2,
             has / 4
         );
     }
@@ -178,17 +166,15 @@ pub(super) fn hex_input_spread(interface: &Interface) -> Result<Spec> {
 /// value of the rest, and the test patterns: the largest of A's digits,
 /// at least two, on one output block's strength.
 pub(super) fn hex_max(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "hex max")?;
-    takes_digits(interface, "hex max")?;
+    let bench = one_input_bench(interface)?;
+    takes_digits(interface)?;
     let width = bench.widths(interface)[0];
     let has: usize = bench.output_widths(interface).iter().sum();
     if width < 8 || has != 4 {
-        broken!(
-            "A hex max gives the largest of at least two digits as one \
-             digit, but A has {} digits and its outputs {}.",
-            width / 4,
-            has / 4
-        );
+        if width < 8 {
+            broken!("Expected A of at least 2 digits, found {}", width / 4);
+        }
+        broken!("Expected 1 output digit, found {}", has / 4);
     }
     Ok(Spec {
         bench,
@@ -211,13 +197,16 @@ pub(super) fn threshold_pattern(k: u32) -> String {
 /// test patterns: whether at least some number of A's bits are on, on its
 /// one output, the number whichever of 1 to A's width it gets right.
 pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "threshold")?;
+    let bench = one_input_bench(interface)?;
     let width = bench.widths(interface)[0];
-    at_least_two(width, "A threshold")?;
+    at_least_two(width)?;
     if bench.outputs.len() != 1
         || interface.outputs[bench.outputs[0]].bits.len() != 1
     {
-        broken!("A threshold has one output bit.");
+        broken!(
+            "Expected 1 output bit, found {}",
+            output_count(interface, &bench)
+        );
     }
     let most = u32::try_from(width).unwrap_or(u32::MAX);
     Ok(Spec {
@@ -237,13 +226,16 @@ pub(super) fn threshold(interface: &Interface) -> Result<Spec> {
 /// the test patterns: whether an odd number of A's bits are on, the xor of
 /// them all, on its one output. One on for an even number is not one.
 pub(super) fn parity(interface: &Interface) -> Result<Spec> {
-    let bench = one_input_bench(interface, "parity circuit")?;
+    let bench = one_input_bench(interface)?;
     let width = bench.widths(interface)[0];
-    at_least_two(width, "A parity circuit")?;
+    at_least_two(width)?;
     if bench.outputs.len() != 1
         || interface.outputs[bench.outputs[0]].bits.len() != 1
     {
-        broken!("A parity circuit has one output bit.");
+        broken!(
+            "Expected 1 output bit, found {}",
+            output_count(interface, &bench)
+        );
     }
     Ok(Spec {
         bench,
@@ -253,34 +245,32 @@ pub(super) fn parity(interface: &Interface) -> Result<Spec> {
     })
 }
 
-/// What a stateless build of one input, A, is tested on, named `what` in
-/// what is wrong with it: A, and its outputs read together, status lines
-/// left out, the first holding the lowest digits or bits. One with a
-/// control line, such as a clock, is sequential, which these tests do not
-/// cover.
-pub(super) fn one_input_bench(
-    interface: &Interface,
-    what: &str,
-) -> Result<Bench> {
+/// The output bits of `bench`, all told.
+fn output_count(interface: &Interface, bench: &Bench) -> usize {
+    bench
+        .outputs
+        .iter()
+        .map(|&i| interface.outputs[i].bits.len())
+        .sum()
+}
+
+/// What a stateless build of one input, A, is tested on: A, and its
+/// outputs read together, status lines left out, the first holding the
+/// lowest digits or bits. One with a control line, such as a clock, is
+/// sequential, which these tests do not cover.
+pub(super) fn one_input_bench(interface: &Interface) -> Result<Bench> {
     let control = |port: &&Port| port.control();
     if let Some(line) = interface.inputs.iter().find(control) {
-        bail!(
-            "It has a control line, {}, so it is stateful; only a stateless \
-             {what} is tested.",
-            line.name
-        );
+        bail!("Expected no control lines, found {}", line.name);
     }
     if interface.inputs.len() != 1 {
-        broken!(
-            "A {what} takes one input, A, but this has {}.",
-            interface.inputs.len()
-        );
+        broken!("Expected 1 input, found {}", interface.inputs.len());
     }
     let outputs: Vec<usize> = (0..interface.outputs.len())
         .filter(|&i| !interface.outputs[i].status())
         .collect();
     if outputs.is_empty() {
-        broken!("A {what} has an output, but this has none.");
+        broken!("Missing output");
     }
     Ok(Bench::new(vec![0], outputs, ""))
 }

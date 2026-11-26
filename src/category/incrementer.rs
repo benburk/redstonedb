@@ -44,10 +44,7 @@ pub(super) fn spec(
         })
         .collect();
     if kinds.is_empty() {
-        broken!(
-            "An inc/dec has a control line to choose between adding and \
-             subtracting 1, but this has none."
-        );
+        broken!("Missing control line");
     }
     Ok(Spec { bench, kinds })
 }
@@ -110,16 +107,12 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a] = operands.as_slice() else {
-        broken!(
-            "An incrementer takes one operand, but this has {}.",
-            operands.len()
-        );
+        broken!("Expected 1 operand, found {}", operands.len());
     };
     if lines.len() > 1 {
         broken!(
             rule: Rule::TooManyControlLines;
-            "Too many control lines: {} (an incrementer takes one, such \
-             as increment).",
+            "Expected at most 1 control line, found {}",
             lines.len()
         );
     }
@@ -134,8 +127,8 @@ fn incrementer_bench(interface: &Interface) -> Result<Bench> {
         .sum();
     if !(bits..=bits + 1).contains(&result) {
         broken!(
-            "A has {bits} bits, so the result has {bits}, or one more for a \
-             carry, but the outputs have {result}."
+            "Expected output width {bits} or {}, found {result}",
+            bits + 1
         );
     }
     let mut inputs = vec![a];

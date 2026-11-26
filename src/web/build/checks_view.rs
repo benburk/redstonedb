@@ -171,8 +171,13 @@ fn lines_stage(known: &Known) -> Stage {
     let problems = problems(known);
     // What keeps a working build off the leaderboards is its lines' doing.
     let unranked = known.s.unranked.clone();
+    // A problem with its lines comes first: a test that couldn't run read
+    // lines the problem put wrong, so its reason is only a consequence.
+    let leading = problems.first().map(|found| found.kind.clone());
     let (state, summary) = match known.report {
-        Some(Report::Broken { reason }) => (State::Fail, reason.clone()),
+        Some(Report::Broken { reason }) => {
+            (State::Fail, leading.unwrap_or_else(|| reason.clone()))
+        }
         Some(Report::Ran(run)) => {
             let ins: Vec<String> =
                 run.inputs.iter().map(|l| l.bits.to_string()).collect();
@@ -196,13 +201,7 @@ fn lines_stage(known: &Known) -> Stage {
             }
         }
         // Not tested, its lines say why only when they are what failed.
-        _ if !problems.is_empty() => (
-            State::Fail,
-            match problems.len() {
-                1 => "1 kind of problem".to_owned(),
-                n => format!("{n} kinds of problem"),
-            },
-        ),
+        _ if let Some(leading) = leading => (State::Fail, leading),
         _ => match known.s.unverified {
             Some(why) => (State::Fail, why.to_owned()),
             None => (State::Skip, "not read".to_owned()),
@@ -218,7 +217,7 @@ fn lines_stage(known: &Known) -> Stage {
         .ok()
         .map(|file| &file.analysis.interface);
     let body = html! {
-        @if let Some(Report::Broken { reason }) = known.report {
+        @if let (Some(Report::Broken { reason }), true) = (known.report, problems.is_empty()) {
             p class="mb-3 text-danger" { (reason) }
         }
         // Untested, what the last check stored is all there is to say

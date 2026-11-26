@@ -290,16 +290,17 @@ fn blocked(page: &DetailsPage) -> Option<&'static str> {
     match &page.file {
         File::Upload {
             duplicate: Some(_), ..
-        } => Some("This file is already on the site."),
+        } => Some("File already on the site"),
         File::Version { refusals, .. } if !refusals.is_empty() => {
-            Some("This file can't replace the build.")
+            Some("File can't replace the build")
         }
         _ => None,
     }
 }
 
 /// The checks the file and its details go through that it has something
-/// to say about, such as a duplicate; none when it has nothing. Whether
+/// to say about, such as a duplicate, or what kept an upload from being
+/// recognized; none when it has nothing. Whether
 /// the build is verified is its category's badge, why not and the
 /// simulation's result are under the form, and what the simulation
 /// measures fills the details' fields.
@@ -307,7 +308,7 @@ fn checks(page: &DetailsPage) -> Markup {
     let lines = html! {
         @if let File::Upload { duplicate: Some(id), .. } = &page.file {
             (check(State::Fail, &html! {
-                "This exact file is already on the site: " a href=(href::build(id)) { "see it here" } "."
+                "File already on the site: " a href=(href::build(id)) { "see it" }
             }))
         }
         @if let File::Upload { duplicate: None, similar: Some((other, permille)), .. } = &page.file {
@@ -344,6 +345,13 @@ fn checks(page: &DetailsPage) -> Markup {
                 }
             }))
         }
+        // Not recognized as anything, what kept it from being so, before
+        // any category is chosen; wrong cases are the test's to show.
+        @if let File::Upload { recognized: None, problems, .. } = &page.file {
+            @for said in grouped_problems(problems) {
+                (check(State::Fail, &html! { (said) }))
+            }
+        }
         (swap_checks(page))
     };
     html! {
@@ -355,6 +363,27 @@ fn checks(page: &DetailsPage) -> Markup {
             }
         }
     }
+}
+
+/// Each kind of problem once, but wrong cases, which are the test's to
+/// show: as said, at its one place, or with its places counted, as
+/// `Lever at …: on bottom of block (16 places)`.
+fn grouped_problems(problems: &[Problem]) -> Vec<String> {
+    let mut kinds: Vec<(String, &Problem, usize)> = Vec::new();
+    for problem in problems.iter().filter(|p| p.rule != Rule::WrongCases) {
+        let kind = problem.kind();
+        match kinds.iter_mut().find(|(k, _, _)| *k == kind) {
+            Some((_, _, n)) => *n += 1,
+            None => kinds.push((kind, problem, 1)),
+        }
+    }
+    kinds
+        .into_iter()
+        .map(|(kind, first, n)| match n {
+            1 => first.message.clone(),
+            n => format!("{kind} ({n} places)"),
+        })
+        .collect()
 }
 
 /// Whether the build is verified as far as is known before the simulation
@@ -498,5 +527,42 @@ fn details_form(user: &User, page: &DetailsPage) -> Markup {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Problems of one kind are one line, their places counted; wrong
+    /// cases are left to the test.
+    #[test]
+    fn problems_of_a_kind_are_said_once() {
+        let lever = |pos| {
+            Problem::new(
+                Rule::DataSwitchOnTopOrBottom,
+                vec![pos],
+                "Lever at {}: on bottom of block",
+                &[pos],
+            )
+        };
+        let problems = [
+            lever([1, 0, 0]),
+            lever([3, 0, 0]),
+            Problem::new(
+                Rule::InputDrivesNothing,
+                vec![[5, 0, 0]],
+                "Input at {}: drives nothing",
+                &[[5, 0, 0]],
+            ),
+            Problem::said(Rule::WrongCases, "1 of 4 cases wrong"),
+        ];
+        assert_eq!(
+            grouped_problems(&problems),
+            [
+                "Lever at …: on bottom of block (2 places)",
+                "Input at (5, 0, 0): drives nothing",
+            ]
+        );
     }
 }

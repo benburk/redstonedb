@@ -132,7 +132,7 @@ async fn ready(
     let listed = Category::find(&categories, &details.category).is_some();
     details.category = Category::name_of(&categories, &details.category);
     if details.category.is_empty() {
-        return Err("Choose a category, or Other.".to_owned().into());
+        return Err("Missing category".to_owned().into());
     }
     let category = category::check_category(
         &details.category,
@@ -143,9 +143,7 @@ async fn ready(
     if details.category != category::OTHER {
         details.name = None;
     } else if details.name.is_none() {
-        return Err("Name the build, such as 8-bit serial write memory."
-            .to_owned()
-            .into());
+        return Err("Missing name".to_owned().into());
     }
     keep_what_applies(&mut details, &category, listed);
 
@@ -298,7 +296,7 @@ pub async fn unrecognized(
         .flatten();
     let off = |why: String| Ok(Some(Reason::untested(why)));
     let Ok(blocks) = crate::schem::Blocks::read(build.data) else {
-        return off("Couldn't read its file".to_owned());
+        return off("File can't be read".to_owned());
     };
     // Inputs taking a strength, a hex digit per block, are only those of a
     // kind that takes digits, such as a hex adder's or a hex-to-binary
@@ -308,23 +306,23 @@ pub async fn unrecognized(
         return off(WITHOUT_LEVERS.to_owned());
     }
     if !build.conventional {
-        return off("Couldn't read its inputs and outputs".to_owned());
+        return off("Inputs and outputs can't be read".to_owned());
     }
     if kind.digit_inputs() && !hex {
         return off(NO_HEX_INPUTS.to_owned());
     }
     let Some(test) = Test::of(&category.name, width) else {
         return off(match width {
-            None => "Couldn't count its bits".to_owned(),
+            None => "Unknown width".to_owned(),
             Some(w) => format!(
-                "Couldn't test {} of {w} bits yet",
+                "No test yet for {w}-bit {}",
                 category.plural.to_lowercase()
             ),
         });
     };
     let report = jobs::run(test, build.data.to_vec())
         .await
-        .map_err(|err| format!("It could not be simulated: {err}."))?;
+        .map_err(|err| format!("Simulation failed: {err}"))?;
     match &report {
         // An adder adds and a subtractor subtracts, each its own category.
         // An adder's sum reads as it is and an inverted adder's inverted.
@@ -361,19 +359,16 @@ fn shaped(details: &Details) -> Result<(), String> {
     if let Some(name) =
         details.credits.everyone().find(|n| !valid_player_name(n))
     {
-        return Err(format!(
-            "{name} is not a Minecraft name: letters, digits, and \
-             underscores, up to 16."
-        ));
+        return Err(format!("Expected a Minecraft name, found {name}"));
     }
     if let Some(date) = details.built_on.as_deref() {
         if !is_date(date) {
-            return Err(
-                "Built on must be a date such as 2024-02-02.".to_owned()
-            );
+            return Err(format!(
+                "Expected a date such as 2024-02-02, found {date}"
+            ));
         }
         if *date > *latest_build_date().to_string() {
-            return Err("Built on is a date still to come.".to_owned());
+            return Err("Built on: date in the future".to_owned());
         }
     }
     if let Some(name) = details
@@ -382,15 +377,13 @@ fn shaped(details: &Details) -> Result<(), String> {
         .find(|n| tag::DERIVED.contains(&n.as_str()))
     {
         return Err(format!(
-            "The {} tag is worked out from the build; it cannot be added by \
-             hand.",
+            "The {} tag is set by the site only",
             name.replace('_', " ")
         ));
     }
     if let Some(name) = details.tags.iter().find(|n| !tag::valid_name(n)) {
         return Err(format!(
-            "{} cannot be a tag: use letters, digits, spaces, and dashes, \
-             with no dash at either end.",
+            "Expected letters, digits, spaces, and dashes in a tag, found {}",
             name.replace('_', " ")
         ));
     }

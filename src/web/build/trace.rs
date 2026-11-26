@@ -212,7 +212,7 @@ pub async fn glitch_fragment(
             trace_view::glitch_trace(&analysis, &output, title).into_response()
         }
         Err(why) => html! {
-            p class="mt-4 text-muted" { "Could not trace its glitch: " (why) }
+            p class="mt-4 text-muted" { "Glitch can't be traced: " (why) }
         }
         .into_response(),
     })

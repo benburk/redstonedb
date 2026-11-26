@@ -260,10 +260,7 @@ fn laid(
     if meant.is_none() && !Kind::probed().iter().any(fits) {
         problems.push(Problem::said(
             Rule::Lines,
-            format!(
-                "No category takes its lines: {}",
-                subject.report.summary()
-            ),
+            format!("No category fits its lines: {}", subject.report.summary()),
         ));
         return Ok(subject.unrecognized(problems));
     }
@@ -439,7 +436,7 @@ fn carry_on_top(kind: Kind, file: &[u8]) -> anyhow::Result<Vec<u8>> {
 
 /// Why a reading that leaves a digit input out is none; see
 /// [`leaves_digits`].
-const LEAVES_DIGITS: &str = "Its digit inputs play no part in it.";
+const LEAVES_DIGITS: &str = "Digit inputs: unused";
 
 /// Whether the roles `file` carries, a probe's reading, leave out a digit
 /// input `report` found: one that uses none of them, as a one-bit
@@ -1075,7 +1072,7 @@ mod tests {
             found.problems,
             [Problem::said(
                 Rule::Lines,
-                "No category takes its lines: Inputs: switches 24, 24; \
+                "No category fits its lines: Inputs: switches 24, 24; \
                  comparators 1. Outputs: 1."
             )]
         );

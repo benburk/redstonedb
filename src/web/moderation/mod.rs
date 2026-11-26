@@ -111,14 +111,11 @@ pub async fn restore(
         let name = builds::get(&state.db, &other)
             .await?
             .map_or(other, |s| s.title());
-        let message = format!(
-            "Its file is on the site again, as {name}. Delete that build to \
-             restore this one."
-        );
+        let message = format!("File already on the site as {name}");
         return render(&state, &viewer, &shown, &message).await;
     }
     if !builds::undelete(&state.db, &id, viewer.id).await? {
-        let message = "That build is not deleted.";
+        let message = "Build not deleted";
         return render(&state, &viewer, &shown, message).await;
     }
     tracing::info!(id, by = viewer.username, "restored a build");
@@ -183,23 +180,21 @@ async fn put_back(
     by: &User,
 ) -> Result<Result<String, &'static str>, sqlx::Error> {
     let Some((build_id, changes)) = activity::edit(db, edit).await? else {
-        return Ok(Err("That edit is not in the log."));
+        return Ok(Err("Edit not in the log"));
     };
     let Some(change) = changes.into_iter().find(|c| c.detail == detail) else {
-        return Ok(Err("That edit did not change that."));
+        return Ok(Err("Edit didn't change that"));
     };
     let Some(restorable) = Restorable::named(detail) else {
         return Ok(Err(
-            "Only a description, authors, or contributors can be put back.",
+            "Can only restore a description, authors, or contributors",
         ));
     };
     let Some(s) = builds::get(db, &build_id).await? else {
-        return Ok(Err("That build is gone."));
+        return Ok(Err("Build no longer exists"));
     };
     if !revertible(&s, &change) {
-        return Ok(Err(
-            "It has changed since that edit, so it was left as it is; edit the build to change it.",
-        ));
+        return Ok(Err("Changed since that edit"));
     }
     builds::restore(db, &s.id, restorable, change.from.as_deref()).await?;
     let undone = Change {

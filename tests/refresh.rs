@@ -135,7 +135,9 @@ async fn an_adder_failing_its_test_goes_up_unverified() {
     let other = details::check(&db, as_other, Candidate::of(&prepared), false)
         .await
         .unwrap();
-    assert!(other.is_err_and(|why| why.contains("Choose Adder")));
+    assert!(
+        other.is_err_and(|why| why.contains("Expected the category Adder"))
+    );
 }
 
 /// Unverified as an adder, it is held to the adder test all the same, so

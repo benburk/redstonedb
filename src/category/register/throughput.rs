@@ -39,15 +39,13 @@ pub fn stacker(data: &[u8], kind: Kind) -> Option<Stacker<'_>> {
             copies_work(data, kind, &single, (step, copies), buses, true, quick)
         };
         work(true).and_then(|_| work(false)).ok_or_else(|| {
-            format!("{copies} copies don't store and read right as more bits.")
+            format!("{copies} copies don't store and read right as more bits")
         })
     };
     let not = if kind.reads() {
-        "No pitch west or up makes copies whose every cell stores and reads \
-         right as more bits."
+        "No pitch makes copies whose every cell stores and reads right"
     } else {
-        "No pitch west or up makes copies whose every cell stores and shows \
-         right as more bits."
+        "No pitch makes copies whose every cell stores and shows right"
     };
     let ways = (single.width, bit_ways(&interface, single.width));
     Some(Stacker::new(
@@ -113,9 +111,7 @@ pub fn stacking(data: &[u8], kind: Kind) -> Option<Stacking> {
             step,
             reason: if kind.reads() {
                 format!(
-                    "{reason} No step across its bits, up to its width, \
-                     makes copies whose every cell stores and reads right \
-                     as more words."
+                    "{reason}; no step across its bits stacks as more words"
                 )
             } else {
                 reason
@@ -239,7 +235,7 @@ pub fn stacks_at(
     let (_, single) = check_on(&blocks, kind, true).ok()?;
     if !stack::touches(data, step.direction()).ok()? {
         return Some(Err(format!(
-            "Copies {} apart leave air between them.",
+            "Air between copies {} apart",
             step.describe()
         )));
     }

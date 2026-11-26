@@ -37,7 +37,7 @@ pub fn alu(
 ) -> Result<AluProbed, Fault> {
     let Some(out) = report.outputs.iter().max_by_key(|run| run.bits.len())
     else {
-        return Err(Fault::Unfit("Outputs: none".to_owned()));
+        return Err(Fault::Unfit("Missing outputs".to_owned()));
     };
     let width = out.bits.len();
     let status: Vec<Pos> = report
@@ -52,7 +52,7 @@ pub fn alu(
         .any(|run| run.bits != out.bits && run.bits.len() > 1)
     {
         return Err(Fault::Unfit(format!(
-            "Outputs: line lengths {}, need one bus and lone status lines",
+            "Expected 1 output bus, found outputs of {} bits",
             lengths(&report.outputs)
         )));
     }
@@ -63,7 +63,7 @@ pub fn alu(
         .collect();
     let [first, second] = operands.as_slice() else {
         return Err(Fault::Unfit(format!(
-            "Operands: {} lines of {width} levers, need A and B",
+            "Expected 2 operands of width {width}, found {}",
             operands.len()
         )));
     };

@@ -189,15 +189,12 @@ fn ports(interface: &Interface) -> Result<Alu> {
     let (lines, operands): (Vec<usize>, Vec<usize>) =
         (0..interface.inputs.len()).partition(control);
     let &[a, b] = operands.as_slice() else {
-        broken!(
-            "An ALU takes two operands, A and B, but this has {}.",
-            operands.len()
-        );
+        broken!("Expected 2 operands, found {}", operands.len());
     };
     let width = input_bits(&interface.inputs[a]);
     let b_width = input_bits(&interface.inputs[b]);
     if width != b_width {
-        broken!("A has {width} bits but B has {b_width}; an ALU's match.");
+        broken!("A and B differ in width: {width} and {b_width} bits");
     }
     let named = |i: &usize, names: &[&str]| {
         names.contains(&interface.inputs[*i].name.as_str())
@@ -215,9 +212,7 @@ fn ports(interface: &Interface) -> Result<Alu> {
         })
         .collect();
     if lines.is_empty() {
-        broken!(
-            "An ALU has control lines choosing its operation, but this has none."
-        );
+        broken!("Missing control lines");
     }
     let status = |i: &usize| interface.outputs[*i].status();
     let (statuses, data): (Vec<usize>, Vec<usize>) =
@@ -227,9 +222,7 @@ fn ports(interface: &Interface) -> Result<Alu> {
         .map(|&i| output_bits(interface, &interface.outputs[i]))
         .sum();
     if data_bits < width {
-        broken!(
-            "A and B have {width} bits, but the outputs have only {data_bits}."
-        );
+        broken!("Expected output width at least {width}, found {data_bits}");
     }
     let says = |i: &usize, words: &[&str]| {
         let on = &interface.outputs[*i].words;
@@ -574,7 +567,7 @@ pub fn check(blocks: &Blocks, quick: bool) -> Result<Run> {
     let alu = polarized(blocks, &interface)?;
     let found = selections(blocks, &interface, &alu)?;
     if found.is_empty() {
-        broken!("No setting of its control lines gives an operation.");
+        broken!("No setting of the control lines gives an operation");
     }
     let mut runs = Vec::new();
     for selection in &found {
@@ -745,7 +738,7 @@ pub fn time(blocks: &Blocks, cancel: &AtomicBool) -> Result<Timing> {
             })
             .collect();
     if settings.is_empty() {
-        broken!("It has no operation to time.");
+        broken!("No operation to time");
     }
     timing::measure_controlled(
         blocks,

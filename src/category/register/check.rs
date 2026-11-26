@@ -113,11 +113,8 @@ pub(super) fn check_on(
         run.patterns = patterns(register.width).len() as u64;
     }
     if kind.reads() && ungated == values.len() as u64 && run.wrong > 0 {
-        run.hint = Some(
-            "With every read lever off, the output still shows what the cells \
-             hold, so its reads do not keep it off the bus."
-                .to_owned(),
-        );
+        run.hint =
+            Some("Output shows the cells with every read lever off".to_owned());
     }
     if !quick && run.wrong > 0 {
         // The faults explain the cases; a fault search that fails, as on a
@@ -366,34 +363,28 @@ pub(super) fn ports(
     interface: &Interface,
     kind: Kind,
 ) -> Result<(Circuit, Register)> {
-    let what = kind.category().facts().noun;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| !interface.inputs[i].control())
         .collect();
     let &[data] = operands.as_slice() else {
-        broken!(
-            "A {what} takes one data bus, but this has {} inputs besides its \
-             control lines.",
-            operands.len()
-        );
+        broken!("Expected 1 data bus, found {}", operands.len());
     };
     if interface.inputs[data].signal_strength {
         bail!(
-            "Input {} takes a signal strength, which the {what} test does \
-             not drive yet.",
+            "Input {}: signal strength not supported",
             interface.inputs[data].name
         );
     }
     let width = interface.inputs[data].bits.len();
     let buses: Vec<usize> = (0..interface.outputs.len()).collect();
     if buses.is_empty() {
-        broken!("A {what} puts its cells on an output bus, but this has none.");
+        broken!("Missing output bus");
     }
     for &bus in &buses {
         let bits = output_bits(interface, &interface.outputs[bus]);
         if bits != width {
             broken!(
-                "Its data bus has {width} bits, but output {} has {bits}.",
+                "Output {}: expected width {width}, found {bits}",
                 interface.outputs[bus].name
             );
         }
@@ -409,8 +400,7 @@ pub(super) fn ports(
     }) {
         broken!(
             rule: Rule::WriteControls;
-            "A {what}'s writes are levers, each turned on and off, not \
-             buttons."
+            "Expected levers for writes, found buttons"
         );
     }
     let mut register = Register {
@@ -427,19 +417,17 @@ pub(super) fn ports(
     if writes.is_empty() {
         broken!(
             rule: Rule::WriteControls;
-            "Control lines: none of its {levers} levers writes a cell."
+            "None of the {levers} levers writes a cell"
         );
     }
     match kind {
         Kind::Register | Kind::Ram if reads.is_empty() => broken!(
             rule: Rule::RegisterControls;
-            "Control lines: each of its {levers} levers writes a cell, and \
-             none reads one onto the bus."
+            "None of the {levers} levers reads a cell onto the bus"
         ),
         Kind::Buffer if !reads.is_empty() => broken!(
             rule: Rule::BufferControls;
-            "Control lines: expected only writes, as a buffer shows what it \
-             holds, found {} of its {levers} levers reading.",
+            "Expected only write levers, found {} of {levers} reading",
             reads.len()
         ),
         _ => {}
@@ -598,10 +586,7 @@ fn cells(
         }
         if let Some(cell) = cells.iter().find(|cell| cell.reads.is_empty()) {
             let [x, y, z] = cell.write.pos;
-            broken!(
-                "No read lever shows the cell the write lever at ({x}, {y}, \
-                 {z}) writes."
-            );
+            broken!("No read lever shows the cell written at ({x}, {y}, {z})");
         }
         return Ok(cells);
     }
@@ -620,8 +605,7 @@ fn cells(
             .collect());
     }
     broken!(
-        "Its {} read levers could not be matched to its {} write levers: \
-         each read should show one cell.",
+        "Can't match {} read levers to {} write levers",
         register.reads.len(),
         writes.len()
     );
@@ -664,9 +648,7 @@ fn held(
             .collect();
         if reads.is_empty() {
             let [x, y, z] = write_line.pos;
-            broken!(
-                "No output shows the cell the write at ({x}, {y}, {z}) writes."
-            );
+            broken!("No output shows the cell written at ({x}, {y}, {z})");
         }
         let same = |cell: &Cell| {
             cell.reads.len() == reads.len()
@@ -678,7 +660,7 @@ fn held(
         for read in &reads {
             if std::mem::replace(&mut owned[read.bus], true) {
                 broken!(
-                    "Output {} shows more than one cell.",
+                    "Output {}: shows more than one cell",
                     interface.outputs[register.buses[read.bus]].name
                 );
             }
@@ -690,7 +672,7 @@ fn held(
     }
     if let Some(bus) = owned.iter().position(|&owned| !owned) {
         broken!(
-            "Output {} shows no cell.",
+            "Output {}: shows no cell",
             interface.outputs[register.buses[bus]].name
         );
     }

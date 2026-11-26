@@ -219,7 +219,7 @@ for (const field of document.querySelectorAll("[data-pill-field]")) {
         class: field.dataset.newClass,
       };
     } else {
-      message.textContent = `${text} ${field.dataset.hint}.`;
+      message.textContent = field.dataset.hint.replace("{}", text);
       return false;
     }
     const taken = [...chosen.querySelectorAll(`input[name="${name}"]`)];

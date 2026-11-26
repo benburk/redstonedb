@@ -128,12 +128,11 @@ pub fn warnings(comparison: Comparison) -> Vec<String> {
     }
     let permille = comparison.same_permille();
     vec![format!(
-        "It changes {} blocks, keeping {}.{}% of them, where a fix most often \
-         keeps at least {MIN_SAME_PERCENT}%. If it is another build rather \
-         than this one fixed, upload it as a build of its own instead.",
-        comparison.changed,
+        "Expected at least {MIN_SAME_PERCENT}% of blocks kept, found {}.{}% \
+         ({} changed)",
         permille / 10,
-        permille % 10
+        permille % 10,
+        comparison.changed
     )]
 }
 

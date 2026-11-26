@@ -253,9 +253,9 @@ fn client() -> Result<reqwest::Client, String> {
 #[allow(clippy::needless_pass_by_value)]
 fn offline(err: reqwest::Error) -> String {
     if err.is_timeout() {
-        "Schemati took too long to answer; try again shortly.".to_owned()
+        "Schemati took too long to answer".to_owned()
     } else {
-        "Could not reach Schemati; try again shortly.".to_owned()
+        "Schemati unreachable".to_owned()
     }
 }
 
@@ -301,9 +301,7 @@ async fn outcome(response: Response) -> Result<(), Refusal> {
         };
     }
     if status != StatusCode::OK {
-        return Err(Refusal::Said(format!(
-            "Schemati answered {status}; try again shortly."
-        )));
+        return Err(Refusal::Said(format!("Schemati answered {status}")));
     }
     let page = response.text().await.map_err(offline)?;
     Err(Refusal::Said(match error_text(&page) {

@@ -46,16 +46,11 @@ pub(crate) async fn player_named(
     name: &str,
 ) -> Result<mojang::Profile, String> {
     if !valid_player_name(name) {
-        return Err(format!(
-            "{name} is not a Minecraft name: letters, digits, and \
-             underscores, up to 16."
-        ));
+        return Err(format!("Expected a Minecraft name, found {name}"));
     }
     match mojang::profile(name).await {
         Ok(Some(found)) => Ok(found),
-        Ok(None) => Err(format!(
-            "No Minecraft player is named {name}. Check the spelling."
-        )),
+        Ok(None) => Err(format!("No Minecraft player named {name}")),
         Err(_) => Ok(mojang::Profile {
             uuid: String::new(),
             name: name.to_owned(),

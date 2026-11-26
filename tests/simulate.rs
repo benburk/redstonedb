@@ -344,7 +344,7 @@ fn an_adder_whose_carry_stops_at_its_edge_does_not_stack() {
     let Some(Stacking::Not { reason, .. }) = Test::Adder.stacking(&data) else {
         panic!("it stacks");
     };
-    assert!(reason.contains("carry does not pass"), "{reason}");
+    assert!(reason.contains("Carry doesn't pass"), "{reason}");
 }
 
 /// Its control line, `increment`, adds 1 when on.
@@ -740,7 +740,7 @@ fn a_register_cell_written_by_a_button_is_told_its_writes_are_levers() {
     let Report::Broken { reason } = Test::Register.run(&blocks) else {
         panic!("the button's register was simulated");
     };
-    assert!(reason.contains("writes are levers"), "{reason}");
+    assert!(reason.contains("Expected levers for writes"), "{reason}");
 }
 
 /// The same register with barrels of 1 signal strength where its read
@@ -774,7 +774,7 @@ fn a_buffer_shows_what_it_holds_without_a_read() {
         panic!("the buffer passed as a register");
     };
     // Its lines are said: a lever that writes, and none to read.
-    assert!(reason.contains("none reads one"), "{reason}");
+    assert!(reason.contains("reads a cell onto the bus"), "{reason}");
     let Report::Ran(run) = Test::Buffer.run(&blocks) else {
         panic!("the buffer was not simulated");
     };
@@ -815,7 +815,7 @@ fn a_register_is_no_buffer() {
     let Report::Broken { reason } = Test::Buffer.run(&blocks) else {
         panic!("the register passed as a buffer");
     };
-    assert!(reason.contains("expected only writes"), "{reason}");
+    assert!(reason.contains("Expected only write levers"), "{reason}");
 }
 
 /// The register fixture with the levers on `colour` concrete saved on.
@@ -1457,7 +1457,7 @@ fn an_adder_is_no_monostable() {
     else {
         panic!("the adder was not refused as a monostable");
     };
-    assert!(reason.contains("one input"));
+    assert!(reason.contains("Expected 1 input"), "{reason}");
 }
 
 /// A splits into a fast path and one 3 ticks slower, and a comparator
@@ -1632,7 +1632,7 @@ fn a_one_bit_adder_without_its_lines_is_an_xor_gate() {
     let Report::Broken { reason } = report else {
         panic!("it passed for an adder: {report:?}");
     };
-    assert!(reason.ends_with("it is an XOR gate."), "{reason}");
+    assert_eq!(reason, "Missing carry in");
     let guess = app::category::guess(&prepared.blocks).unwrap();
     assert_eq!(
         (guess.category, guess.pattern.as_str(), guess.wrong),
