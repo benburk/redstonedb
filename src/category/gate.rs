@@ -85,13 +85,12 @@ impl Gate {
 /// is no XOR gate but an XNOR gate. No line reads inverted, as an inverted
 /// input makes another gate of it: a NOR is an AND of A and B inverted.
 pub(super) fn spec(interface: &Interface, gate: Gate) -> Result<Spec> {
-    let inputs: Vec<usize> = (0..interface.inputs.len()).collect();
-    let &[a, b] = inputs.as_slice() else {
+    let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
+    else {
         broken!(
             "A gate takes two operands and no lines, but this has {} \
-             inputs.{}",
-            inputs.len(),
-            interface.lever_under_block(&inputs, 2)
+             inputs.",
+            interface.inputs.len()
         );
     };
     let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
@@ -131,13 +130,12 @@ const XNOR_NAND: &str = "A xnor B, A nand B";
 /// one each bit A nand B and the other A xnor B, whichever way round they
 /// come.
 pub(super) fn nand_xnor(interface: &Interface) -> Result<Spec> {
-    let inputs: Vec<usize> = (0..interface.inputs.len()).collect();
-    let &[a, b] = inputs.as_slice() else {
+    let &[a, b] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
+    else {
         broken!(
             "A NAND+XNOR gate takes two operands and no lines, but this has \
-             {} inputs.{}",
-            inputs.len(),
-            interface.lever_under_block(&inputs, 2)
+             {} inputs.",
+            interface.inputs.len()
         );
     };
     let &[first, second] =

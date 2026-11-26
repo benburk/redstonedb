@@ -7,9 +7,10 @@
 //!
 //! The rules:
 //!
-//! - An input is a lever, or any button for a pulse, on a side of a solid
-//!   block, a lamp too, its input block. The lever touches nothing else
-//!   that carries power.
+//! - An input is a lever, or any button for a pulse, on a solid block, a
+//!   lamp too, its input block: on its side, or for a control line on its
+//!   top or bottom too. The lever touches nothing else that carries
+//!   power.
 //! - A signal-strength input, taking a value from 0 to 15, is a comparator
 //!   with nothing behind it, the cell its `facing` points at air, giving
 //!   out into the build; a tester drives it by putting a barrel there. See
@@ -326,6 +327,24 @@ fn inputs(blocks: &Blocks, report: &mut Report) -> Vec<Input> {
         if !placed(blocks, &switch, report) {
             continue;
         }
+        if vertical(&switch) {
+            // Read as an input only when it wires as one; otherwise its
+            // place is what is wrong, not what it touches. It leaves no
+            // spot for a repeater, which its fault says on a data input.
+            let mut own = Report::default();
+            lever_touches(blocks, &switch, &mut own);
+            let hard = input_block(blocks, &switch, &mut own);
+            let rule = if own.errors.is_empty() {
+                Rule::DataSwitchOnTopOrBottom
+            } else {
+                Rule::SwitchOnTopOrBottom
+            };
+            on_top_or_bottom(blocks, &switch, rule, report);
+            if own.errors.is_empty() {
+                found.push(Input { switch, hard });
+            }
+            continue;
+        }
         lever_touches(blocks, &switch, report);
         let hard = input_block(blocks, &switch, report);
         repeater_room(blocks, &switch, report);
@@ -334,26 +353,43 @@ fn inputs(blocks: &Blocks, report: &mut Report) -> Vec<Input> {
     found
 }
 
-/// Whether the switch is placed as an input's: on a side of a solid
-/// block.
+/// Whether the switch is on the top or bottom of its block.
+fn vertical(switch: &Switch) -> bool {
+    matches!(switch.side, Direction::Up | Direction::Down)
+}
+
+/// The switch on the top or bottom of its block, as `rule` has it: one
+/// that wires as an input is an input all the same, read as the game
+/// powers its block, but a fault on a data input, which a bus drives
+/// through a repeater in the lever's spot; see [`Rule::data_only`].
+fn on_top_or_bottom(
+    blocks: &Blocks,
+    switch: &Switch,
+    rule: Rule,
+    report: &mut Report,
+) {
+    let (lever, block) = (switch.pos, switch.block);
+    let where_ = if switch.side == Direction::Up {
+        "top"
+    } else {
+        "bottom"
+    };
+    problem(
+        report,
+        rule,
+        vec![block, lever],
+        &format!(
+            "{} at {{}}: on {where_} of block",
+            noun(short(blocks, lever))
+        ),
+        &[lever],
+    );
+}
+
+/// Whether the switch is placed as an input's: on a solid block.
 fn placed(blocks: &Blocks, switch: &Switch, report: &mut Report) -> bool {
     let (lever, block) = (switch.pos, switch.block);
     let name = short(blocks, lever).to_owned();
-    if matches!(switch.side, Direction::Up | Direction::Down) {
-        let where_ = if switch.side == Direction::Up {
-            "top"
-        } else {
-            "bottom"
-        };
-        problem(
-            report,
-            Rule::SwitchOnTopOrBottom,
-            vec![lever],
-            &format!("{} at {{}}: on {where_} of block", noun(&name)),
-            &[lever],
-        );
-        return false;
-    }
     let block_name = short(blocks, block).to_owned();
     if !block::holds_input(&block_name) {
         problem(

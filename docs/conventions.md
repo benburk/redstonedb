@@ -6,11 +6,11 @@ A build is on the list only when probing recognizes it as a standard category: a
 
 ## Inputs
 
-- An input is a lever on the side of a solid block, or a button for a pulse, such as a register's write: stone for 10 ticks, wooden for 15. Never on the top or bottom.
+- An input is a lever on the side of a solid block, or a button for a pulse, such as a register's write: stone for 10 ticks, wooden for 15. A data input's lever is never on the top or bottom; a control line's may be.
 - A lever or button powers a repeater or comparator only at its back, so one beside it, facing another way, is no fault.
 - The block drives dust on any side but its lever's, on top and below too, and torches, repeaters, and comparators reading it. No other redstone touches it, though a target may, and a redstone block may sit on top.
 - A data input, such as an operand's bit or a register's data bus, is one a bus may drive: a repeater must fit where its lever is, standing on a block or above air, with nothing behind it but air or a sign, where the bus's driver feeds it.
-- A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so it may have a block behind its lever.
+- A control line, such as a carry in, a register's write, or an ALU's operation, is always driven by a lever or button, so it may have a block behind its lever, or its lever on the top or bottom of its block.
 - Probing tells data inputs from control lines: an adder's are A and B, a register's its data bus in, an ALU's and a multiplier's their two widest input lines, a decoder's its one input line.
 - A control line may read inverted, powered meaning 0, as an adder's carry in or a counter's clock may. The simulator finds which do by testing, however their levers were saved. A data input never reads inverted: its lever off is its 0.
 - A multiplier has inputs A and B and, if sequential, one control line, its calculate, pressed once A and B are set; it has no reset. An ALU's lone outputs are named by their signs, such as `zero`.
