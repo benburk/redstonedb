@@ -66,8 +66,10 @@ pub fn is_pitch_stackable(name: &str) -> bool {
 
 /// Whether the tag `name`, among a build's `tags`, says nothing another of
 /// them doesn't: `stackable` beside a tag saying how far apart its copies
-/// stack, or a looser pitch class than another the same way, which the
-/// tighter one counts in, as `4-wide_stackable` beside `2-wide_stackable`.
+/// stack, a looser pitch class than another the same way, which the
+/// tighter one counts in, as `4-wide_stackable` beside `2-wide_stackable`,
+/// or a carry line beside the flag that it reads inverted, as `carry_out`
+/// beside `inverted_carry_out`.
 /// Shown, a build's tags leave such a tag out; search and its boards still
 /// find it by it.
 pub fn implied(name: &str, tags: &[Tag]) -> bool {
@@ -79,6 +81,10 @@ pub fn implied(name: &str, tags: &[Tag]) -> bool {
     };
     if name == STACKABLE {
         return tags.iter().any(|tag| is_pitch_stackable(&tag.name));
+    }
+    if matches!(name, "carry_in" | "carry_out") {
+        let inverted = format!("inverted_{name}");
+        return tags.iter().any(|tag| tag.name == inverted);
     }
     class(name).is_some_and(|(n, shape)| {
         tags.iter().any(|other| {
@@ -317,6 +323,22 @@ mod tests {
             .collect();
         assert_eq!(shown, ["2-wide_stackable", "4-high_stackable"]);
         assert!(!implied(STACKABLE, &[tag(STACKABLE, Kind::Feature)]));
+    }
+
+    /// A carry line read inverted says the line is there, so its plain
+    /// flag goes unshown beside it.
+    #[test]
+    fn an_inverted_carry_implies_the_carry() {
+        let tags: Vec<Tag> = ["carry_in", "carry_out", "inverted_carry_out"]
+            .into_iter()
+            .map(|name| tag(name, Kind::Feature))
+            .collect();
+        let shown: Vec<&str> = tags
+            .iter()
+            .filter(|tag| !implied(&tag.name, &tags))
+            .map(|tag| tag.name.as_str())
+            .collect();
+        assert_eq!(shown, ["carry_in", "inverted_carry_out"]);
     }
 
     #[test]

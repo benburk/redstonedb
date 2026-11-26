@@ -1,6 +1,8 @@
-//! How to stack a build in game, as the site stacks it: paste it without
-//! the parts only its first copy keeps, `//rstack` it, and paste those
-//! parts back; the pitch class of copies the simulation found add bits,
+//! How to stack a build in game, as the site stacks it: paste it with
+//! glass at the corners of the box later copies repeat, select that box
+//! by the glass, and `//rstack` it, the parts only its first copy keeps
+//! lying outside it; or, where the glass has no room, paste it without
+//! those parts, `//rstack` it, and paste them back; the pitch class of copies the simulation found add bits,
 //! or that they add words on a shared bus; and what looks wrong in a
 //! stacking its author gave, rather than the simulation finding it:
 //! where two copies disagree, and whether they make a bigger build of the
@@ -103,14 +105,13 @@ fn steps(s: &Build, review: &Review, signed_in: bool) -> Markup {
     let direction = review.direction;
     let copies = direction.max_copies.unwrap_or(8);
     let command = direction.rstack(copies);
-    let download = |part: &str, text: &str| {
-        let href = format!(
-            "/schematics/{}/download?part={part}&direction={}",
-            s.id,
-            direction.name()
-        );
+    let download = |query: &str, text: &str| {
+        let href = format!("/schematics/{}/download?{query}", s.id);
         ui::download_link(&href, text, signed_in)
     };
+    let part =
+        |part: &str| format!("part={part}&direction={}", direction.name());
+    let markers = format!("markers={}", direction.name());
     let label = "text-muted tabular-nums";
     html! {
         dl class="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-1.5" {
@@ -119,14 +120,21 @@ fn steps(s: &Build, review: &Review, signed_in: bool) -> Markup {
                 dd { "the build" }
                 dt class=(label) { "2  Stack" }
                 dd { code { (command) } " (" (copies) " copies)" }
+            } @else if review.markable {
+                dt class=(label) { "1  Paste" }
+                dd { (download(&markers, "with stacking markers")) }
+                dt class=(label) { "2  Select" }
+                dd { "the two glass blocks as corners, then break them" }
+                dt class=(label) { "3  Stack" }
+                dd { code { (command) } " (" (copies) " copies)" }
             } @else {
                 dt class=(label) { "1  Paste" }
-                dd { (download("without", "without first-copy parts")) }
+                dd { (download(&part("without"), "without first-copy parts")) }
                 dt class=(label) { "2  Stack" }
                 dd { code { (command) } " (" (copies) " copies)" }
                 dt class=(label) { "3  Paste" }
                 dd {
-                    (download("first", "first-copy parts")) ", same spot: "
+                    (download(&part("first"), "first-copy parts")) ", same spot: "
                     code { "//gmask air" } " " code { "//paste -a" } " " code { "//gmask" }
                 }
                 dt class=(label) { "First copy" }

@@ -83,8 +83,8 @@ pub(crate) fn timing_summary(timing: &Timing) -> String {
     format!("{synced}; {}.", outputs.join(", "))
 }
 
-/// How copies stack, as stacking them found, such as `2 west per copy,
-/// any number of copies`, for the details form to show in place of the
+/// How copies stack, as stacking them found, such as `2 wide west, any
+/// amount`, for the details form to show in place of the
 /// typed stacking; `None` when no copies were stacked.
 pub(crate) fn found_stack(report: &Report) -> Option<String> {
     let Report::Ran(run) = report else {
@@ -97,7 +97,7 @@ pub(crate) fn found_stack(report: &Report) -> Option<String> {
     let ways: Vec<String> = stacking
         .directions()
         .iter()
-        .map(StackDirection::describe)
+        .map(StackDirection::short)
         .collect();
     (!ways.is_empty()).then(|| ways.join(", "))
 }

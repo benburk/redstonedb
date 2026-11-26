@@ -199,31 +199,24 @@ pub(crate) fn facts(s: &Build, sources: &Sources) -> Markup {
     }
 }
 
-/// One way build `s` stacks, short: for copies that add bits, their step
-/// and pitch class, such as `16 up, pitch 2, any number`; for a
-/// register's copies across its bits, as more words, such as `4 west as
-/// words, up to 3`; and for a stacking its author gave, its step, such
-/// as `2 wide west, up to 7` or `2 west and 2 up, any number`.
+/// One way build `s` stacks, short: for a register's copies across its
+/// bits, as more words, such as `4 west as words, up to 3`; for any
+/// other, as [`StackDirection::short`] says it, such as `18 high, any
+/// amount` or `16 high, pitch 2, any amount`.
 fn short_stacking(s: &Build, direction: &StackDirection) -> String {
-    let steps: Vec<(i64, &str)> = direction.parts().collect();
-    let step = match (steps.as_slice(), direction.pitch) {
-        ([(n, way)], Some(pitch)) => format!("{n} {way}, pitch {pitch}"),
-        ([(n, way)], None)
-            if stacking_found(s)
+    match direction.parts().collect::<Vec<_>>().as_slice() {
+        [(n, way)]
+            if direction.pitch.is_none()
+                && stacking_found(s)
                 && !direction.adds_bits(s.specs.orientation) =>
         {
-            format!("{n} {way} as words")
+            let limit = direction.max_copies.map_or_else(
+                || "any amount".to_owned(),
+                |n| format!("up to {n}"),
+            );
+            format!("{n} {way} as words, {limit}")
         }
-        ([(n, way)], None) => format!("{n} wide {way}"),
-        _ => {
-            let each: Vec<String> =
-                steps.iter().map(|(n, way)| format!("{n} {way}")).collect();
-            each.join(" and ")
-        }
-    };
-    match direction.max_copies {
-        Some(n) => format!("{step}, up to {n}"),
-        None => format!("{step}, any number"),
+        _ => direction.short(),
     }
 }
 

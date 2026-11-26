@@ -86,7 +86,8 @@ fn tidying_takes_out_markers_of_any_glass() {
 
 /// A 1-bit adder stacking 2 west, its carry in on its east face, which
 /// only the first copy keeps: the glass goes at two opposite corners of
-/// the rest, where nothing was, and nothing else changes.
+/// the rest, where nothing was, and nothing else changes; its review says
+/// so, for the stacking guide to offer them.
 #[test]
 fn stacking_markers_sit_at_opposite_corners_of_the_box() {
     let data = slice("rca-1-carry-in-east");
@@ -98,6 +99,8 @@ fn stacking_markers_sit_at_opposite_corners_of_the_box() {
         pitch: None,
     };
     let marked = stack::with_markers(&data, west).unwrap().unwrap();
+    let review = stack::review(&data, west, stack::Buses::own()).unwrap();
+    assert!(review.markable);
     let (before, after) =
         (Blocks::read(&data).unwrap(), Blocks::read(&marked).unwrap());
     assert_eq!(after.size, before.size);

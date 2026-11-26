@@ -354,6 +354,9 @@ pub struct Review {
     /// at which they do not, if any, as trying `//rstack` at each would
     /// find.
     pub better: Option<i64>,
+    /// Whether glass can mark two opposite corners of the box it stacks,
+    /// as [`with_markers`] puts it.
+    pub markable: bool,
 }
 
 /// A spot where two copies overlap with different blocks, in the copy
@@ -384,12 +387,14 @@ pub fn review(
     } else {
         agreeing(&blocks, direction)
     };
+    let markable = marker_corners(&blocks, first_copy.sized).is_some();
     Ok(Review {
         direction,
         first_copy,
         disagreements,
         shape,
         better,
+        markable,
     })
 }
 
@@ -584,22 +589,8 @@ pub fn with_markers(
     direction: StackDirection,
 ) -> Result<Option<Vec<u8>>> {
     let blocks = Blocks::read(data)?;
-    let [low, high] =
-        first_copy(&blocks, step_of(direction)?, direction.faces).sized;
-    let corner = |far: [bool; 3]| -> Pos {
-        [0, 1, 2].map(|axis| if far[axis] { high[axis] } else { low[axis] })
-    };
-    let pairs = [
-        [false, false, false],
-        [true, false, false],
-        [false, true, false],
-        [false, false, true],
-    ]
-    .map(|far| (corner(far), corner(far.map(|f| !f))));
-    let Some((a, b)) = pairs
-        .into_iter()
-        .find(|&(a, b)| blocks.get(a) == AIR && blocks.get(b) == AIR)
-    else {
+    let sized = first_copy(&blocks, step_of(direction)?, direction.faces).sized;
+    let Some((a, b)) = marker_corners(&blocks, sized) else {
         return Ok(None);
     };
     let mut grid: HashMap<Pos, String> = blocks
@@ -614,6 +605,27 @@ pub fn with_markers(
     let entities = nbt.take_entities();
     nbt.write_blocks([0, 0, 0], blocks.size, &grid, entities)?;
     Ok(Some(schem::encode(nbt)?))
+}
+
+/// Two opposite corners of the box `[low, high]`, both empty, for glass
+/// to mark it by: the first such pair, or `None` when every pair holds a
+/// block.
+fn marker_corners(
+    blocks: &Blocks,
+    [low, high]: [Pos; 2],
+) -> Option<(Pos, Pos)> {
+    let corner = |far: [bool; 3]| -> Pos {
+        [0, 1, 2].map(|axis| if far[axis] { high[axis] } else { low[axis] })
+    };
+    [
+        [false, false, false],
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+    ]
+    .map(|far| (corner(far), corner(far.map(|f| !f))))
+    .into_iter()
+    .find(|&(a, b)| blocks.get(a) == AIR && blocks.get(b) == AIR)
 }
 
 /// The layers only the first copy keeps when copies stack a `step` along,

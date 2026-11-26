@@ -158,6 +158,30 @@ impl StackDirection {
         format!("{} per copy{pitch}, {limit}", steps.join(" and "))
     }
 
+    /// Short, as a build's page shows it: such as `18 high, any amount`,
+    /// `2 wide west, pitch 2, up to 8`, or `2 west and 2 up, any amount`.
+    pub fn short(&self) -> String {
+        let steps: Vec<(i64, &str)> = self.parts().collect();
+        let step = match steps.as_slice() {
+            [(n, "up")] => format!("{n} high"),
+            [(n, way)] => format!("{n} wide {way}"),
+            _ => {
+                let each: Vec<String> =
+                    steps.iter().map(|(n, way)| format!("{n} {way}")).collect();
+                each.join(" and ")
+            }
+        };
+        let pitch = self
+            .pitch
+            .map(|pitch| format!(", pitch {pitch}"))
+            .unwrap_or_default();
+        let limit = match self.max_copies {
+            Some(n) => format!("up to {n}"),
+            None => "any amount".to_owned(),
+        };
+        format!("{step}{pitch}, {limit}")
+    }
+
     /// How its pitch class is named, as in `2-wide` for copies west and
     /// `2-high` for copies up; `None` for copies both ways.
     pub fn pitch_shape(&self) -> Option<&'static str> {
@@ -227,6 +251,27 @@ impl std::str::FromStr for StackDirection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Copies up are so many high, and copies west so many wide that way.
+    #[test]
+    fn a_stacking_says_its_step_short() {
+        let way = |west, up, max_copies, pitch| StackDirection {
+            west,
+            up,
+            max_copies,
+            faces: None,
+            pitch,
+        };
+        assert_eq!(way(0, 18, None, None).short(), "18 high, any amount");
+        assert_eq!(
+            way(2, 0, Some(8), Some(2)).short(),
+            "2 wide west, pitch 2, up to 8"
+        );
+        assert_eq!(
+            way(2, 2, None, None).short(),
+            "2 west and 2 up, any amount"
+        );
+    }
 
     #[test]
     fn copies_add_bits_along_the_way_the_bits_run() {
