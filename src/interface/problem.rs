@@ -28,7 +28,13 @@ pub enum Rule {
     InputAtBottom,
     /// An output with nothing under it in the file.
     OutputAtBottom,
+    /// A lever or button on the top or bottom of its block that also
+    /// powers what an input's lever may not, so it is read as no input.
     SwitchOnTopOrBottom,
+    /// A lever or button on the top or bottom of its block, where no
+    /// repeater fits to let a bus drive it: fine on a control line, but
+    /// not on a data input; no fault until its line's role is known.
+    DataSwitchOnTopOrBottom,
     InputBlockNotSolid,
     SwitchTouchesRedstone,
     InputBlockWiring,
@@ -97,6 +103,7 @@ impl Rule {
             Rule::InputAtBottom => "input at the bottom",
             Rule::OutputAtBottom => "output at the bottom",
             Rule::SwitchOnTopOrBottom => "switch on top or bottom",
+            Rule::DataSwitchOnTopOrBottom => "data input on top or bottom",
             Rule::InputBlockNotSolid => "input block not solid",
             Rule::SwitchTouchesRedstone => "switch touches redstone",
             Rule::InputBlockWiring => "input block wiring",
@@ -123,7 +130,7 @@ impl Rule {
 
     /// Whether it is a fault only on a data input, which a bus may drive.
     pub fn data_only(self) -> bool {
-        self == Rule::BlockBehindLever
+        matches!(self, Rule::BlockBehindLever | Rule::DataSwitchOnTopOrBottom)
     }
 
     /// How to fix a problem that breaks it; `None` for a rule with
@@ -144,6 +151,7 @@ impl Rule {
             }
             Rule::NoInputs
             | Rule::SwitchOnTopOrBottom
+            | Rule::DataSwitchOnTopOrBottom
             | Rule::InputBlockNotSolid
             | Rule::SwitchTouchesRedstone
             | Rule::InputBlockWiring
@@ -185,7 +193,9 @@ impl Rule {
                 "Save the build with the block under it, so the file holds \
                  what it stands on."
             }
-            Rule::SwitchOnTopOrBottom => "Put it on the side of its block.",
+            Rule::SwitchOnTopOrBottom | Rule::DataSwitchOnTopOrBottom => {
+                "Put it on the side of its block."
+            }
             Rule::InputBlockNotSolid => {
                 "Put it on a full solid block, such as concrete, wool, or a \
                  lamp."

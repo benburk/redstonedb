@@ -857,6 +857,69 @@ mod tests {
         assert_eq!(width.unwrap(), Some(8));
     }
 
+    /// `data` with the lever on the block at `block` moved to hang under
+    /// it, as a ceiling lever, the box grown to hold it.
+    fn lever_under(data: &[u8], block: Pos) -> Vec<u8> {
+        let blocks = Blocks::read(data).unwrap();
+        let switch = blocks
+            .switches()
+            .into_iter()
+            .find(|s| s.block == block)
+            .unwrap();
+        let under = schem::step(block, schem::Direction::Down);
+        assert_eq!(schem::short(blocks.get(under)), "air");
+        let changes = [
+            (switch.pos, "minecraft:air".to_owned()),
+            (
+                under,
+                "minecraft:lever[face=ceiling,facing=north,powered=false]"
+                    .to_owned(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        schem::edit_grown(data, &changes).unwrap().0
+    }
+
+    /// A carry in whose lever hangs under its block is a carry in all the
+    /// same, a control line a lever always drives, so the adder is found;
+    /// an operand's lever there is a fault, as no bus could drive it.
+    #[test]
+    fn a_lever_under_its_block_is_a_fault_only_on_a_data_input() {
+        let data =
+            std::fs::read("tests/fixtures/cca-8-repeater-out.schem").unwrap();
+        let report = inspect::inspect(&Blocks::read(&data).unwrap());
+        let lone = |len: usize| {
+            report
+                .inputs
+                .iter()
+                .find(|run| run.bits.len() == len)
+                .unwrap()
+                .bits[0]
+        };
+        let carry_in = lever_under(&data, lone(1));
+        let found = recognize(&carry_in).unwrap();
+        assert!(
+            found
+                .found
+                .as_deref()
+                .is_some_and(|f| f.contains("carry in")),
+            "{:?} {:?}",
+            found.found,
+            found.problems
+        );
+        let operand = recognize(&lever_under(&data, lone(8))).unwrap();
+        assert_eq!(operand.found, None);
+        let rules: Vec<Rule> =
+            operand.problems.iter().map(|p| p.rule).collect();
+        assert_eq!(
+            rules,
+            [Rule::DataSwitchOnTopOrBottom],
+            "{:?}",
+            operand.problems
+        );
+    }
+
     /// A 1-bit XNOR of wool, one input carried up through dust on its block,
     /// and a lone block holding up a repeater that powers a block: the dust
     /// is wiring, as on any input, and the block under the repeater no

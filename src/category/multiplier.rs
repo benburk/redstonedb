@@ -52,8 +52,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         3 => "A × B + C",
         n => broken!(
             "A multiplier takes two operands, or three for A × B + C, but \
-             this has {n}.{}",
-            interface.lever_under_block(&inputs, 3)
+             this has {n}."
         ),
     };
     let result: usize = outputs
