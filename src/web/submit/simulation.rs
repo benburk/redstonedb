@@ -183,9 +183,7 @@ fn upload_file(
     let data = Some(form::first(&pairs, "data"))
         .filter(|data| !data.is_empty())
         .and_then(|data| STANDARD.decode(data).ok())
-        .ok_or_else(|| {
-            AppError::BadRequest("The form carries no file.".to_owned())
-        })?;
+        .ok_or_else(|| AppError::BadRequest("Missing file".to_owned()))?;
     Ok((pairs, data))
 }
 
@@ -508,7 +506,7 @@ async fn timing(
 
 fn could_not(why: &str) -> Markup {
     html! {
-        p class="mt-6 text-muted" { "Could not simulate it: " (why) }
+        p class="mt-6 text-muted" { "Simulation failed: " (why) }
     }
 }
 

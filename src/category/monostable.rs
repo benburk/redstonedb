@@ -203,11 +203,8 @@ fn run(found: &Cases, dual: bool) -> Run {
         Edge::Falling => format!("A off gives {shape}, A on none"),
         Edge::Both => format!("A on or off gives {shape}"),
     };
-    let hint = (wrong > 0 && found.follows).then(|| {
-        "Its output rests differently with A on than off, so it follows A \
-         rather than giving a pulse."
-            .to_owned()
-    });
+    let hint = (wrong > 0 && found.follows)
+        .then(|| "Output follows A rather than pulsing".to_owned());
     Run {
         pattern,
         cases: found.tried.len() as u64,
@@ -266,20 +263,13 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
     let mut interface = interface::read(blocks);
     interface::name_lines(Kind::Monostable.lines(), &mut interface);
     let [input] = interface.inputs.as_slice() else {
-        broken!(
-            "A monostable takes one input, A, but this has {}.",
-            interface.inputs.len()
-        );
+        broken!("Expected 1 input, found {}", interface.inputs.len());
     };
     if input.control() {
-        broken!("A monostable's input is A, not a control line.");
+        broken!("Expected input A, found a control line");
     }
     if input.signal_strength {
-        bail!(
-            "Input {} takes a signal strength, which the monostable test \
-             does not drive.",
-            input.name
-        );
+        bail!("Input {}: signal strength not supported", input.name);
     }
     let width = input.bits.len();
     let outputs = output_bits(&interface)?;
@@ -292,10 +282,7 @@ fn cases(blocks: &Blocks) -> Result<Cases> {
     let inverted = match rest {
         0 => false,
         r if r == all => true,
-        _ => broken!(
-            "Its output bits rest differently with A off, some on and some \
-             off, where a monostable's all rest alike."
-        ),
+        _ => broken!("Output bits rest differently with A off"),
     };
     let changes = |circuit: &mut Circuit, flipped: Value, on: bool| {
         let a = if on { flipped } else { 0 };
@@ -359,11 +346,7 @@ fn output_bits(interface: &Interface) -> Result<Vec<(usize, usize)>> {
     }
     if outputs.len() != a.len() || outputs.iter().any(|o| o.bits.len() != 1) {
         let bits: usize = outputs.iter().map(|o| o.bits.len()).sum();
-        broken!(
-            "A has {} bits, but its outputs have {bits}; each bit of A \
-             drives its own.",
-            a.len()
-        );
+        broken!("Expected output width {}, found {bits}", a.len());
     }
     let distance = |from: [i32; 3], to: [i32; 3]| -> i32 {
         from.iter().zip(&to).map(|(f, t)| (f - t).pow(2)).sum()
@@ -382,10 +365,7 @@ fn output_bits(interface: &Interface) -> Result<Vec<(usize, usize)>> {
     taken.sort_unstable();
     taken.dedup();
     if taken.len() != nearest.len() {
-        broken!(
-            "Its status lines do not each sit nearest a bit of A, to say \
-             which bit each pulses for."
-        );
+        broken!("Status lines don't each sit nearest a bit of A");
     }
     Ok(nearest.into_iter().map(|port| (port, 0)).collect())
 }
@@ -424,12 +404,12 @@ pub fn time(
     cancel: &AtomicBool,
 ) -> Result<Timing> {
     if cancel.load(Ordering::Relaxed) {
-        bail!("The timing was cancelled.");
+        bail!("Timing cancelled");
     }
     let found = cases(blocks)?;
     let edge = found.edge(dual);
     let Some(ticks) = found.pulse(edge) else {
-        bail!("It gives no pulse to time.");
+        bail!("No pulse to time");
     };
     let triggered: Vec<&Case> = found
         .tried
@@ -695,7 +675,7 @@ pub fn stacker(data: &[u8], dual: bool) -> Option<Stacker<'_>> {
             let run = run(&found, dual);
             if run.wrong > 0 {
                 return Err(format!(
-                    "{copies} copies get {} of {} cases wrong.",
+                    "{} of {} cases wrong with {copies} copies",
                     run.wrong, run.cases
                 ));
             }
@@ -705,13 +685,12 @@ pub fn stacker(data: &[u8], dual: bool) -> Option<Stacker<'_>> {
                 && found.inverted == inverted)
                 .then_some(run.cases)
                 .ok_or_else(|| {
-                    format!("{copies} copies don't each give its pulse alone.")
+                    format!("{copies} copies don't each give their own pulse")
                 })
         })
     };
     let interface = interface::read(&blocks);
-    let not = "No pitch west or up makes copies that each give its pulse \
-               alone.";
+    let not = "No pitch makes copies that each give their own pulse";
     let kind = if dual {
         Kind::DualEdgeMonostable
     } else {

@@ -17,12 +17,10 @@ use anyhow::Result;
 
 pub(crate) use crate::simulate::AdderVariant as Variant;
 
-/// How an adder's messages name it and its lone lines: the adder's test
+/// How an adder's messages name its lone lines: the adder's test
 /// reads a subtractor too, its B inverted, so its lines may go by a
 /// subtractor's names as well.
 pub(super) struct Arithmetic {
-    /// The build, as its messages begin, such as `An adder`.
-    a: &'static str,
     /// The names its control line may be signed with, its carry or borrow
     /// in; an unsigned one goes by the first.
     line_in: &'static [&'static str],
@@ -31,7 +29,6 @@ pub(super) struct Arithmetic {
 }
 
 pub(super) const ADD: Arithmetic = Arithmetic {
-    a: "An adder",
     line_in: &CARRY_OR_BORROW_IN,
     line_out: &CARRY_OR_BORROW_OUT,
 };
@@ -219,7 +216,7 @@ pub(super) fn carry_out(interface: &mut Interface) -> Result<Spec> {
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
-    let (a, b, out) = one_line(interface, &operands, "carry out", "its carry")?;
+    let (a, b, out) = one_line(interface, &operands)?;
     if !interface.outputs[out].labelled {
         colour::CARRY_OUT[0].clone_into(&mut interface.outputs[out].name);
     }
@@ -248,8 +245,7 @@ pub(super) const SIGNED_GREATER_THAN: &str = "A > B, signed";
 /// right, unsigned for a tie, on its one output line. The two differ only
 /// in each operand's top bit being inverted. It has no control line.
 pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
-    let (a, b, out) =
-        comparison(interface, "greater-than comparator", "A > B")?;
+    let (a, b, out) = comparison(interface, "A > B")?;
     let width = interface.inputs[a].bits.len();
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![out], "A > B"),
@@ -270,7 +266,7 @@ pub(super) fn greater_than(interface: &mut Interface) -> Result<Spec> {
 /// An equality comparator's every case: whether A equals B, on its one
 /// output line. It has no control line.
 pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
-    let (a, b, out) = comparison(interface, "equality comparator", "A = B")?;
+    let (a, b, out) = comparison(interface, "A = B")?;
     Ok(Spec {
         bench: Bench::new(vec![a, b], vec![out], "A = B"),
         kinds: vec![Kind::new("A = B", |case| Value::from(case[0] == case[1]))],
@@ -281,11 +277,10 @@ pub(super) fn equality(interface: &mut Interface) -> Result<Spec> {
 /// as `result`, such as `A > B`, named so.
 fn comparison(
     interface: &mut Interface,
-    built: &str,
     result: &str,
 ) -> Result<(usize, usize, usize)> {
     let operands: Vec<usize> = (0..interface.inputs.len()).collect();
-    let (a, b, out) = one_line(interface, &operands, built, result)?;
+    let (a, b, out) = one_line(interface, &operands)?;
     if !interface.outputs[out].labelled {
         result.clone_into(&mut interface.outputs[out].name);
     }
@@ -299,40 +294,29 @@ fn sign_extended(n: Value, width: usize) -> i128 {
 }
 
 /// The ports of a build of two operands, `operands` by their place in its
-/// interface, of one width, and one output of one line, which shows `what`:
-/// A, B, and that output. A build of another shape is broken as `built`.
+/// interface, of one width, and one output of one line: A, B, and that
+/// output. A build of another shape is broken.
 fn one_line(
     interface: &Interface,
     operands: &[usize],
-    built: &str,
-    what: &str,
 ) -> Result<(usize, usize, usize)> {
     let &[a, b] = operands else {
-        broken!(
-            "A {built} takes two operands, but this has {}.",
-            operands.len()
-        );
+        broken!("Expected 2 operands, found {}", operands.len());
     };
     let (a_bits, b_bits) = (
         interface.inputs[a].bits.len(),
         interface.inputs[b].bits.len(),
     );
     if a_bits != b_bits {
-        broken!(
-            "A has {a_bits} bits and B {b_bits}, but a {built}'s operands \
-             have the same number."
-        );
+        broken!("A and B differ in width: {a_bits} and {b_bits} bits");
     }
     let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A {built} has one output, {what}, but this has {}.",
-            interface.outputs.len()
-        );
+        broken!("Expected 1 output, found {}", interface.outputs.len());
     };
     if interface.outputs[out].bits.len() != 1 {
         broken!(
-            "A {built}'s output is one line, but this has {} bits.",
+            "Expected 1 output bit, found {}",
             interface.outputs[out].bits.len()
         );
     }
@@ -360,26 +344,17 @@ pub(super) fn adder_ports(
     let carry_in = adder_line(&mut interface.inputs, Role::Control, op, true)?;
     let carry_out =
         adder_line(&mut interface.outputs, Role::Status, op, false)?;
-    let built = op.a;
     let operands: Vec<usize> = (0..interface.inputs.len())
         .filter(|&i| Some(i) != carry_in)
         .collect();
     let &[a, b] = operands.as_slice() else {
-        broken!(
-            "{built} takes two operands, but this has {}.",
-            operands.len()
-        );
+        broken!("Expected 2 operands, found {}", operands.len());
     };
     let buses: Vec<usize> = (0..interface.outputs.len())
         .filter(|&i| Some(i) != carry_out)
         .collect();
     let &[sum] = buses.as_slice() else {
-        broken!(
-            "{built} has one output bus and a {}, but this has {} output \
-             buses.",
-            op.line_out[0],
-            buses.len()
-        );
+        broken!("Expected 1 output bus, found {}", buses.len());
     };
     // The output may hold the carry or borrow as its top bit when there is
     // no line for it.
@@ -392,25 +367,21 @@ pub(super) fn adder_ports(
     // a whole adder without it.
     let digits = interface.inputs[a].signal_strength;
     if a_bits == 1 && !digits && carry_in.is_none() {
-        let (line_in, line_out) = (op.line_in[0], op.line_out[0]);
-        let lacks = if carry_out.is_none() {
-            "without either it is an XOR gate".to_owned()
-        } else {
-            format!("this has no {line_in}")
-        };
-        broken!(
-            "{built} of one bit has a {line_in}, and may have a {line_out}, \
-             as a slice of a wider one does; {lacks}."
-        );
+        broken!("Missing {}", op.line_in[0]);
     }
     let sum_bits = bits(&interface.outputs[sum]);
     let carry_bit = usize::from(carry_out.is_none());
-    if a_bits != b_bits || !(a_bits..=a_bits + carry_bit).contains(&sum_bits) {
-        broken!(
-            "A has {a_bits} bits, B {b_bits}, and the output {sum_bits}, but \
-             {} operands and output have the same number.",
-            possessive(built).to_lowercase()
-        );
+    if a_bits != b_bits {
+        broken!("A and B differ in width: {a_bits} and {b_bits} bits");
+    }
+    if !(a_bits..=a_bits + carry_bit).contains(&sum_bits) {
+        if carry_bit == 1 {
+            broken!(
+                "Expected output width {a_bits} or {}, found {sum_bits}",
+                a_bits + 1
+            );
+        }
+        broken!("Expected output width {a_bits}, found {sum_bits}");
     }
     Ok(AdderPorts {
         a,
@@ -436,13 +407,13 @@ fn adder_line(
     } else {
         (op.line_out, "status")
     };
-    let role = format!("{} {what} line is its {}", possessive(op.a), names[0]);
+    let name = names[0];
     let lines: Vec<usize> = (0..ports.len())
         .filter(|&i| ports[i].role == Some(line_role))
         .collect();
     let count: usize = lines.iter().map(|&i| ports[i].bits.len()).sum();
     if count > 1 {
-        broken!("{role}, but this has {count} such lines.");
+        broken!("Expected 1 {name}, found {count} {what} lines");
     }
     let Some(&line) = lines.first() else {
         return Ok(None);
@@ -460,7 +431,7 @@ fn adder_line(
             .collect::<Vec<_>>()
             .join(" or ");
         broken!(
-            "{role}, so its sign should read {either}, but it reads \"{}\".",
+            "Sign on the {what} line: expected {either}, found \"{}\"",
             port.name
         );
     }
@@ -476,11 +447,6 @@ fn unnegated(name: &str) -> &str {
         .find_map(|not| name.strip_prefix(not))
         .or_else(|| name.strip_suffix('\''))
         .map_or(name, str::trim)
-}
-
-/// `built`, such as `An adder`, as an owner: `An adder's`.
-fn possessive(built: &str) -> String {
-    format!("{built}'s")
 }
 
 /// The adder's test, which a hex adder's, a subtractor's, and an inverted

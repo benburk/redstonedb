@@ -119,11 +119,11 @@ pub async fn set_role(
     Form(form): Form<SetRole>,
 ) -> Result<Response, AppError> {
     let role = Role::parse(&form.role).ok_or_else(|| {
-        AppError::BadRequest(format!("{} is not a role.", form.role))
+        AppError::BadRequest(format!("Unknown role: {}", form.role))
     })?;
     let target = target(&state, &username).await?;
     let refused = if target.id == admin.id && role != Role::Admin {
-        "You cannot demote yourself."
+        "Can't demote yourself"
     } else {
         User::set_role(&state.db, target.id, role).await?;
         ""

@@ -72,36 +72,33 @@ pub async fn callback(
         return Redirect::to("/sessions/new").into_response();
     };
     if callback.error.is_some() {
-        return refuse(jar, "The login was cancelled on Discord.");
+        return refuse(jar, "Login cancelled on Discord");
     }
     let (Some(code), Some(returned)) = (callback.code, callback.state) else {
-        return refuse(jar, "Discord sent back an incomplete login.");
+        return refuse(jar, "Incomplete login from Discord");
     };
     if expected.as_deref() != Some(returned.as_str()) {
-        return refuse(jar, "That login link has expired. Try again.");
+        return refuse(jar, "Login link expired");
     }
     let profile = match discord.profile(&state.http, &code).await {
         Ok(profile) => profile,
         Err(err) => {
             warn!("Discord login failed: {err:#}");
-            return refuse(
-                jar,
-                "Discord could not confirm the login. Try again.",
-            );
+            return refuse(jar, "Discord couldn't confirm the login");
         }
     };
     let user = match User::sign_in(&state.db, &profile).await {
         Ok(user) => user,
         Err(err) => {
             warn!("Could not save the account: {err}");
-            return refuse(jar, "Could not save your account. Try again.");
+            return refuse(jar, "Account couldn't be saved");
         }
     };
     match create_session(&state.db, user.id).await {
         Ok(cookie) => (jar.add(cookie), Redirect::to("/")).into_response(),
         Err(err) => {
             warn!("Could not start a session: {err}");
-            refuse(jar, "Could not start your session. Try again.")
+            refuse(jar, "Session couldn't be started")
         }
     }
 }

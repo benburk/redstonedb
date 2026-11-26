@@ -121,32 +121,30 @@ async fn checked(
             .filter(|problem| !had.contains(&problem.rule))
             .map(|problem| problem.message.as_str())
             .collect();
-        if let Some(first) = broken.first() {
-            refusals.push(format!(
-                "It breaks {} building conventions the current version \
-                 keeps, such as: {first}",
+        match broken.as_slice() {
+            [] => {}
+            [only] => refusals.push(format!("New convention problem: {only}")),
+            [first, ..] => refusals.push(format!(
+                "{} new convention problems, such as: {first}",
                 broken.len()
-            ));
+            )),
         }
     }
     let holder = versions::holder(db, &prepared.sha256).await?;
     match holder {
         Some((other, number)) if other == s.id => {
-            refusals.push(format!("It is the same file as version {number}."));
+            refusals.push(format!("Same file as version {number}"));
         }
         Some((other, _)) if leaving == Some(other.as_str()) => {}
-        Some(_) => refusals.push(
-            "This exact file is already on the site as another build."
-                .to_owned(),
-        ),
+        Some(_) => refusals
+            .push("File already on the site as another build".to_owned()),
         None => {
             // Laid the same as a version before, only how its levers stood
             // and its power differing, it is that version again, which
             // comes to rest with its inputs at logical 0 all the same.
             if let Some(number) = laid_as(db, s, &prepared.blocks).await? {
                 refusals.push(format!(
-                    "It is version {number} again, only its levers set \
-                     differently."
+                    "Same as version {number}, only its levers set differently"
                 ));
             }
         }
@@ -172,16 +170,14 @@ pub async fn merge(
     note: &str,
 ) -> anyhow::Result<Result<i64, Vec<String>>> {
     if from.id == into.id {
-        return Ok(Err(vec![
-            "A build can't be merged into itself.".to_owned(),
-        ]));
+        return Ok(Err(vec!["Can't merge a build into itself".to_owned()]));
     }
     let Some(number) = versions::list(db, &from.id)
         .await?
         .first()
         .map(|v| v.version)
     else {
-        return Ok(Err(vec!["It has no file to merge.".to_owned()]));
+        return Ok(Err(vec!["Missing file to merge".to_owned()]));
     };
     let file = versions::file(db, &from.id, number)
         .await?

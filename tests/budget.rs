@@ -43,6 +43,6 @@ fn a_test_out_of_time_is_skipped_not_wrong() {
     let Report::Skipped { reason } = report else {
         panic!("{report:?}");
     };
-    assert!(reason.contains("still being simulated"), "{reason}");
+    assert!(reason.contains("Took too long to simulate"), "{reason}");
     assert!(Test::Adder.run(&blocks).passed());
 }

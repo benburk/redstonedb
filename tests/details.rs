@@ -101,9 +101,9 @@ async fn a_build_under_other_has_a_name_but_no_width_or_encoding() {
 async fn a_category_is_one_of_the_list_or_other_and_other_is_named() {
     let db = common::database().await;
     let own = check(&db, given("piston door")).await.err().unwrap();
-    assert!(own.contains("Choose one from the list, or Other"), "{own}");
+    assert!(own.contains("Unknown category"), "{own}");
     let unnamed = check(&db, given("other")).await.err().unwrap();
-    assert!(unnamed.contains("Name the build"), "{unnamed}");
+    assert!(unnamed.contains("Missing name"), "{unnamed}");
     // A standard category names the build itself.
     let named = Details {
         name: Some("my adder".to_owned()),
@@ -169,7 +169,7 @@ async fn a_build_date_still_to_come_is_refused() {
     let kept = check(&db, dated("2024-02-29")).await.unwrap();
     assert_eq!(kept.details.built_on.as_deref(), Some("2024-02-29"));
     let refused = check(&db, dated("2999-01-01")).await.err().unwrap();
-    assert!(refused.contains("still to come"), "{refused}");
+    assert!(refused.contains("date in the future"), "{refused}");
 }
 
 /// An adder is recognized from its file or goes up unverified, saying
@@ -208,11 +208,11 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     let pushed = schem::edit(&data, &piston).unwrap();
     unverified(
         check_file(&db, typed(), &pushed, true).await,
-        "Couldn't simulate its piston",
+        "Can't simulate piston",
     );
     unverified(
         check_file(&db, typed(), &adder(), false).await,
-        "Couldn't read its inputs and outputs",
+        "Inputs and outputs can't be read",
     );
     unverified(
         check_file(&db, typed(), &prepared("cca-8-dust-out", false), true)
@@ -221,7 +221,7 @@ async fn an_unrecognized_build_goes_up_unverified_under_a_blessed_category() {
     );
     unverified(
         check_file(&db, typed(), &common::fixture("hex-cca-8"), true).await,
-        "Couldn't recognize inputs without levers",
+        "Expected levers, found signal-strength inputs",
     );
     let recognized = check(&db, given("adder")).await.unwrap();
     assert_eq!(recognized.details.unverified, None);

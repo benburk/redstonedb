@@ -81,14 +81,11 @@ struct Input {
 
 /// What the upload page says of a build with no inputs, which tells how
 /// to mark one.
-pub const NO_INPUTS: &str = "Inputs: none found — mark each with a lever \
-                             or button, or a comparator with air behind for \
-                             a signal strength";
+pub const NO_INPUTS: &str = "Missing inputs";
 
 /// What the upload page says of a build with no outputs, which tells how
 /// to mark one.
-pub const NO_OUTPUTS: &str =
-    "Outputs: none found — mark each with a repeater or comparator facing air";
+pub const NO_OUTPUTS: &str = "Missing outputs";
 
 /// The check of a build by function: its levers and buttons, its
 /// signal-strength inputs, and its outputs, each read by the block
@@ -139,7 +136,7 @@ fn unpowered_repeaters(blocks: &Blocks, report: &mut Report) {
             report,
             Rule::RepeaterWithoutInput,
             vec![at],
-            "Repeater at {}: unpowered, with nothing behind it",
+            "Repeater at {}: nothing behind it",
             &[at],
         );
     }

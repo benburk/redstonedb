@@ -37,8 +37,7 @@ pub fn hex_adder(
     if report.digits.is_empty() {
         return Err(Fault::Breaks(
             Rule::HexLines,
-            "Inputs: no comparator with air behind to take a hex digit"
-                .to_owned(),
+            "Missing digit inputs".to_owned(),
         ));
     }
     let lines = repeater_outputs::interface(blocks);
@@ -56,7 +55,7 @@ pub fn hex_adder(
         return Err(Fault::Breaks(
             Rule::HexLines,
             format!(
-                "Inputs: {} buses, a hex adder takes A and B",
+                "Expected 2 operands, found {}",
                 lines.inputs.iter().filter(|p| p.bits.len() > 1).count()
             ),
         ));
@@ -114,7 +113,7 @@ pub fn hex_adder(
     }
     let Some((file, run)) = found else {
         return Err(nearest.unwrap_or_else(|| {
-            Fault::Unfit("Inputs: no digits to add".to_owned())
+            Fault::Unfit("Missing digit operands".to_owned())
         }));
     };
     Ok(HexAdderProbed {

@@ -122,7 +122,7 @@ impl Download {
         let custom = fields.palette();
         if !custom.known() {
             return Err(AppError::BadRequest(
-                "A custom colour isn't a block a theme may use.".to_owned(),
+                "Custom colour isn't a theme block".to_owned(),
             ));
         }
         Ok(Some(custom))
@@ -263,7 +263,7 @@ async fn shaped(
             .stacking
             .iter()
             .find(|d| asked.direction.as_deref() == Some(d.name().as_str()))
-            .ok_or_else(|| AppError::BadRequest("no such part".to_owned()))?;
+            .ok_or_else(|| AppError::BadRequest("Unknown part".to_owned()))?;
         let first = part == Part::First;
         let data = stack::part(&data, *direction, first)?;
         let suffix = if first {
@@ -285,13 +285,15 @@ async fn shaped(
                 .copied()
                 .find(|d| d.name() == name)
                 .ok_or_else(|| {
-                    AppError::BadRequest("no such direction".to_owned())
+                    AppError::BadRequest(
+                        "Unknown stacking direction".to_owned(),
+                    )
                 })?,
         ),
     };
     if markers.is_some() && !copies.is_empty() {
         return Err(AppError::BadRequest(
-            "Stacking markers go on a single copy.".to_owned(),
+            "Too many copies for stacking markers".to_owned(),
         ));
     }
     let (data, s) = if copies.is_empty() {
@@ -310,11 +312,7 @@ async fn shaped(
     let data = match markers {
         Some(direction) => {
             stack::with_markers(&data, direction)?.ok_or_else(|| {
-                AppError::BadRequest(
-                "Every pair of opposite corners of its box holds a block, so \
-                 there's nowhere to put the glass."
-                    .to_owned(),
-            )
+                AppError::BadRequest("No room for stacking markers".to_owned())
             })?
         }
         None => data,

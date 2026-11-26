@@ -37,20 +37,18 @@ pub fn digits(
     if report.digits.is_empty() {
         return Err(Fault::Breaks(
             Rule::HexLines,
-            "Inputs: no comparator with air behind to take a hex digit"
-                .to_owned(),
+            "Missing digit inputs".to_owned(),
         ));
     }
     let lines = repeater_outputs::interface(blocks);
     let [a] = lines.inputs.as_slice() else {
         return Err(Fault::Unfit(format!(
-            "Inputs: {} lines, {} takes its digits on one",
-            lines.inputs.len(),
-            test.kind().a()
+            "Expected 1 input, found {}",
+            lines.inputs.len()
         )));
     };
     if lines.outputs.is_empty() {
-        return Err(Fault::Unfit("Outputs: none".to_owned()));
+        return Err(Fault::Unfit("Missing outputs".to_owned()));
     }
     let digits: Vec<Pos> = a.bits.iter().map(|bit| bit.pos).collect();
     let given = |outputs: &mut dyn Iterator<Item = &[Pos]>| {

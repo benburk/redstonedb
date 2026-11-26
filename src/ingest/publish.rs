@@ -32,10 +32,7 @@ pub async fn store(
     id: Option<&str>,
 ) -> Result<Result<String, String>, sqlx::Error> {
     if let Some((id, _)) = versions::holder(db, &prepared.sha256).await? {
-        return Ok(Err(format!(
-            "This exact file is already on the site, as {}.",
-            &id[..8]
-        )));
+        return Ok(Err(format!("File already on the site, as {}", &id[..8])));
     }
     let new = New {
         ready,

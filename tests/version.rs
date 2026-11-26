@@ -78,7 +78,11 @@ fn a_recoloured_block_is_unchanged() {
 #[test]
 fn a_different_adder_is_warned_of() {
     let warnings = warned(&stored("alpha-rca"), &stored("alpha-cla"));
-    assert!(warnings.iter().any(|w| w.contains("keeps at least 90%")));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("Expected at least 90% of blocks kept"))
+    );
 }
 
 /// A block more to the east makes it wider, which no longer stops it being

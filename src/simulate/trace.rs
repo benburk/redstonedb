@@ -656,7 +656,7 @@ impl Tracer {
                 break;
             }
             if tick == i32::try_from(MAX_TICKS)? {
-                bail!("It was still changing {MAX_TICKS} ticks after.");
+                bail!("Still changing {MAX_TICKS} ticks after");
             }
         }
         Ok(Trace {

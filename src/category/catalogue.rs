@@ -406,22 +406,18 @@ pub fn check_category(
     // recognized or not, rather than under a name made from it.
     if let Some(kind) = made_from(category) {
         return Err(format!(
-            "Choose {} as the category, rather than a name made from it.",
+            "Expected the category {}, found a name made from it",
             kind.label()
         ));
     }
     if category != OTHER && Kind::named(category).is_none() {
-        return Err(format!(
-            "{} is not a category. Choose one from the list, or Other and \
-             name the build.",
-            words(category)
-        ));
+        return Err(format!("Unknown category: {}", words(category)));
     }
     if let Some(design) = design
         && Design::of(category, design).is_none()
     {
         return Err(format!(
-            "{} is not a design of {}.",
+            "Unknown design for {1}: {0}",
             design.replace('_', " "),
             category.replace('_', " ")
         ));

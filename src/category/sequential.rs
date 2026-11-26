@@ -56,10 +56,6 @@ impl Kind {
             Kind::TFlipFlop => category::Kind::TFlipFlop,
         }
     }
-
-    fn noun(self) -> &'static str {
-        self.category().facts().noun
-    }
 }
 
 /// What a pulse does to the value held.
@@ -193,28 +189,19 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
     let mut controls = Vec::new();
     for (i, port) in interface.inputs.iter().enumerate() {
         if port.signal_strength {
-            bail!(
-                "Input {} takes a signal strength, which the {} test does \
-                 not drive.",
-                port.name,
-                kind.noun()
-            );
+            bail!("Input {}: signal strength not supported", port.name);
         }
         if port.control() {
             if port.bits.len() != 1 {
                 broken!(
-                    "Control line {} has {} bits; each is one.",
+                    "Control line {}: expected 1 bit, found {}",
                     port.name,
                     port.bits.len()
                 );
             }
             controls.push(i);
         } else if data.replace(i).is_some() {
-            broken!(
-                "A {} takes at most one input bus, A, to load, but this \
-                 has more.",
-                kind.noun()
-            );
+            broken!("Too many input buses");
         }
     }
     let Some((state, port)) = interface
@@ -224,14 +211,14 @@ fn lines(blocks: &Blocks, kind: Kind) -> Result<(interface::Interface, Lines)> {
         .filter(|(_, port)| !port.status())
         .max_by_key(|(_, port)| port.bits.len())
     else {
-        broken!("A {} shows the value it holds on an output.", kind.noun());
+        broken!("Missing output");
     };
     if controls.is_empty() {
-        broken!("A {} has a control line to pulse.", kind.noun());
+        broken!("Missing control line");
     }
     let width = port.bits.len();
     if width > 32 {
-        bail!("Its value has {width} bits, wider than the simulator tests.");
+        bail!("Too wide to simulate: {width} bits");
     }
     let lines = Lines {
         data,
@@ -335,7 +322,7 @@ impl Machine<'_> {
             }
             self.apply(setter.0, 0)?;
         }
-        bail!("Counting never reached {value}.")
+        bail!("Never counts to {value}")
     }
 
     /// Pulses `way` with A as it is, watching the value held tick by tick
@@ -367,7 +354,7 @@ impl Machine<'_> {
             if tick > MAX_TICKS.cast_signed() {
                 untested!(
                     Rule::StillChanging;
-                    "It was still changing {MAX_TICKS} ticks after a pulse."
+                    "Still changing {MAX_TICKS} ticks after a pulse"
                 );
             }
             let now = self.read();
@@ -546,9 +533,7 @@ fn find<'a>(
     let setter = setter(fresh, &all_ways, lines.width, kind)?;
     let found = operations(fresh, &all_ways, setter, lines.width)?;
     if !found.iter().any(|&(_, op)| op.shifts()) {
-        broken!(
-            "No control line shifts its value, which a shift register does."
-        );
+        broken!("No control line shifts the value");
     }
     let mut tally = Tally::default();
     for &(way, op) in &found {
@@ -576,8 +561,7 @@ fn counter(
         lines.data_name.as_ref().map(|&(_, b)| b),
     ) else {
         broken!(
-            "A counter has input A, a clock lever, and a write enable lever, \
-             but this has {}.",
+            "Expected A, a clock, and a write enable, found {}",
             lines
                 .data_name
                 .iter()
@@ -589,10 +573,7 @@ fn counter(
         );
     };
     if width != lines.width {
-        broken!(
-            "Input A has {width} bits, but the value it loads has {}.",
-            lines.width
-        );
+        broken!("Expected A width {}, found {width}", lines.width);
     }
     if lines.controls.iter().any(|&port| {
         interface.inputs[port]
@@ -600,11 +581,7 @@ fn counter(
             .iter()
             .any(|bit| button(blocks, bit))
     }) {
-        broken!(
-            "A counter's clock and write enable are levers, its clock \
-             pulsed for {PULSE} ticks, which a button's press is too long \
-             for."
-        );
+        broken!("Expected levers for clock and write enable, found a button");
     }
     let mut why = None;
     for line in 0..2 {
@@ -626,7 +603,7 @@ fn counter(
             }
         }
     }
-    Err(why.unwrap_or_else(|| anyhow::anyhow!("It never counted.")))
+    Err(why.unwrap_or_else(|| anyhow::anyhow!("Never counts")))
 }
 
 /// Whether input bit `bit` of `blocks` is pressed by a button.
@@ -646,7 +623,7 @@ fn counts<'a>(
 ) -> Result<Found> {
     let at = |name: &str| lines.names.iter().position(|line| line == name);
     let (Some(clock), Some(enable)) = (at("clock"), at("write enable")) else {
-        broken!("A counter has a clock lever and a write enable lever.");
+        broken!("Missing clock or write enable");
     };
     let load = Way {
         pulse: clock,
@@ -660,17 +637,14 @@ fn counts<'a>(
     let mut machine = fresh()?;
     machine.apply(load, first)?;
     if machine.read() != first {
-        broken!("Its clock, pulsed with write enable on, doesn't load A.");
+        broken!("Clock with write enable on doesn't load A");
     }
     machine.apply(clock, 0)?;
     let got = machine.read();
     let Some(count @ (Op::Up | Op::Down)) =
         classify(first, 0, got, lines.width).filter(|_| got != first)
     else {
-        broken!(
-            "Its clock, pulsed for {PULSE} ticks, doesn't count: from \
-             {first} it gave {got}."
-        );
+        broken!("Clock pulse doesn't count: {first} → {got}");
     };
     let setter = (load, Op::Load);
     let ways = vec![(clock, count), (load, Op::Load)];
@@ -748,8 +722,7 @@ pub fn toggle_stacker(data: &[u8]) -> Option<Stacker<'_>> {
                 lines(blocks, Kind::TFlipFlop).map_err(fault)?;
             if lines.controls.len() != copies || lines.width != copies {
                 return Err(format!(
-                    "{copies} copies don't each keep a toggle and a bit of \
-                     their own."
+                    "{copies} copies don't each keep their own toggle and bit"
                 ));
             }
             let fresh = || -> Result<Machine> {
@@ -777,7 +750,7 @@ pub fn toggle_stacker(data: &[u8]) -> Option<Stacker<'_>> {
                     || machine.read() != before
                 {
                     return Err(format!(
-                        "{copies} copies don't each toggle a bit of their own."
+                        "{copies} copies don't each toggle their own bit"
                     ));
                 }
                 toggled |= flipped;
@@ -786,8 +759,7 @@ pub fn toggle_stacker(data: &[u8]) -> Option<Stacker<'_>> {
         })
     };
     let ways = (1, stacking::bit_ways(&interface::read(&blocks), 1));
-    let not = "No pitch west or up makes copies that each toggle a bit of \
-               their own.";
+    let not = "No pitch makes copies that each toggle their own bit";
     Some(Stacker::new(
         data,
         category::Kind::TFlipFlop.copying(),
@@ -807,8 +779,7 @@ fn toggle<'a>(
         (lines.controls.as_slice(), &lines.data_name, lines.width)
     else {
         broken!(
-            "A T flip-flop has one input, its toggle, and one output bit, \
-             but this has {} inputs and {} output bits.",
+            "Expected 1 input and 1 output bit, found {} and {}",
             lines.controls.len() + usize::from(lines.data.is_some()),
             lines.width
         );
@@ -862,9 +833,7 @@ fn setter<'a>(
         }
     }
     broken!(
-        "No control line loads A or counts, so its value can't be set to \
-         try the others; a {} needs one that {}.",
-        kind.noun(),
+        "Missing a control line that {}",
         match kind {
             Kind::Counter => "counts",
             Kind::ShiftRegister | Kind::TFlipFlop => "loads A",
@@ -1075,7 +1044,7 @@ pub fn time(
         .iter()
         .find(|&&(_, op)| op.counts() || op.shifts())
     else {
-        bail!("It has no count or shift to time.");
+        bail!("No count or shift to time");
     };
     let load = found
         .ways
@@ -1088,7 +1057,7 @@ pub fn time(
     let mut clocked = Clocked::new(width);
     for step in 0..(mask(width) + 1).min(MOST_COUNTS) {
         if cancel.load(Ordering::Relaxed) {
-            bail!("The timing was cancelled.");
+            bail!("Timing cancelled");
         }
         // A shift is timed from a fresh value each pulse, loaded when it
         // can be, as shifting runs the value out.

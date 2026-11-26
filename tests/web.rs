@@ -312,7 +312,7 @@ async fn a_deleted_builds_file_is_uploaded_again() {
     let refused = restore(&old).await.unwrap();
     assert_eq!(refused.status(), StatusCode::OK);
     let log = refused.text().await.unwrap();
-    assert!(log.contains("Its file is on the site again"), "{log}");
+    assert!(log.contains("File already on the site as"), "{log}");
     assert!(builds::get(&site.db, &old).await.unwrap().is_none());
 
     assert_eq!(

@@ -507,8 +507,7 @@ impl<'a> Stacker<'a> {
             .map_err(|err| err.to_string())?;
         if !touching {
             return Err(format!(
-                "Copies {} apart leave air between them, so they are \
-                 separate builds side by side rather than a stack.",
+                "Copies {} apart: air between them",
                 step.describe()
             ));
         }
@@ -516,7 +515,7 @@ impl<'a> Stacker<'a> {
         step.find(self.data, true, buses, |step| {
             (self.works)(step, copies, buses)
         })
-        .unwrap_or_else(|| Err("Its file could not be read.".to_owned()))
+        .unwrap_or_else(|| Err("File can't be read".to_owned()))
     }
 
     /// Whether copies stacked `step` are cells apart, which cannot meet,
@@ -708,7 +707,7 @@ pub(crate) fn run_stacked(
     works: impl FnOnce(&Blocks) -> Result<u64, String>,
 ) -> Result<u64, String> {
     let (stacked, _) = stack::stack(data, &[(step.direction(), copies)], buses)
-        .map_err(|err| format!("Its copies do not fit together: {err:#}."))?;
+        .map_err(|err| format!("Copies don't fit together: {err:#}"))?;
     let blocks = Blocks::read(&stacked).map_err(|err| err.to_string())?;
     works(&blocks)
 }

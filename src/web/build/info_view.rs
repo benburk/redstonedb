@@ -102,7 +102,7 @@ pub fn build_info(
                     found: report.map_or(&[], Report::inverted),
                 })),
                 Err(err) => {
-                    p class="text-meta text-muted" { "Could not read its inputs and outputs: " (err) }
+                    p class="text-meta text-muted" { "Inputs and outputs can't be read: " (err) }
                 }
             }
             @if let Ok(file) = file && !file.block_counts.is_empty() {

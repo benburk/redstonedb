@@ -208,7 +208,7 @@ pub fn start(
                 upload,
                 recognition,
             })
-            .map_err(|err| format!("Could not read that file: {err:#}."));
+            .map_err(|err| format!("File can't be read: {err:#}"));
         // A build recognized as its category is evaluated now, while its
         // uploader fills in its details, for publishing it to take.
         if let Ok(analyzed) = &analyzed

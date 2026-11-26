@@ -390,7 +390,7 @@ fn person_field(
         chosen: chosen.iter().map(|name| person_pill(name)).collect(),
         new_class: "badge-author",
         pattern: "^[A-Za-z0-9_]{1,16}$",
-        hint: "is not a Minecraft name: letters, digits, and underscores, up to 16",
+        hint: "Expected a Minecraft name (letters, digits, and underscores, up to 16), found {}",
         keep_case: true,
     })
 }
@@ -421,7 +421,8 @@ struct PillField<'a> {
     new_class: &'a str,
     /// What a new value must match; the server checks it too.
     pattern: &'a str,
-    /// Said after a typed value that does not match.
+    /// The message for a typed value that does not match, `{}` standing
+    /// for the value.
     hint: &'a str,
     /// Whether a new value keeps its capitals, as in-game names do; else
     /// it is lowercased, as tag names are.
@@ -495,7 +496,7 @@ fn pill(p: &Pill, name: &str) -> Markup {
     }
 }
 
-/// The tag field of the details forms. Only an admin, `may_create`, may
+/// The tag field of the details forms. Only a mod or admin, `may_create`, may
 /// name a tag not yet on the list. The tags the build's file gives it,
 /// `fixed`, such as torchless, show first and cannot be removed, and no
 /// tag worked out from a build is suggested.
@@ -539,10 +540,10 @@ pub(crate) fn tag_picker(
             "(?!)"
         },
         hint: if may_create {
-            "cannot be a tag: use letters, digits, spaces, and dashes, with \
-             no dash at either end"
+            "Expected letters, digits, spaces, and dashes, with no dash at \
+             either end, found {}"
         } else {
-            "is not a tag; only an admin can make a new one"
+            "Unknown tag: {} (only a mod or admin can make new tags)"
         },
         keep_case: false,
     })

@@ -32,10 +32,10 @@ pub struct Profile {
 /// The players `names` name, whatever their capitals; a name no player has
 /// is left out. `Err` says Mojang could not be asked.
 pub async fn profiles(names: &[String]) -> Result<Vec<Profile>, String> {
-    let failed = |_| "Could not reach Mojang to check the name.".to_owned();
-    let client = CLIENT.as_ref().ok_or_else(|| {
-        "Could not reach Mojang to check the name.".to_owned()
-    })?;
+    let failed = |_| "Mojang unreachable".to_owned();
+    let client = CLIENT
+        .as_ref()
+        .ok_or_else(|| "Mojang unreachable".to_owned())?;
     let mut found = Vec::new();
     for batch in names.chunks(BATCH) {
         let response = client

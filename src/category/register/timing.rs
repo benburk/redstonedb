@@ -77,7 +77,7 @@ pub fn time(
         for &Read { line, bus, .. } in &cell.reads {
             for &value in &values {
                 if cancel.load(Ordering::Relaxed) {
-                    bail!("The timing was cancelled.");
+                    bail!("Timing cancelled");
                 }
                 if let Some(line) = line {
                     write(&mut circuit, &register, cell.write, value)?;
@@ -214,7 +214,7 @@ fn timed(
             break;
         }
         if t - start > i32::try_from(MAX_TICKS).unwrap_or(i32::MAX) {
-            bail!("It was still changing {MAX_TICKS} ticks after its data.");
+            bail!("Still changing {MAX_TICKS} ticks after its data");
         }
         circuit.tick();
         t += 1;
@@ -588,10 +588,7 @@ fn data_latency(
             while circuit.step() {
                 tick += 1;
                 if tick > MAX_TICKS.cast_signed() {
-                    bail!(
-                        "It was still changing {MAX_TICKS} ticks after its \
-                         data."
-                    );
+                    bail!("Still changing {MAX_TICKS} ticks after its data");
                 }
                 steps.push((tick, buses(circuit, register)[read_line.bus]));
             }

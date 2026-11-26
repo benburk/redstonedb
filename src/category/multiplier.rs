@@ -28,8 +28,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
         [line] if interface.inputs[*line].bits.len() == 1 => Some(*line),
         _ => untested!(
             Rule::TooManyControlLines;
-            "Too many control lines: {} (a multiplier takes one, \
-             calculate).",
+            "Expected at most 1 control line, found {}",
             lines
                 .iter()
                 .map(|&i| interface.inputs[i].name.as_str())
@@ -50,10 +49,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let pattern = match widths.len() {
         2 => "A × B",
         3 => "A × B + C",
-        n => broken!(
-            "A multiplier takes two operands, or three for A × B + C, but \
-             this has {n}."
-        ),
+        n => broken!("Expected 2 or 3 operands, found {n}"),
     };
     let result: usize = outputs
         .iter()
@@ -62,8 +58,7 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let (a, b) = (widths[0], widths[1]);
     if result == 0 || result < a.max(b) || result > a + b {
         broken!(
-            "A and B have {a} and {b} bits, so the product has from {} to {} \
-             bits, but the outputs have {result}.",
+            "Expected output width {} to {}, found {result}",
             a.max(b),
             a + b
         );

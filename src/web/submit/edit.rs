@@ -187,7 +187,7 @@ async fn chosen_version(
     let standardize = s.file.conventional && listed && s.unverified.is_none();
     check_version(db, s, file, standardize)
         .await
-        .map_err(|err| format!("Could not read that file: {err:#}."))
+        .map_err(|err| format!("File can't be read: {err:#}"))
 }
 
 /// The value of `key` among a form's `pairs`, as sent; empty when it was
@@ -290,13 +290,11 @@ async fn attached(
     }
     let checked = match STANDARD.decode(data) {
         Ok(data) => check_version(db, s, &data, false).await,
-        Err(_) => Err(anyhow::anyhow!("it did not arrive whole")),
+        Err(_) => Err(anyhow::anyhow!("file arrived incomplete")),
     };
-    checked.map(Some).map_err(|err| {
-        format!(
-            "Could not read the new version: {err:#}. Choose its file again."
-        )
-    })
+    checked
+        .map(Some)
+        .map_err(|err| format!("New version can't be read: {err:#}"))
 }
 
 /// Checks and stores `user`'s edit of build `s`, with the new version
@@ -310,7 +308,7 @@ async fn save_details(
     checked: Option<&Checked>,
 ) -> Result<(Option<Prepared>, Option<String>), AppError> {
     if checked.is_some_and(|c| !c.refusals.is_empty()) {
-        let why = "The new version can't replace the build, as the checks say.";
+        let why = "New version can't replace the build";
         return Ok((None, Some(why.to_owned())));
     }
     let kept = match checked {

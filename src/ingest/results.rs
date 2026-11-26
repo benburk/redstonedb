@@ -305,12 +305,12 @@ async fn refresh_unverified(
             match Test::of(&s.category, width) {
                 Some(test) => run(test, standard.data).await?,
                 None => Report::Skipped {
-                    reason: "Couldn't count its bits.".to_owned(),
+                    reason: "Unknown width".to_owned(),
                 },
             }
         }
         Err(err) => Report::Skipped {
-            reason: format!("Couldn't standardize it: {err:#}."),
+            reason: format!("Standardizing failed: {err:#}"),
         },
     };
     results::set(db, &s.id, test, (s.file.sha256.as_str(), None), &report)

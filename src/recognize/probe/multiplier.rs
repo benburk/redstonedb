@@ -62,15 +62,15 @@ pub fn multiplier(
         .collect();
     if operands.is_empty() {
         return Err(Fault::Unfit(format!(
-            "Operands: line lengths {}, need A and B as wide, and perhaps C",
+            "Expected A and B of one width, found inputs of {} bits",
             lengths(&report.inputs)
         )));
     }
     let lines: Vec<&Run> = report.outputs.iter().collect();
     if lines.is_empty() || lines.len() > 3 {
         return Err(Fault::Unfit(format!(
-            "Product: line lengths {}, need one to three lines",
-            lengths(&report.outputs)
+            "Expected 1 to 3 outputs, found {}",
+            lines.len()
         )));
     }
     // Of the orders that ran, the closest, rather than one that couldn't

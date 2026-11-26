@@ -17,13 +17,13 @@ pub fn shifter(
 ) -> Result<OneInputProbed, Fault> {
     let [out] = report.outputs.as_slice() else {
         return Err(Fault::Unfit(format!(
-            "Output: line lengths {}, need one line",
+            "Expected 1 output bus, found outputs of {} bits",
             lengths(&report.outputs)
         )));
     };
     let width = out.bits.len();
     let mut why =
-        Fault::Breaks(Rule::Buses, format!("A: no line of {width} levers"));
+        Fault::Breaks(Rule::Buses, format!("Missing A of {width} levers"));
     for a in report.inputs.iter().filter(|run| run.bits.len() == width) {
         let mut roles = Roles::default();
         roles.mark(

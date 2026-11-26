@@ -65,14 +65,13 @@ pub fn standardized(blocks: &Blocks) -> Result<Blocks> {
     let found = interface::read(&standardized);
     ensure!(
         !found.inputs.is_empty(),
-        "inputs: none found — mark each with a lever or button, or a \
+        "Missing inputs: mark each with a lever or button, or a \
          comparator with air behind for a signal strength"
     );
     ensure!(
         !found.outputs.is_empty(),
-        "outputs: none found — mark each with a repeater or comparator \
-         facing air; if the file should have some, check the selection it \
-         was saved from covers the whole build"
+        "Missing outputs: mark each with a repeater or comparator facing \
+         air, and check the saved selection covers the whole build"
     );
     // A build that cannot be settled keeps its levers as they were.
     let off = data_levers_off(&standardized).ok().flatten();

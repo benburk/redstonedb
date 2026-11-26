@@ -355,8 +355,8 @@ mod tests {
             "Lever at (5, 2, 3): touches repeater at (4, 2, 3)"
         );
         assert_eq!(problem.kind(), "Lever at …: touches repeater at …");
-        let plain = Problem::said(Rule::Lines, "Outputs: none");
-        assert_eq!(plain.kind(), "Outputs: none");
+        let plain = Problem::said(Rule::Lines, "Missing outputs");
+        assert_eq!(plain.kind(), "Missing outputs");
     }
 
     /// Every rule a problem can break, but those with nothing more to say,

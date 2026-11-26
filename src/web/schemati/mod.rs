@@ -102,9 +102,7 @@ async fn ask<T: Answer>(
 ) -> Result<T, Refusal> {
     let started = Instant::now();
     let answer = tokio::time::timeout(limit, call).await.unwrap_or_else(|_| {
-        Err(Refusal::Said(
-            "Schemati took too long to answer; try again shortly.".to_owned(),
-        ))
+        Err(Refusal::Said("Schemati took too long to answer".to_owned()))
     });
     let took = started.elapsed();
     let ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX);
@@ -241,9 +239,7 @@ impl Connected {
 /// What to tell the person about a refusal.
 fn sentence(refusal: Refusal) -> String {
     match refusal {
-        Refusal::LoggedOut => "Schemati has forgotten your session, as it \
-                               does after a day. Give it a new one."
-            .to_owned(),
+        Refusal::LoggedOut => "Schemati session expired".to_owned(),
         Refusal::Said(sentence) => sentence,
     }
 }
@@ -293,13 +289,12 @@ async fn keep_checked(
             User::connect_schemati(db, user.id, session, player).await?;
             Ok(())
         }
-        Err(Refusal::LoggedOut) => Err("Schemati does not know that session. \
-                                        Log in there again and copy the \
-                                        newest one."
-            .to_owned()),
-        Err(Refusal::Said(why)) => Err(format!(
-            "Not saved, as Schemati could not check the session. {why}"
-        )),
+        Err(Refusal::LoggedOut) => {
+            Err("Schemati doesn't know that session".to_owned())
+        }
+        Err(Refusal::Said(why)) => {
+            Err(format!("Schemati couldn't check the session: {why}"))
+        }
     })
 }
 
@@ -338,9 +333,9 @@ pub(crate) async fn own_file(
         .await
         .map_err(|err| {
             tracing::error!("could not load a Schemati session: {err}");
-            "Could not load your Schemati session. Try again.".to_owned()
+            "Schemati session couldn't be loaded".to_owned()
         })?
-        .ok_or_else(|| "Connect your Schemati in Settings first.".to_owned())?;
+        .ok_or_else(|| "Schemati not connected".to_owned())?;
     connected.file(name).await.map_err(sentence)
 }
 
@@ -358,7 +353,7 @@ pub async fn send(
     RawForm(form): RawForm,
 ) -> Result<Response, AppError> {
     let unread = |err: serde_urlencoded::de::Error| {
-        AppError::BadRequest(format!("The form could not be read: {err}."))
+        AppError::BadRequest(format!("Form can't be read: {err}"))
     };
     let asked: Download =
         serde_urlencoded::from_bytes(&form).map_err(unread)?;
@@ -391,7 +386,7 @@ pub async fn send(
             }
             saved
         }
-        None => Err("Connect your Schemati first.".to_owned()),
+        None => Err("Schemati not connected".to_owned()),
     };
     Ok(if fixi {
         view::schemati_sent(&sent).into_response()
@@ -509,7 +504,7 @@ mod tests {
         let picked = files(Ok(listed()), Offered::Upload).await;
         assert!(!picked.contains("form="), "{picked}");
 
-        let why = "Schemati took too long to answer; try again shortly.";
+        let why = "Schemati took too long to answer";
         let failed =
             files(Err(Refusal::Said(why.to_owned())), Offered::Similar).await;
         assert!(failed.contains(why), "{failed}");
@@ -552,7 +547,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap_err();
-        assert!(refused.starts_with("Not saved"), "{refused}");
+        assert!(refused.starts_with("Schemati couldn't check"), "{refused}");
         assert_eq!(link(&db, &user).await, None);
 
         let unknown = Err(Refusal::LoggedOut);
@@ -560,7 +555,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap_err();
-        assert!(refused.contains("does not know"), "{refused}");
+        assert!(refused.contains("doesn't know"), "{refused}");
         assert_eq!(link(&db, &user).await, None);
 
         keep_checked(&db, &user, "aaaa", Ok(folder("embizone")))

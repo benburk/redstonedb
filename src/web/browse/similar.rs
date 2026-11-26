@@ -165,7 +165,7 @@ pub async fn search(
     let blocks = match Blocks::read(&sent.file) {
         Ok(blocks) => blocks,
         Err(err) => {
-            let message = format!("Could not read that file: {err:#}.");
+            let message = format!("File can't be read: {err:#}");
             return Ok(refused(user, fixi, &message));
         }
     };

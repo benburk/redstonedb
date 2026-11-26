@@ -236,10 +236,9 @@ impl Circuit {
             }));
             match built {
                 Ok(redpiler) => Some(redpiler),
-                Err(panic) => bail!(
-                    "The simulator could not compile it: {}.",
-                    panic_message(&*panic)
-                ),
+                Err(panic) => {
+                    bail!("Can't simulate: {}", panic_message(&*panic))
+                }
             }
         };
         Ok(Circuit {
@@ -377,8 +376,7 @@ impl Circuit {
             if ticks == MAX_TICKS {
                 untested!(
                 Rule::StillChanging;
-                "It was still changing {MAX_TICKS} ticks after its \
-                     inputs changed."
+                "Still changing {MAX_TICKS} ticks after its inputs changed"
                 );
             }
             self.advance();
@@ -896,10 +894,7 @@ pub(crate) fn compile_graph(blocks: &Blocks) -> Result<CompileGraph> {
         )
     }))
     .map_err(|panic| {
-        anyhow::anyhow!(
-            "The simulator could not compile it: {}.",
-            panic_message(&*panic)
-        )
+        anyhow::anyhow!("Can't simulate: {}", panic_message(&*panic))
     })
 }
 
@@ -1192,7 +1187,7 @@ fn settle_world(world: &mut TestWorld, [x, y, z]: Pos) -> Result<()> {
         if ticks == MAX_TICKS {
             untested!(
                 Rule::StillChanging;
-                "It was still changing {MAX_TICKS} ticks after it was loaded."
+                "Still changing {MAX_TICKS} ticks after loading"
             );
         }
         ticks += 1;
@@ -1240,14 +1235,14 @@ fn levers(blocks: &Blocks, port: &Port) -> Result<Vec<Lever>> {
             let pos = bit.entry.map(|side| schem::step(bit.pos, side));
             let switch = pos.map(|pos| (pos, schem::id(blocks.get(pos))));
             let Some((pos, id)) = switch else {
-                bail!("A bit of input {} has no lever.", port.name);
+                bail!("{}: a bit without a lever", port.name);
             };
             let name = schem::short(id);
             let (button, wooden) = match crate::schem::block::like(name) {
                 "lever" => (false, false),
                 "stone_button" => (true, false),
                 "oak_button" => (true, true),
-                _ => bail!("A bit of input {} has no lever.", port.name),
+                _ => bail!("{}: a bit without a lever", port.name),
             };
             Ok(Lever {
                 pos: at(pos),
@@ -1324,7 +1319,7 @@ fn block(state: &str) -> Result<Block> {
     let Some(mut block) = Block::from_name(id).filter(|_| known) else {
         untested!(
             Rule::NotSimulated;
-            "Couldn't simulate its {}.",
+            "Can't simulate {}",
             name.replace('_', " ")
         );
     };
@@ -1376,7 +1371,7 @@ mod tests {
     fn a_block_it_does_not_model_is_refused_by_name() {
         let err =
             block("minecraft:piston[extended=false,facing=up]").unwrap_err();
-        assert_eq!(err.to_string(), "Couldn't simulate its piston.");
+        assert_eq!(err.to_string(), "Can't simulate piston");
     }
 
     #[test]

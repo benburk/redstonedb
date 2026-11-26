@@ -47,7 +47,7 @@ pub fn register(
             .collect(),
         _ => {
             return Err(Fault::Unfit(format!(
-                "Output bus: line lengths {}",
+                "Expected 1 output bus, found outputs of {} bits",
                 lengths(&report.outputs)
             )));
         }
@@ -79,7 +79,7 @@ pub fn register(
     if buses.is_empty() {
         return Err(Fault::Breaks(
             Rule::Buses,
-            format!("Data bus: no line of {width} levers"),
+            format!("Missing data bus of {width} levers"),
         ));
     }
     let mut why = Fault::Unfit(String::new());

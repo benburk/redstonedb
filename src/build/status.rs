@@ -6,8 +6,8 @@ use std::{fmt, ops::Deref};
 use crate::build::tag;
 
 /// Why a build isn't verified as its category: a short sentence about it,
-/// without its full stop, such as `Couldn't recognize inputs without
-/// levers`, and whether its test ran and found it wrong, which makes it
+/// in the shape `docs/errors.md` gives, such as `Expected levers, found
+/// signal-strength inputs`, and whether its test ran and found it wrong, which makes it
 /// failing rather than untested. It reads as its sentence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reason {
@@ -49,27 +49,28 @@ impl fmt::Display for Reason {
 
 /// Why a build of a kind that takes hex digits, such as a hex adder, whose
 /// inputs are levers is not verified as one.
-pub const NO_HEX_INPUTS: &str = "Couldn't find inputs taking hex digits";
+pub const NO_HEX_INPUTS: &str = "Missing hex digit inputs";
 
 /// Why an adder whose B is subtracted is not verified as an adder.
-pub const SUBTRACTS: &str = "It subtracts";
+pub const SUBTRACTS: &str = "Expected A + B, found A − B";
 
 /// Why an adder that adds is not verified as a subtractor.
-pub const ADDS: &str = "It adds";
+pub const ADDS: &str = "Expected A − B, found A + B";
 
 /// Why an inverted adder is not verified as an adder.
-pub const INVERTS_SUM: &str = "Its sum reads inverted, as an inverted adder's";
+pub const INVERTS_SUM: &str = "Expected sum as is, found sum inverted";
 
 /// Why an adder is not verified as an inverted adder.
-pub const KEEPS_SUM: &str = "Its sum reads as it is, as an adder's";
+pub const KEEPS_SUM: &str = "Expected sum inverted, found sum as is";
 
 /// Why a build its test finds broken is not verified, and a build that got
 /// some cases of its test wrong was, before each said which.
-pub const WRONG_OUTPUTS: &str = "Gives wrong outputs for some inputs";
+pub const WRONG_OUTPUTS: &str = "Wrong outputs for some inputs";
 
 /// Why a build whose inputs take a signal strength, rather than a lever's
 /// on or off, is not recognized.
-pub const WITHOUT_LEVERS: &str = "Couldn't recognize inputs without levers";
+pub const WITHOUT_LEVERS: &str =
+    "Expected levers, found signal-strength inputs";
 
 /// How a build stands against its category's test, which says whether it
 /// works: passing, failing, not tested though its category has a test, or

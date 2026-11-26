@@ -144,7 +144,7 @@ pub fn check(
 ) -> Result<(), String> {
     for &direction in directions {
         along(data, direction, 2, buses).map_err(|err| {
-            format!("Two copies stacked {} don't fit: {err}.", direction.name())
+            format!("Copies stacked {} don't fit: {err}", direction.name())
         })?;
     }
     Ok(())

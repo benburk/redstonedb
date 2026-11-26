@@ -122,7 +122,7 @@ pub(crate) fn watch(
     while circuit.step() {
         tick += 1;
         if tick > MAX_TICKS.cast_signed() {
-            bail!("It was still changing {MAX_TICKS} ticks after {after}.");
+            bail!("Still changing {MAX_TICKS} ticks after {after}");
         }
         let now = read(circuit);
         for (ticks, (&old, &new)) in
@@ -632,7 +632,7 @@ pub(crate) fn pressed(
     let expected = bench::observe(blocks, interface, bench, &cases, None)?;
     let on = |cases: &[bench::Case], expected: &[Value], offset: i32| {
         if cancel.load(Ordering::Relaxed) {
-            bail!("The timing was cancelled.");
+            bail!("Timing cancelled");
         }
         press_at(blocks, interface, bench, (cases, expected), offset)
     };
@@ -656,8 +656,8 @@ pub(crate) fn pressed(
     }
     let mut best = first.with_context(|| {
         format!(
-            "No press of its calculate within {LATEST_PRESS} ticks of its \
-             operands gives every product."
+            "No calculate press within {LATEST_PRESS} ticks gives every \
+             product"
         )
     })?;
     if best.0 == 0 {
@@ -680,7 +680,7 @@ pub(crate) fn pressed(
     }
     let Some((offset, (runs, carried))) = found else {
         bail!(
-            "No press of its calculate within {LATEST_PRESS} ticks of its operands gives every product."
+            "No calculate press within {LATEST_PRESS} ticks gives every product"
         )
     };
     Ok(pressed_timing(
@@ -700,7 +700,7 @@ fn press_at(
     offset: i32,
 ) -> Result<Option<(Runs, Carried)>> {
     let Some(calculate) = bench.press else {
-        bail!("Nothing is pressed.");
+        bail!("Nothing pressed");
     };
     let widths = bench.output_widths(interface);
     let mut circuit = Circuit::new(blocks, interface)?;
@@ -1317,7 +1317,7 @@ impl Rig<'_> {
 
     fn check_cancel(&self) -> Result<()> {
         if self.cancel.load(Ordering::Relaxed) {
-            bail!("The timing was cancelled.");
+            bail!("Timing cancelled");
         }
         super::budget::check()
     }
@@ -1391,9 +1391,7 @@ fn transition(
             break;
         }
         if (tick - start).unsigned_abs() > MAX_TICKS {
-            bail!(
-                "It was still changing {MAX_TICKS} ticks after its inputs changed."
-            );
+            bail!("Still changing {MAX_TICKS} ticks after its inputs changed");
         }
         circuit.tick();
         tick += 1;

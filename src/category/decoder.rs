@@ -25,24 +25,17 @@ const WIDEST: usize = 6;
 pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     let &[a] = (0..interface.inputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A decoder takes one input, A, but this has {}.",
-            interface.inputs.len()
-        );
+        broken!("Expected 1 input, found {}", interface.inputs.len());
     };
     let &[out] = (0..interface.outputs.len()).collect::<Vec<_>>().as_slice()
     else {
-        broken!(
-            "A decoder has one output, but this has {}.",
-            interface.outputs.len()
-        );
+        broken!("Expected 1 output, found {}", interface.outputs.len());
     };
     let width = interface.inputs[a].bits.len();
     let out_bits = interface.outputs[out].bits.len();
     if width > WIDEST || out_bits != 1 << width {
         broken!(
-            "A has {width} bits, so a decoder's output has {}, but this has \
-             {out_bits}.",
+            "Expected output width {}, found {out_bits}",
             1_usize << width.min(63)
         );
     }
