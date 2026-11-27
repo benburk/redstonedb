@@ -1,6 +1,7 @@
 //! The picture: every face no opaque neighbour hides, seen isometrically
-//! from the south-east and above, shaded where solid blocks meet it, and
-//! painted far to near at twice the size, then averaged down.
+//! from the south-east and above, or flat from one side, shaded where solid
+//! blocks meet it, and painted far to near at twice the size, then averaged
+//! down.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,7 +13,7 @@ use tiny_skia::{
 
 use crate::geometry::{Block, Dir, Quad};
 use crate::texture;
-use crate::{Pos, View};
+use crate::{Camera, Pos, View};
 
 /// How many times larger than the picture it is drawn, before each square
 /// of pixels is averaged to one, for smooth edges.
@@ -25,16 +26,21 @@ pub struct Painted<'a> {
     pub light: [f32; 4],
 }
 
-/// The blocks `cells` in a picture `view`'s size, or `None` if it has no
-/// pixels.
-pub fn draw(cells: &HashMap<Pos, Arc<Block>>, view: &View) -> Option<Pixmap> {
-    let faces = visible(cells);
+/// The blocks `cells` in a picture `view`'s size, seen from `camera`, or
+/// `None` if it has no pixels.
+pub fn draw(
+    cells: &HashMap<Pos, Arc<Block>>,
+    view: &View,
+    camera: Camera,
+) -> Option<Pixmap> {
+    let faces = visible(cells, camera);
     let (width, height) = (view.width * SUPERSAMPLE, view.height * SUPERSAMPLE);
     let mut pixmap = Pixmap::new(width, height)?;
     let to_screen = fit(
         &faces,
         [width as f32, height as f32],
         view.padding * SUPERSAMPLE as f32,
+        camera,
     );
     for face in &faces {
         paint(
@@ -50,12 +56,23 @@ pub fn draw(cells: &HashMap<Pos, Arc<Block>>, view: &View) -> Option<Pixmap> {
 /// The faces of `cells` to paint, far ones first: those facing the viewer
 /// that no opaque neighbour hides and that don't lie between two blocks
 /// of one kind of glass, each lit by the solid blocks around it.
-pub fn visible(cells: &HashMap<Pos, Arc<Block>>) -> Vec<Painted<'_>> {
+pub fn visible(
+    cells: &HashMap<Pos, Arc<Block>>,
+    camera: Camera,
+) -> Vec<Painted<'_>> {
     let opaque = |pos: Pos| cells.get(&pos).is_some_and(|b| b.opaque);
-    // Far blocks first: none can hide a block whose coordinates sum higher.
+    // Far blocks first: none can hide a block nearer the viewer, its
+    // coordinates summed along the way to the viewer.
+    let toward = camera.toward().map(|n| n as i32);
     let mut blocks: Vec<_> = cells.iter().collect();
-    blocks
-        .sort_unstable_by_key(|(p, _)| (p[0] + p[1] + p[2], p[1], p[2], p[0]));
+    blocks.sort_unstable_by_key(|(p, _)| {
+        (
+            p[0] * toward[0] + p[1] * toward[1] + p[2] * toward[2],
+            p[1],
+            p[2],
+            p[0],
+        )
+    });
     let mut faces = Vec::new();
     for (&pos, block) in blocks {
         for quad in &block.quads {
@@ -134,11 +151,18 @@ fn occlusion(
     })
 }
 
-/// Isometric projection: x runs down to the right, z down to the left, and
-/// y straight up.
-fn project([x, y, z]: [f32; 3]) -> [f32; 2] {
+/// Where a point lands on the picture. From the south-east, isometric: x
+/// runs down to the right, z down to the left, and y straight up. Flat from
+/// a side: across as the viewer's right hand points, and y straight up.
+fn project([x, y, z]: [f32; 3], camera: Camera) -> [f32; 2] {
     const COS_30: f32 = 0.866_025_4;
-    [(x - z) * COS_30, (x + z) * 0.5 - y]
+    match camera {
+        Camera::SouthEast => [(x - z) * COS_30, (x + z) * 0.5 - y],
+        Camera::North => [-x, -y],
+        Camera::South => [x, -y],
+        Camera::East => [-z, -y],
+        Camera::West => [z, -y],
+    }
 }
 
 /// Projects a point to pixels, scaled and centred so `faces` fill the
@@ -147,11 +171,12 @@ fn fit(
     faces: &[Painted],
     canvas: [f32; 2],
     padding: f32,
+    camera: Camera,
 ) -> impl Fn([f32; 3]) -> [f32; 2] + use<> {
     let (mut left, mut top, mut right, mut bottom) =
         (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for corner in faces.iter().flat_map(|f| f.corners) {
-        let [x, y] = project(corner);
+        let [x, y] = project(corner, camera);
         left = left.min(x);
         right = right.max(x);
         top = top.min(y);
@@ -166,7 +191,7 @@ fn fit(
         (canvas_height - height * scale) / 2.0 - top * scale,
     ];
     move |point| {
-        let [x, y] = project(point);
+        let [x, y] = project(point, camera);
         [x * scale + offset[0], y * scale + offset[1]]
     }
 }
