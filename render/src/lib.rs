@@ -46,6 +46,31 @@ pub trait Assets {
     fn texture(&self, path: &str) -> Option<Pixmap>;
 }
 
+/// Where a picture looks from: the south-east and above, isometrically, as
+/// the cards are drawn; or straight at one side of the build, flat, with
+/// no depth, as a front elevation is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Camera {
+    SouthEast,
+    North,
+    South,
+    East,
+    West,
+}
+
+impl Camera {
+    /// The way from the build to the viewer.
+    pub(crate) fn toward(self) -> [f32; 3] {
+        match self {
+            Camera::SouthEast => [1.0, 1.0, 1.0],
+            Camera::North => [0.0, 0.0, -1.0],
+            Camera::South => [0.0, 0.0, 1.0],
+            Camera::East => [1.0, 0.0, 0.0],
+            Camera::West => [-1.0, 0.0, 0.0],
+        }
+    }
+}
+
 /// A picture's size in pixels, and the margin left around the build.
 #[derive(Debug, Clone, Copy)]
 pub struct View {
@@ -61,7 +86,7 @@ pub struct Renderer<A> {
     files: Mutex<HashMap<String, Option<Arc<Value>>>>,
     models: Mutex<HashMap<String, Option<Arc<Model>>>>,
     textures: Mutex<HashMap<String, Option<Arc<Texture>>>>,
-    blocks: Mutex<HashMap<String, Arc<Block>>>,
+    blocks: Mutex<HashMap<(Camera, String), Arc<Block>>>,
 }
 
 impl<A: Assets> Renderer<A> {
@@ -83,32 +108,45 @@ impl<A: Assets> Renderer<A> {
         blocks: impl IntoIterator<Item = (Pos, &'a str)>,
         view: View,
     ) -> Option<Pixmap> {
-        draw::draw(&self.cells(blocks), &view)
+        self.render_from(blocks, view, Camera::SouthEast)
     }
 
-    /// Each of `blocks` with anything to draw, as drawn.
+    /// The same, seen from `camera`.
+    pub fn render_from<'a>(
+        &self,
+        blocks: impl IntoIterator<Item = (Pos, &'a str)>,
+        view: View,
+        camera: Camera,
+    ) -> Option<Pixmap> {
+        draw::draw(&self.cells(blocks, camera), &view, camera)
+    }
+
+    /// Each of `blocks` with anything to draw, as drawn from `camera`.
     fn cells<'a>(
         &self,
         blocks: impl IntoIterator<Item = (Pos, &'a str)>,
+        camera: Camera,
     ) -> HashMap<Pos, Arc<Block>> {
         blocks
             .into_iter()
-            .map(|(pos, state)| (pos, self.block(state)))
+            .map(|(pos, state)| (pos, self.block(state, camera)))
             .filter(|(_, block)| !block.quads.is_empty() || block.cube)
             .collect()
     }
 
-    /// Block `state` as drawn, worked out the first time it is asked for.
-    fn block(&self, state: &str) -> Arc<Block> {
-        if let Some(block) = lock(&self.blocks).get(state) {
+    /// Block `state` as drawn from `camera`, worked out the first time it
+    /// is asked for.
+    fn block(&self, state: &str, camera: Camera) -> Arc<Block> {
+        let key = (camera, state.to_owned());
+        if let Some(block) = lock(&self.blocks).get(&key) {
             return Arc::clone(block);
         }
-        let block = Arc::new(self.bake(state));
-        lock(&self.blocks).insert(state.to_owned(), Arc::clone(&block));
+        let block = Arc::new(self.bake(state, camera.toward()));
+        lock(&self.blocks).insert(key, Arc::clone(&block));
         block
     }
 
-    fn bake(&self, state: &str) -> Block {
+    fn bake(&self, state: &str, toward: [f32; 3]) -> Block {
         let (id, properties) = blockstate::parse(state);
         let name = id.strip_prefix("minecraft:").unwrap_or(id);
         let property = |key: &str| {
@@ -137,11 +175,11 @@ impl<A: Assets> Renderer<A> {
             if parts.iter().all(|(_, model)| model.elements.is_empty()) {
                 return None;
             }
-            geometry::build(id, &parts, |path| self.texture(path), tint)
+            geometry::build(id, &parts, |path| self.texture(path), tint, toward)
         };
         modelled().unwrap_or_else(|| {
             let lit = property("lit") == Some("true");
-            fallback_cube(id, fallback::color(name, lit))
+            fallback_cube(id, fallback::color(name, lit), toward)
         })
     }
 
@@ -166,7 +204,7 @@ impl<A: Assets> Renderer<A> {
 }
 
 /// A cube of one colour, for a block whose model or textures are missing.
-fn fallback_cube(id: &str, color: [u8; 4]) -> Block {
+fn fallback_cube(id: &str, color: [u8; 4], toward: [f32; 3]) -> Block {
     let texture = Arc::new(Texture::solid(color));
     let cube = Model {
         elements: vec![model::Element {
@@ -199,6 +237,7 @@ fn fallback_cube(id: &str, color: [u8; 4]) -> Block {
         &[(placement, Arc::new(cube))],
         |_| Some(Arc::clone(&texture)),
         [1.0; 3],
+        toward,
     )
     .expect("a cube of one colour has its texture")
 }
@@ -280,7 +319,11 @@ mod tests {
     /// How many faces of `blocks` are painted.
     fn faces(blocks: &[(Pos, &str)]) -> usize {
         let renderer = Renderer::new(Fixtures);
-        draw::visible(&renderer.cells(blocks.iter().copied())).len()
+        draw::visible(
+            &renderer.cells(blocks.iter().copied(), Camera::SouthEast),
+            Camera::SouthEast,
+        )
+        .len()
     }
 
     #[test]
@@ -298,9 +341,27 @@ mod tests {
     }
 
     #[test]
+    fn a_flat_view_shows_the_one_side_it_faces() {
+        let renderer = Renderer::new(Fixtures);
+        let stone = "minecraft:stone";
+        let faces = |blocks: &[(Pos, &str)]| {
+            draw::visible(
+                &renderer.cells(blocks.iter().copied(), Camera::West),
+                Camera::West,
+            )
+            .len()
+        };
+        assert_eq!(faces(&[([0, 0, 0], stone)]), 1);
+        // The east block's west face is hidden by the block west of it.
+        assert_eq!(faces(&[([0, 0, 0], stone), ([1, 0, 0], stone)]), 1);
+        assert_eq!(faces(&[([0, 0, 0], stone), ([0, 1, 0], stone)]), 2);
+    }
+
+    #[test]
     fn a_block_without_a_model_is_a_cube_of_one_colour() {
         let renderer = Renderer::new(Fixtures);
-        let cells = renderer.cells([([0, 0, 0], "minecraft:unknown")]);
+        let cells = renderer
+            .cells([([0, 0, 0], "minecraft:unknown")], Camera::SouthEast);
         let block = &cells[&[0, 0, 0]];
         assert!(block.opaque);
         assert_eq!(block.quads.len(), 3);
@@ -310,11 +371,14 @@ mod tests {
     #[test]
     fn a_face_darkens_toward_a_solid_block_beside_its_corners() {
         let renderer = Renderer::new(Fixtures);
-        let cells = renderer.cells([
-            ([0, 0, 0], "minecraft:stone"),
-            ([1, 1, 0], "minecraft:stone"),
-        ]);
-        let faces = draw::visible(&cells);
+        let cells = renderer.cells(
+            [
+                ([0, 0, 0], "minecraft:stone"),
+                ([1, 1, 0], "minecraft:stone"),
+            ],
+            Camera::SouthEast,
+        );
+        let faces = draw::visible(&cells, Camera::SouthEast);
         let top = faces
             .iter()
             .find(|f| f.corners.iter().all(|c| c[1] == 1.0))

@@ -117,17 +117,16 @@ pub struct Block {
     pub ao: bool,
 }
 
-/// The way the viewer looks from: the south-east and above.
-const VIEW: [f32; 3] = [1.0, 1.0, 1.0];
-
 /// Block `id` drawn as `parts`, its models each placed as the blockstate
 /// file says, with textures from `texture` and its tinted faces tinted
-/// `tint`; `None` if a face's texture is missing.
+/// `tint`, as seen from `toward`, the way to the viewer; `None` if a face's
+/// texture is missing.
 pub fn build(
     id: &str,
     parts: &[(Placement, Arc<Model>)],
     texture: impl Fn(&str) -> Option<Arc<Texture>>,
     tint: [f32; 3],
+    toward: [f32; 3],
 ) -> Option<Block> {
     let mut elements = Vec::new();
     let mut opaque = false;
@@ -140,7 +139,10 @@ pub fn build(
                 let texture = texture(face.texture.as_deref()?)?;
                 faces_opaque &= texture.opaque;
                 let shape = place(element, face, placement);
-                let light = if element.shade {
+                // Seen flat from one side, the side faced is lit in full,
+                // as a front elevation is drawn; else as the game shades.
+                let flat = toward.iter().filter(|&&n| n != 0.0).count() == 1;
+                let light = if element.shade && !flat {
                     Dir::nearest(shape.normal).light()
                 } else {
                     1.0
@@ -171,7 +173,7 @@ pub fn build(
             }
             let shown = quads
                 .into_iter()
-                .filter(|(normal, _)| dot(*normal, VIEW) > 1e-4)
+                .filter(|(normal, _)| dot(*normal, toward) > 1e-4)
                 .map(|(_, quad)| quad)
                 .collect::<Vec<_>>();
             elements.push((bounds, shown));
@@ -179,7 +181,7 @@ pub fn build(
     }
     let boxes: Vec<_> = elements.iter().map(|(b, _)| *b).collect();
     let mut elements: Vec<_> = elements.into_iter().map(Some).collect();
-    let quads = order(&boxes)
+    let quads = order(&boxes, toward)
         .into_iter()
         .filter_map(|i| elements[i].take())
         .flat_map(|(_, quads)| quads)
@@ -332,16 +334,25 @@ fn bounds(element: &Element, placement: &Placement) -> ([f32; 3], [f32; 3]) {
     (low, high)
 }
 
-/// The order to paint boxes in so that nearer ones cover farther ones. A
-/// box wholly on the far side of another along some axis can't hide it,
-/// so it goes first; boxes that overlap go by the depth of their centres.
-pub fn order(boxes: &[([f32; 3], [f32; 3])]) -> Vec<usize> {
+/// The order to paint boxes in so that nearer ones cover farther ones,
+/// seen from `toward`. A box wholly on the far side of another along some
+/// axis the viewer looks along can't hide it, so it goes first; boxes that
+/// overlap go by the depth of their centres.
+pub fn order(boxes: &[([f32; 3], [f32; 3])], toward: [f32; 3]) -> Vec<usize> {
     let behind = |a: usize, b: usize| {
-        (0..3).any(|i| boxes[a].1[i] <= boxes[b].0[i] + 1e-3)
+        (0..3).any(|i| {
+            if toward[i] > 0.0 {
+                boxes[a].1[i] <= boxes[b].0[i] + 1e-3
+            } else if toward[i] < 0.0 {
+                boxes[a].0[i] >= boxes[b].1[i] - 1e-3
+            } else {
+                false
+            }
+        })
     };
     let depth = |i: usize| {
         let (low, high) = boxes[i];
-        dot(add(low, high), VIEW)
+        dot(add(low, high), toward)
     };
     let mut left: Vec<usize> = (0..boxes.len()).collect();
     let mut order = Vec::with_capacity(boxes.len());
@@ -529,10 +540,15 @@ mod tests {
         // is nearer the viewer than the base's top, but goes after it.
         let base = ([0.0, 0.0, 0.0], [16.0, 2.0, 16.0]);
         let torch = ([7.0, 2.0, 2.0], [9.0, 7.0, 4.0]);
-        assert_eq!(order(&[torch, base]), [1, 0]);
+        let view = [1.0, 1.0, 1.0];
+        assert_eq!(order(&[torch, base], view), [1, 0]);
         // Of two crossing boxes, the one centred farther goes first.
         let low = ([0.0, 0.0, 6.0], [16.0, 4.0, 10.0]);
         let tall = ([6.0, 0.0, 6.0], [10.0, 16.0, 10.0]);
-        assert_eq!(order(&[tall, low]), [1, 0]);
+        assert_eq!(order(&[tall, low], view), [1, 0]);
+        // Seen head on from the west, the box farther east goes first.
+        let west = ([0.0, 0.0, 0.0], [4.0, 16.0, 16.0]);
+        let east = ([12.0, 0.0, 0.0], [16.0, 16.0, 16.0]);
+        assert_eq!(order(&[west, east], [-1.0, 0.0, 0.0]), [1, 0]);
     }
 }
