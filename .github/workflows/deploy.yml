@@ -1,5 +1,5 @@
-# Deploys every push to main: runs the suite in the flake's shell, then
-# deploy/deploy.sh, as `just deploy` does. The key and host are secrets of the
+# Deploys every push to main, the site's only way out: runs the suite in the
+# flake's shell, then deploy/deploy.sh. The key and host are secrets of the
 # production environment, which only main may deploy to.
 name: Deploy
 
