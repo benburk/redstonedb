@@ -415,3 +415,25 @@ fn a_failing_build_probed_again_keeps_its_nearest_reading() {
             .is_none()
     );
 }
+
+/// A 1-bit carry-save adder is wired as a full adder is, so evaluating its
+/// file finds an adder; filed as a carry-save adder, it is still timed, by
+/// its sum and its carry both, neither a status line.
+#[tokio::test]
+async fn a_one_bit_carry_save_adder_is_timed_by_both_outputs() {
+    let db = setup_test_db().await;
+    let typed = Details {
+        category: "carry_save_adder".to_owned(),
+        ..Details::default()
+    };
+    let id = store(&db, "rca-1-carry-in-east", typed).await;
+    let report = results::tested(&db, &id, false).await.unwrap().unwrap();
+    assert!(report.passed(), "{report:?}");
+    let timing = report.timing().expect("timed");
+    assert_eq!(timing.outputs.len(), 2);
+    assert!(timing.outputs.iter().all(|output| !output.status));
+    let slowest = timing.outputs.iter().map(|o| o.latency).max();
+    assert_eq!(timing.latency(), slowest);
+    let s = builds::get(&db, &id).await.unwrap().unwrap();
+    assert_eq!(s.specs.latency, slowest.map(|t| t.max(0).into()));
+}
