@@ -10,7 +10,7 @@
 # below, with the site stopped.
 set -euo pipefail
 
-host=${DEPLOY_HOST:?run it through just, which sets DEPLOY_HOST, or set it as user@host}
+host=${DEPLOY_HOST:?set DEPLOY_HOST to user@host, as the deploy workflow does}
 src=/root/build/redstonedb
 lib=/usr/local/lib/redstonedb
 
