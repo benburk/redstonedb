@@ -42,6 +42,13 @@ impl Offered {
         }
     }
 
+    /// Whether the newest file starts chosen. Not on the upload page,
+    /// where choosing a file is what sends it: a file chosen already
+    /// cannot be chosen again, so clicking it would do nothing.
+    fn preselects(self) -> bool {
+        self != Offered::Upload
+    }
+
     /// Where the files are asked for.
     fn url(self) -> &'static str {
         match self {
@@ -83,7 +90,8 @@ pub(crate) fn own_files_slot(
 }
 
 /// The viewer's Schemati files to choose one from, the newest chosen
-/// already when Schemati says which it is, or the only one; or why there
+/// already when Schemati says which it is, or the only one, where
+/// `offered` preselects; or why there
 /// are none to choose, with a button to ask again when Schemati could not
 /// be asked. They belong to the form `offered` names when they stand
 /// outside it.
@@ -99,7 +107,7 @@ pub fn own_file_field(connection: &Connection, offered: Offered) -> Markup {
                         @for (index, file) in folder.files.iter().enumerate() {
                             label class="flex min-h-row cursor-pointer items-center gap-3 rounded-control px-2 hover:bg-selection has-checked:bg-selection has-focus-visible:outline-2 has-focus-visible:outline-brand" {
                                 input type="radio" name="schemati_file" value=(file.name) form=[form]
-                                    checked[index == 0 && (folder.dated() || folder.files.len() == 1)]
+                                    checked[offered.preselects() && index == 0 && (folder.dated() || folder.files.len() == 1)]
                                     class="sr-only";
                                 span class="text-muted" { (icons::icon(icons::FILE, "size-4")) }
                                 span class="min-w-0 flex-1 truncate" { (file.name) }
@@ -151,16 +159,13 @@ pub(crate) fn ago(millis: u64) -> String {
     }
 }
 
-/// How sending a build to the viewer's Schemati went, for the build's
-/// download dialog to show: the sentence saying it was saved, or why not
-/// with a link to the Schemati page, where a session is given.
-pub fn schemati_sent(sent: &Result<String, String>) -> Markup {
+/// Why sending a build to the viewer's Schemati failed, for the build's
+/// download dialog to show, with a link to the Schemati page, where a
+/// session is given. A build sent closes the dialog instead.
+pub fn schemati_unsent(why: &str) -> Markup {
     html! {
-        @match sent {
-            Ok(done) => p { (done) },
-            Err(why) => p class="text-danger" {
-                (why) " " a href="/settings" { "Check it in Settings" }
-            },
+        p class="text-danger" {
+            (why) " " a href="/settings" { "Check it in Settings" }
         }
     }
 }
@@ -170,7 +175,8 @@ mod tests {
     use super::*;
     use crate::external::schemati::File;
 
-    /// Each file shows when it was saved, newest first and chosen.
+    /// Each file shows when it was saved, newest first and chosen, except
+    /// on the upload page, where choosing one sends it.
     #[test]
     fn the_picker_shows_when_each_file_was_saved() {
         let now = u64::try_from(
@@ -190,11 +196,16 @@ mod tests {
                 },
             ],
         };
-        let page = own_file_field(&Connection::Open(&folder), Offered::Upload)
+        let page = own_file_field(&Connection::Open(&folder), Offered::Similar)
             .into_string();
         assert!(page.contains("5 min ago"), "{page}");
         assert!(page.contains("3 days ago"), "{page}");
         assert!(page.contains(r#"value="new.schem" checked"#), "{page}");
+
+        let upload =
+            own_file_field(&Connection::Open(&folder), Offered::Upload)
+                .into_string();
+        assert!(!upload.contains(r#"" checked"#), "{upload}");
     }
 
     /// The slot for the viewer's files is decided from what the site

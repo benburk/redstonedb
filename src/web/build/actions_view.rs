@@ -237,7 +237,7 @@ pub(crate) fn download_dialog(s: &Build, colours: ColoursShown) -> Markup {
                     button type="submit" class="btn btn-primary" { "Download" }
                     button type="submit" formaction={ (path) "/schemati" } formmethod="post"
                         fx-action={ (path) "/schemati" } fx-method="post" fx-target="#sent" fx-swap="innerHTML"
-                        class="btn btn-quiet" {
+                        data-close-when-done class="btn btn-quiet" {
                         "Send to Schemati"
                     }
                     (dialog::close("download", "Cancel"))
