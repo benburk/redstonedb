@@ -18,6 +18,9 @@
 // - A dialog's form with `data-wait` keeps the dialog open while it sends,
 //   so it shows the work under way, and closes it once answered. One whose
 //   answer lands in the dialog keeps it open.
+// - A control with `data-close-when-done`, whose answer lands in its
+//   dialog, closes the dialog when the answer is 204, with nothing to
+//   show, as a build sent to Schemati, the notice saying it was.
 // - A field with `data-caret-end` takes focus with the caret at its end,
 //   as when its dialog opens on it.
 // - A form with `data-live` sends as its fields change, typing once it
@@ -180,6 +183,12 @@ document.addEventListener("fx:after", (event) => {
   for (const id of changed?.split(" ") ?? []) {
     // Redrawn once this swap is in.
     queueMicrotask(() => redraw(document.getElementById(id)));
+  }
+  // Done, with nothing to show in the dialog: it closes, cleared of what
+  // an earlier try said.
+  if (response.status === 204 && event.target.matches("[data-close-when-done]")) {
+    cfg.target.replaceChildren();
+    event.target.closest("dialog")?.close();
   }
   // Nothing to change, or nowhere left to change it.
   if (response.status === 204 || !cfg.target.isConnected) {

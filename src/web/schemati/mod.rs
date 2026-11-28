@@ -13,6 +13,7 @@ use std::{
 use axum::{
     Form, Router,
     extract::{Path, Query, RawForm, State},
+    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -341,8 +342,9 @@ pub(crate) async fn own_file(
 
 /// Sends a build's file, as the download dialog's choices make it, to the
 /// viewer's folder, under the name it downloads with. Its button, through
-/// fixi, gets only the sentence saying how it went, to show in the dialog;
-/// the form sent without it goes back to the build's page. The form is
+/// fixi, gets the sentence saying it was saved as a notice, with nothing
+/// to swap, so the dialog closes, or why not, to show in the dialog; the
+/// form sent without it goes back to the build's page. The form is
 /// read twice, for the download's choices and for its custom colours'
 /// fields.
 pub async fn send(
@@ -389,7 +391,14 @@ pub async fn send(
         None => Err("Schemati not connected".to_owned()),
     };
     Ok(if fixi {
-        view::schemati_sent(&sent).into_response()
+        match sent {
+            Ok(done) => (
+                StatusCode::NO_CONTENT,
+                [("FX-Notice", super::notice(&done))],
+            )
+                .into_response(),
+            Err(why) => view::schemati_unsent(&why).into_response(),
+        }
     } else {
         Redirect::to(&href::build(&id)).into_response()
     })
