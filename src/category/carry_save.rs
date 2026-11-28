@@ -9,6 +9,7 @@ use anyhow::Result;
 use crate::{
     category::{Test, test::BySpec},
     interface::Interface,
+    schem::lines::Role,
     simulate::{
         Stacker,
         bench::{Bench, Case, Kind, Spec},
@@ -67,6 +68,35 @@ pub(super) fn spec(interface: &Interface) -> Result<Spec> {
     })
 }
 
+/// Gives `interface`'s lines a carry-save adder's roles: its inputs A, B,
+/// and C, and its outputs the first and second, so neither its sum nor its
+/// carry is a status line its latency leaves out. A 1-bit one's lone lines
+/// read as a full adder's carry in and carry out until then. A line its
+/// own sign names keeps that name.
+fn as_operands(interface: &mut Interface) {
+    for (place, port) in (0u8..).zip(&mut interface.inputs) {
+        if port.control() {
+            port.role = Some(Role::Operand(place));
+            if !port.labelled {
+                port.name = Role::Operand(place).key();
+            }
+        }
+    }
+    let count = interface.outputs.len();
+    for (place, port) in (0u8..).zip(&mut interface.outputs) {
+        if port.status() {
+            port.role = Some(Role::Output(place));
+            if !port.labelled {
+                port.name = if count == 1 {
+                    "output".to_owned()
+                } else {
+                    format!("output {}", place + 1)
+                };
+            }
+        }
+    }
+}
+
 /// How copies of the carry-save adder in `data` stack into a wider one,
 /// each bit a full adder of its own, as a gate's copies are.
 pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
@@ -78,6 +108,12 @@ pub fn stacker(data: &[u8]) -> Option<Stacker<'_>> {
     )
 }
 
-/// A carry-save adder's test: its copies add bits, each a cell of its own.
-pub(super) const CARRY_SAVE_ADDER: BySpec =
-    BySpec::stacked(|_, interface| spec(interface), stacker);
+/// A carry-save adder's test, its lines given their roles: its copies add
+/// bits, each a cell of its own.
+pub(super) const CARRY_SAVE_ADDER: BySpec = BySpec::stacked(
+    |_, interface| {
+        as_operands(interface);
+        spec(interface)
+    },
+    stacker,
+);

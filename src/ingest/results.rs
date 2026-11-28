@@ -503,8 +503,10 @@ async fn timed(
     let Some(mut report) = current(db, &s).await? else {
         return Ok(None);
     };
-    // `refresh` timed it already, with everything else.
-    if s.evaluated() {
+    // `refresh` timed it already, with everything else, unless evaluating
+    // its file found another category, as a 1-bit carry-save adder is
+    // found an adder, and only its own category's test ran.
+    if s.evaluated() && report.timing().is_some() {
         return Ok(Some(report));
     }
     // Any build its test ran on is timed, passing or not: when its outputs
